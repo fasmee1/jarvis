@@ -658,6 +658,8 @@ function afterTranscript(text, latency) {
     return;
   }
   if (needsTranscriptConfirm()) {
+    // the confirm box lives on TALK: on the HUD it was invisible, so JARVIS looked silent
+    if (sections.current !== 'talk') sections.show('talk');
     $('transcript-confirm').hidden = false;
     $('transcript-text').value = text;
     $('transcript-text').focus();
