@@ -103,3 +103,14 @@ test('ask: answer refs are limited to real passages', async () => {
   const s = new Summarizer({ getSettings: () => ({}), tempDir: '.', run: async () => ({ text: 'ราคา 41,250 บาท', refs: ['p1', 'p77', '[p2]'], found: true }) });
   assert.deepStrictEqual(await s.ask(EX, 'ราคา?'), { text: 'ราคา 41,250 บาท', refs: ['p1', 'p2'], found: true });
 });
+
+test('PDF text: passages split at paragraphs / sentences; PDF dates', () => {
+  const { splitPage, pdfDate } = require('../lib/web/pdf');
+  const ps = splitPage(`Title line\n\nFirst paragraph wraps\nacross lines.\n\n${'Long sentence here. '.repeat(80)}`);
+  assert.strictEqual(ps[0], 'Title line');
+  assert.strictEqual(ps[1], 'First paragraph wraps across lines.');
+  assert.ok(ps.slice(2).every((p) => p.length <= 900), 'long paragraphs are split');
+  assert.ok(ps.length > 3);
+  assert.strictEqual(pdfDate("D:20240131120000+07'00'"), '2024-01-31');
+  assert.strictEqual(pdfDate(''), '');
+});

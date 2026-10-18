@@ -23,6 +23,7 @@ const { WebPermissions } = require('./lib/web/permissions');
 const { resolveSite } = require('./lib/web/web-utils');
 const { Summarizer } = require('./lib/web/summarize');
 const { PageReader } = require('./lib/web/page-reader');
+const { PdfReader } = require('./lib/web/pdf');
 
 const APP_ROOT = __dirname;
 const APP_ORIGIN = 'app://jarvis';
@@ -419,7 +420,7 @@ function registerIpc() {
     if (!t) return { ok: false, error: 'ไม่พบแท็บ' };
     const q = v.str(p.question ?? '', 500, 'question');
     if (q) reader.setQuestion(t.id, q);
-    reader.read(t, v.oneOf(p.mode ?? 'full', ['full', 'continue'], 'mode')).catch(() => {});
+    reader.read(t, v.oneOf(p.mode ?? 'full', ['full', 'continue'], 'mode'), { force: true }).catch(() => {});
     return { ok: true };
   });
   handle('web:ask', (p) => {
@@ -596,6 +597,7 @@ app.whenReady().then(async () => {
   });
   reader = new PageReader({
     browser: web,
+    pdf: new PdfReader({ browser: web }),
     summarizer: new Summarizer({ getSettings: () => settings.get(), tempDir: path.join(app.getPath('temp'), 'mee-jarvis') }),
     send,
     log: web.o.log,

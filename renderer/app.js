@@ -877,7 +877,7 @@ window.jarvisHandsFree = {
   enable: () => toggleHandsFree(true),
   disable: () => hands.disable(),
 };
-try { if (localStorage.getItem('jarvis.hfDebug') === '1') { window.jarvisHandsFree._dev = hands; window.__resultViewer = resultViewer; window.__cameraPanel = cameraPanel; } } catch { /* storage unavailable */ }
+try { if (localStorage.getItem('jarvis.hfDebug') === '1') { window.jarvisHandsFree._dev = hands; window.__resultViewer = resultViewer; window.__cameraPanel = cameraPanel; window.__webViewer = webViewer; } } catch { /* storage unavailable */ }
 
 function renderHandsFree() {
   const b = $('btn-handsfree');

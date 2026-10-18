@@ -400,7 +400,8 @@ export class WebViewer {
     if (!show && wt.visible) {
       // going under an overlay: screenshot first, so the swap isn't visible
       wt.visible = false;
-      this._snapshot(wt).finally(() => { if (!wt.visible) this._send(wt, false); });
+      // (a PDF can take long to capture: never keep the overlay waiting more than 250 ms)
+      Promise.race([this._snapshot(wt), new Promise((r) => setTimeout(r, 250))]).finally(() => { if (!wt.visible) this._send(wt, false); });
       return;
     }
     wt.visible = show;
@@ -498,6 +499,11 @@ export class WebViewer {
       const was = wt.st;
       wt.st = { ...wt.st, ...m };
       this._renderState(wt);
+      // a different page: answers about the old one no longer apply
+      if (wt.answers.length && was.url && m.url && was.url.replace(/#.*$/, '') !== m.url.replace(/#.*$/, '')) {
+        wt.answers = [];
+        this._renderAnswers(wt);
+      }
       if (was.url !== m.url || was.title !== m.title || was.favicon !== m.favicon) {
         this.viewer.update(wt.stageId, { title: m.title || splitAddress(m.url).host || 'เว็บ' });
         if (wt.el && wt.el.src) {
