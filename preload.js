@@ -37,6 +37,8 @@ const INVOKE = [
   'hf:active',
   'hf:open-history',
   'camera:autostart',
+  'web:inspect',
+  'web:open-external',
 ];
 
 const EVENTS = [

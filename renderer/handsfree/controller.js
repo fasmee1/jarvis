@@ -412,7 +412,8 @@ export class HandsFree {
       return this._listen();
     }
     this.ui.transcript(text, true);
-    const cmd = parseCommand(text);
+    // context: viewer / video commands only make sense while the Result Viewer is open
+    const cmd = parseCommand(text, this.d.context ? this.d.context() : {});
     if (cmd) return this._local(cmd);
     this.awaitTurn = true;
     this.sawBusy = false;
@@ -429,7 +430,12 @@ export class HandsFree {
   }
 
   _local(cmd) {
-    this.ui.log(`คำสั่งในเครื่อง: ${cmd.action}${cmd.card ? ' ' + cmd.card : ''}`);
+    this.ui.log(`คำสั่งในเครื่อง: ${cmd.action}${cmd.op ? ' ' + cmd.op : ''}${cmd.card ? ' ' + cmd.card : ''}${cmd.n != null ? ' ' + cmd.n : ''}`);
+    if (cmd.action === 'viewer') {
+      this.d.local(cmd);
+      this.ui.transcript('', true);
+      return this._follow(); // keep listening: "ถัดไป", "เปิดอันที่ 2"… chain naturally
+    }
     if (cmd.action === 'handsfree-off') {
       this.d.local(cmd);
       return this.disable();

@@ -208,6 +208,12 @@ export class Speaker {
     }
   }
 
+  /** Duck the voice (1 = normal, e.g. 0.6 while a video plays). */
+  setDuck(level) {
+    this.duckLevel = level;
+    if (this.duckGain) this.duckGain.gain.setTargetAtTime(level, this.duckGain.context.currentTime, 0.08);
+  }
+
   // ================= WinRT: gapless scheduler =================
 
   _ctx() {
@@ -270,7 +276,9 @@ export class Speaker {
     if (!this.an || this.anCtx !== c) {
       this.an = c.createAnalyser();
       this.an.fftSize = 512;
-      this.an.connect(c.destination);
+      this.duckGain = c.createGain(); // lowered while a video plays in the Result Viewer
+      this.duckGain.gain.value = this.duckLevel ?? 1;
+      this.an.connect(this.duckGain).connect(c.destination);
       this.anCtx = c;
       this.fft = new Uint8Array(this.an.frequencyBinCount);
     }

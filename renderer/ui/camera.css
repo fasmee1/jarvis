@@ -38,14 +38,8 @@
 .card-camera[data-cam="error"] .frame .acc path { stroke: var(--orange); }
 @keyframes live-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
-/* ----- camera mode viewer (80vw × 90vh, positioned in stage px by JS) ----- */
-.cam-viewer { pointer-events: auto; }
-.cam-viewer[hidden] { display: none; }
-.cv-fill { position: absolute; inset: 0; background: rgba(11, 15, 20, 0.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
-.cv-frame { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); overflow: visible; pointer-events: none; }
-.cv-head { position: absolute; left: 24px; right: 16px; top: 0; height: 56px; display: flex; align-items: center; gap: 16px; }
-.cv-ico { width: 16px; height: 16px; fill: none; stroke: var(--text-2); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.cv-title { font-weight: 500; font-size: 11px; letter-spacing: 0.14em; color: var(--text-2); }
+/* ----- the camera tab in the shared viewer (ui/stage-viewer.js, styles in viewer.css) ----- */
+.cv-extras { display: inline-flex; align-items: center; gap: 12px; }
 .cv-live {
   display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 10px 0 8px; border-radius: 999px;
   background: rgba(255, 154, 61, 0.1); border: 1px solid var(--orange-soft);
@@ -54,7 +48,6 @@
 .cv-rec-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 8px rgba(255, 154, 61, 0.6); animation: live-breathe 2s var(--ease) infinite; }
 .cv-time { font-family: var(--font-mono); font-size: 12px; color: var(--text-1); font-variant-numeric: tabular-nums; }
 .cv-res { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
-.cv-sp { flex: 1; }
 .cv-btn {
   width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
   background: transparent; border: 1px solid transparent; color: var(--text-2); cursor: pointer;
@@ -63,7 +56,8 @@
 .cv-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .cv-btn:hover { color: var(--text-1); background: var(--surface-2); border-color: var(--line); }
 .cv-btn[hidden] { display: none; }
-.cv-feed { position: absolute; left: 16px; right: 16px; top: 56px; bottom: 16px; overflow: hidden; border-radius: 6px; background: #000; }
+.sv-body.cv-body { overflow: hidden; }
+.cv-feed { position: absolute; left: 16px; right: 16px; top: 0; bottom: 16px; overflow: hidden; border-radius: 6px; background: #000; }
 .cv-media { position: absolute; inset: 0; transform: scaleX(-1); /* mirrored like a front camera */ }
 .cv-media.no-mirror { transform: none; }
 .cv-media video, .cv-media #cam-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }

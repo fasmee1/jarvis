@@ -219,9 +219,13 @@ export class Cards {
     const foot = h('div', 'foot');
     const seg = this._meter();
     const cnt = h('span', 'mono', '—');
-    foot.append(seg, cnt);
+    const reopen = h('button', 'reply-reopen', 'ดูผลลัพธ์อีกครั้ง');
+    reopen.type = 'button';
+    reopen.hidden = !this.replyReopen;
+    reopen.addEventListener('click', (e) => { e.stopPropagation(); if (this.replyReopen) this.replyReopen(); });
+    foot.append(seg, cnt, reopen);
     inner.append(q, wave, foot);
-    return { q, wave, seg, cnt };
+    return { q, wave, seg, cnt, reopen };
   }
   _body_mic(inner) {
     return this._smallBody(inner, 'ไมค์ปิดอยู่ · Ctrl+Space', this._meter());
@@ -332,6 +336,13 @@ export class Cards {
     c.pulsedAt = now;
     this.core.flashNode(c.def.node);
     this.pulse(c.def.id, true);
+  }
+
+  /** LAST REPLY: show a small "ดูผลลัพธ์อีกครั้ง" link that runs fn (null hides it). */
+  setReplyReopen(fn) {
+    this.replyReopen = fn || null;
+    const c = this.cards.get('reply');
+    if (c && c.parts.reopen) c.parts.reopen.hidden = !fn;
   }
 
   setReply(text, { spoken = 0, total = 0 } = {}) {

@@ -1,25 +1,14 @@
 // CAMERA on the home HUD. The CAMERA card holds the on/off control and status.
-// Turning the camera on enters camera mode: a large live viewer opens, every card
-// docks into the reactor, and the reactor shrinks into the viewer's bottom-left
-// corner as a HUD badge. Turning it off plays the reverse.
-// The camera only ever starts from a user action (button / Ctrl+Shift+C).
-//
-// Every transition is one GSAP timeline that animates transform, opacity and
-// stroke-dashoffset only. Requests made while one runs are queued: the mode
-// controller always converges on the latest requested state.
+// Turning the camera on shows the live feed as the "camera" tab of the shared
+// large viewer (ui/stage-viewer.js), which owns camera mode's transition: cards
+// dock, the viewer grows out of the reactor, the reactor becomes a corner badge.
+// Closing the tab (× / Esc / voice) turns the camera off; turning the camera off
+// closes the tab. The camera only ever starts from a user action.
 
-import { CORE } from './layout.js';
-import { drawFrame, icon } from './cards.js';
-import { sfx } from '../sfx.js';
 import './ease.js';
 
 const gsap = window.gsap;
 const NS = 'http://www.w3.org/2000/svg';
-const MINI = 0.35; // reactor scale in camera mode
-const R_VIS = 306; // reactor visual radius (labels ring) at scale 1
-const HEAD = 56; // viewer header height (stage px)
-const VCUT = 6; // same chamfer as the cards
-const DIM = ['#grid-bg', '.corner-brk', '#caption-tr', '.caption-bl'];
 const POWER = 'M12 2v10 M18.4 6.6a9 9 0 1 1-12.77.04';
 const SWITCH = 'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8 M21 3v5h-5 M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16 M8 16H3v5';
 
@@ -43,15 +32,13 @@ function svg(tag, attrs = {}) {
   for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
   return e;
 }
-function chamfer(w, hh, c) {
-  return `polygon(${c}px 0, ${w}px 0, ${w}px ${hh - c}px, ${w - c}px ${hh}px, 0 ${hh}px, 0 ${c}px)`;
-}
 
 export class CameraPanel {
   /**
    * @param {object} o
    * @param {import('./cards.js').Cards} o.cards
    * @param {import('./home.js').Home} o.home
+   * @param {import('./stage-viewer.js').StageViewer} o.viewer shared large viewer (camera = one tab)
    * @param {import('../vision.js').Vision} o.vision
    * @param {() => string} o.getDeviceId
    * @param {(id: string) => void} o.setDeviceId
@@ -63,17 +50,13 @@ export class CameraPanel {
     this.o = o;
     this.state = 'off';
     this.error = null;
-    this.mode = false; // camera mode as currently shown
-    this.want = false; // camera mode requested
-    this.busy = false;
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.listeners = new Set();
-    this._buildViewer();
+    this._buildFeed();
     this._buildCard();
     o.cards.onBuilt.push(() => this._buildCard());
     this._keys();
     this._expose();
-    addEventListener('resize', () => this._relayout());
   }
 
   get docking() {
@@ -144,18 +127,10 @@ export class CameraPanel {
     return TEXT[this.error] || TEXT.CAM_NOT_FOUND;
   }
 
-  // ---------- viewer (built once, lives in the stage) ----------
-  _buildViewer() {
-    const v = h('div', 'cam-viewer');
-    v.hidden = true;
-    v.setAttribute('role', 'region');
-    v.setAttribute('aria-label', 'ภาพจากกล้อง');
-    const fill = h('div', 'cv-fill');
-    const frame = svg('svg', { class: 'frame cv-frame', 'aria-hidden': 'true' });
-
-    // minimal header: title, a small LIVE pill, the timer, icon-only buttons
-    const head = h('div', 'cv-head');
-    const title = h('span', 'cv-title', 'CAMERA');
+  // ---------- the live feed (shown as the "camera" tab of the shared viewer) ----------
+  _buildFeed() {
+    // header extras: a small LIVE pill, the timer, the resolution, switch camera
+    const extras = h('span', 'cv-extras');
     const live = h('span', 'cv-live');
     live.append(h('i', 'cv-rec-dot'), h('span', '', 'LIVE'));
     live.title = 'กล้องเปิดอยู่ (ไม่มีการบันทึกภาพ)';
@@ -168,12 +143,7 @@ export class CameraPanel {
     const swi = svg('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
     swi.append(svg('path', { d: SWITCH }));
     sw.append(swi);
-    const x = h('button', 'cv-btn cv-close');
-    x.type = 'button';
-    x.title = 'ปิดกล้อง (Esc)';
-    x.setAttribute('aria-label', 'ปิดกล้อง');
-    x.append(icon('x', 'x-ico'));
-    head.append(icon('camera', 'cv-ico'), title, live, time, res, h('span', 'cv-sp'), sw, x);
+    extras.append(live, time, res, sw);
 
     // the video, clean and natural: no tint, scanlines or crosshair
     const feed = h('div', 'cv-feed');
@@ -182,73 +152,38 @@ export class CameraPanel {
     const overlay = document.getElementById('cam-overlay');
     media.append(video, overlay); // moved once, before the camera ever plays
     feed.append(media);
-
-    v.append(fill, frame, head, feed);
-    document.getElementById('stage').append(v);
-    this.v = { root: v, fill, frame, head, feed, media, time, res, sw, x };
+    this.v = { feed, media, time, res, sw, extras, video };
 
     sw.addEventListener('click', (e) => {
       e.stopPropagation();
       this.switchDevice();
     });
-    x.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.turnOff();
+  }
+
+  /** Show the camera as a tab in the shared viewer (opens the viewer if needed). */
+  _openTab() {
+    const viewer = this.o.viewer;
+    viewer.open({
+      id: 'camera',
+      kind: 'camera',
+      icon: 'camera',
+      title: 'CAMERA',
+      padded: false,
+      extras: this.v.extras,
+      mount: (body) => {
+        body.classList.add('cv-body');
+        body.append(this.v.feed);
+        // a <video> pauses when moved in the DOM: keep it playing
+        if (this.v.video.srcObject && this.v.video.paused) this.v.video.play().catch(() => {});
+        return {};
+      },
+      onClose: () => { if (!this.closingTab) this.turnOff(); },
     });
   }
 
-  /**
-   * Viewer box in stage px: 80vw × 90vh, centred in the window — but never under
-   * the top-left buttons (menu · sound · hands-free end at 176 px).
-   */
-  _geom() {
-    const t = this.o.home.t;
-    const left = Math.max(innerWidth * 0.1, 192);
-    return {
-      x: (left - t.ox) / t.scale,
-      y: (innerHeight * 0.05 - t.oy) / t.scale,
-      w: (innerWidth - 2 * left) / t.scale,
-      h: (innerHeight * 0.9) / t.scale,
-    };
-  }
-
-  /** Reactor transform that centres it on the viewer's bottom-left corner (kept on screen). */
-  _reactorTarget(g) {
-    const t = this.o.home.t;
-    const r = R_VIS * MINI;
-    const minX = -t.ox / t.scale + r + 8;
-    const maxY = (innerHeight - t.oy) / t.scale - r - 8;
-    const cx = Math.max(g.x, minX);
-    const cy = Math.min(g.y + g.h, maxY);
-    return { x: cx - CORE.x, y: cy - CORE.y, s: MINI, r: 0 };
-  }
-
-  _floatArea(g, R) {
-    const cy = CORE.y + R.y;
-    return { x: g.x + 28, bottom: cy - R_VIS * MINI - 12, top: g.y + HEAD + 16 };
-  }
-
-  _layoutViewer(g) {
-    const { root, fill, frame } = this.v;
-    Object.assign(root.style, { left: `${g.x}px`, top: `${g.y}px`, width: `${g.w}px`, height: `${g.h}px` });
-    fill.style.clipPath = chamfer(g.w, g.h, VCUT);
-    drawFrame(frame, g.w, g.h, ['tl', 'br'], { size: VCUT, pad: 6, arm: 24 });
-    frame.querySelector('.base').setAttribute('pathLength', '1');
-    this.g = g;
-  }
-
-  _relayout() {
-    if (!this.mode) return;
-    if (this.busy) {
-      this.dirty = true;
-      return;
-    }
-    const g = this._geom();
-    this._layoutViewer(g);
-    const R = this._reactorTarget(g);
-    Object.assign(this.o.cards.reactor, R);
-    this.o.home.applyReactor();
-    this.docking.floatArea = this._floatArea(g, R);
+  _closeTab() {
+    this.closingTab = true;
+    try { this.o.viewer.close('camera'); } finally { this.closingTab = false; }
   }
 
   // ---------- input ----------
@@ -257,17 +192,8 @@ export class CameraPanel {
       if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
         e.preventDefault();
         this.toggle();
-      } else if (e.key === 'Escape' && (this.state === 'on' || this.want) && this._homeFocused()) {
-        e.stopImmediatePropagation();
-        this.turnOff();
       }
     }, true);
-  }
-
-  /** Esc belongs to the camera only when nothing else (menu, section, dialog) is on top. */
-  _homeFocused() {
-    const hidden = (id) => { const n = document.getElementById(id); return !n || n.hidden; };
-    return this.o.home.visible && hidden('menu') && hidden('approval') && hidden('barge') && hidden('home-prompt');
   }
 
   _expose() {
@@ -310,7 +236,7 @@ export class CameraPanel {
       return;
     }
     this._started();
-    this._requestMode(true);
+    this._openTab();
   }
 
   _started() {
@@ -327,14 +253,14 @@ export class CameraPanel {
   turnOff() {
     if (this.state !== 'on') {
       if (this.state !== 'requesting') this._set('off');
-      this._requestMode(false);
+      this._closeTab();
       return;
     }
     clearInterval(this.timer);
     this.o.vision.stop(); // stop every track right away → the OS camera light turns off
     this._reactor(false);
     this._set('off');
-    this._requestMode(false);
+    this._closeTab();
   }
 
   async switchDevice() {
@@ -349,7 +275,7 @@ export class CameraPanel {
       clearInterval(this.timer);
       this._reactor(false);
       this._set('error', this.o.vision.lastError || 'CAM_NOT_FOUND');
-      this._requestMode(false);
+      this._closeTab();
       return;
     }
     this._mirror();
@@ -389,138 +315,6 @@ export class CameraPanel {
     this.o.home.setCamera(on);
     const ind = document.getElementById('cam-indicator');
     if (ind) ind.hidden = !on;
-  }
-
-  // ---------- camera mode ----------
-  _requestMode(on) {
-    this.want = on;
-    if (!this.busy) this._pump();
-  }
-
-  /** Run transitions one at a time until the shown mode matches the requested one. */
-  async _pump() {
-    this.busy = true;
-    try {
-      while (this.mode !== this.want) {
-        const target = this.want;
-        await (target ? this._enter() : this._exit());
-        this.mode = target;
-      }
-    } finally {
-      this.busy = false;
-    }
-    if (this.dirty) {
-      this.dirty = false;
-      this._relayout();
-    }
-  }
-
-  _enter() {
-    const home = this.o.home;
-    const dock = this.docking;
-    const R = this.o.cards.reactor;
-    const wrap = document.getElementById('core-wrap');
-    const { root, head, media, frame } = this.v;
-    const g = this._geom();
-    this._layoutViewer(g);
-    const last = this._reactorTarget(g);
-    dock.lock();
-    dock.floatArea = this._floatArea(g, last);
-    home.root.classList.add('cam-mode');
-    document.body.classList.add('cam-mode');
-    root.hidden = false;
-    const apply = () => home.applyReactor();
-    const base = frame.querySelector('.base');
-    const accs = frame.querySelectorAll('.acc');
-
-    return new Promise((resolve) => {
-      const tl = gsap.timeline({
-        defaults: { ease: 'calm' },
-        onComplete: () => {
-          wrap.classList.add('mini');
-          gsap.set([root, head, media, base, ...accs], { clearProps: 'transform,opacity,strokeDasharray,strokeDashoffset' });
-          dock.unlock();
-          resolve();
-        },
-      });
-      // all open cards dock at once, farthest from the reactor first
-      dock.enterCamera(tl, 0, this.reduced ? 0 : 0.05);
-      // transform sound as the reactor shrinks into its corner; card docks stay silent
-      tl.call(() => sfx.cameraTransform('in', this.reduced ? 0.3 : 0.65), null, this.reduced ? 0 : 0.35);
-      tl.to(DIM, { opacity: 0.5, duration: 0.5 }, 0);
-
-      if (this.reduced) {
-        tl.fromTo(root, { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.3 }, 0.1)
-          .to(wrap, { opacity: 0, duration: 0.15 }, 0.1)
-          .call(() => { Object.assign(R, last); apply(); }, null, 0.26)
-          .to(wrap, { opacity: 1, duration: 0.2 }, 0.27)
-          .call(() => sfx.lensFocus(), null, 0.3);
-        return;
-      }
-
-      // viewer: fades up from 0.98 while its border draws in; then header, then video
-      tl.fromTo(root, { opacity: 0, scale: 0.98, y: 8 }, { opacity: 1, scale: 1, y: 0, duration: 0.5 }, 0.15)
-        .fromTo(base, { strokeDasharray: '1 1', strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: 0.6 }, 0.15)
-        .fromTo(accs, { opacity: 0 }, { opacity: 1, duration: 0.25 }, 0.45)
-        .fromTo(head, { opacity: 0 }, { opacity: 1, duration: 0.25 }, 0.5)
-        .fromTo(media, { opacity: 0 }, { opacity: 1, duration: 0.4 }, 0.65)
-        .call(() => sfx.lensFocus(), null, 0.7); // "lens focus" as the video appears
-      // reactor: FLIP from where it is to the viewer's corner (transform only, no twist)
-      const first = { x: R.x, y: R.y, s: R.s };
-      tl.fromTo(R, first, { x: last.x, y: last.y, s: last.s, r: 0, duration: 0.6, ease: 'power3.inOut', onUpdate: apply }, 0.4);
-    });
-  }
-
-  _exit() {
-    const home = this.o.home;
-    const dock = this.docking;
-    const R = this.o.cards.reactor;
-    const wrap = document.getElementById('core-wrap');
-    const { root, head, feed, media, frame } = this.v;
-    const g = this.g || this._geom();
-    dock.lock();
-    wrap.classList.remove('mini');
-    const apply = () => home.applyReactor();
-    const accs = frame.querySelectorAll('.acc');
-
-    return new Promise((resolve) => {
-      const tl = gsap.timeline({
-        defaults: { ease: 'calm' },
-        onComplete: () => {
-          root.hidden = true;
-          gsap.set([root, head, feed, media, ...accs, wrap], { clearProps: 'transform,opacity' });
-          gsap.set(DIM, { clearProps: 'opacity' });
-          Object.assign(R, { x: 0, y: 0, s: 1, r: 0 });
-          apply();
-          home.root.classList.remove('cam-mode');
-          document.body.classList.remove('cam-mode');
-          dock.unlock();
-          resolve();
-        },
-      });
-      // the transform reversed while the reactor returns; redeploying cards play panelOpen (docking.exitCamera)
-      tl.call(() => sfx.cameraTransform('out', this.reduced ? 0.3 : 0.6), null, this.reduced ? 0 : 0.3);
-
-      if (this.reduced) {
-        tl.to(root, { opacity: 0, scale: 0.96, duration: 0.25 }, 0)
-          .to(wrap, { opacity: 0, duration: 0.15 }, 0)
-          .call(() => { Object.assign(R, { x: 0, y: 0, s: 1, r: 0 }); apply(); }, null, 0.16)
-          .to(wrap, { opacity: 1, duration: 0.2 }, 0.17)
-          .to(DIM, { opacity: 1, duration: 0.3 }, 0.1);
-        dock.exitCamera(tl, 0.3, 0);
-        return;
-      }
-
-      // the picture fades, then the viewer fades down to 0.98
-      tl.to(feed, { opacity: 0, duration: 0.2 }, 0)
-        .to([head, ...accs], { opacity: 0, duration: 0.2 }, 0.05)
-        .to(root, { scale: 0.98, y: 8, opacity: 0, duration: 0.3, ease: 'power2.in' }, 0.15)
-        // reactor returns to the centre at full size
-        .to(R, { x: 0, y: 0, s: 1, r: 0, duration: 0.6, ease: 'power3.inOut', onUpdate: apply }, 0.3)
-        .to(DIM, { opacity: 1, duration: 0.4 }, 0.4);
-      // cards that were open before camera mode redeploy; manually closed ones stay docked
-      dock.exitCamera(tl, 0.45, 0.06);
-    });
   }
 
   /** Current frame as an image Blob (null when the camera is off). */

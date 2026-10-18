@@ -69,7 +69,7 @@ export function isWakeOnly(text) {
 const POLITE = R('(?:\\s*(?:ครับผม|ครับ|คับ|ค่ะ|คะ|จ้ะ|จ้า|นะ|หน่อย|ที|เลย|please|now))+$', 'i');
 /** Folded, punctuation-free, without trailing polite words or spaces. */
 function tight(t) {
-  return fold(t).replace(/[“”"'‘’`.,!?;:()[\]{}…。、，！？\-–—]/g, ' ').replace(/\s+/g, ' ').trim().replace(POLITE, '').replace(/\s+/g, '');
+  return fold(t).replace(/[๐-๙]/g, (d) => String(d.charCodeAt(0) - 0x0E50)).replace(/[“”"'‘’`.,!?;:()[\]{}…。、，！？\-–—]/g, ' ').replace(/\s+/g, ' ').trim().replace(POLITE, '').replace(/\s+/g, '');
 }
 
 // Card names (Thai / English, incl. common whisper spellings) → card ids in ui/cards.js
@@ -132,9 +132,65 @@ const CMD = {
  * @returns {null | { action: string, card?: string }}
  *   actions: stop | done | camera-on | camera-off | card-close | card-open | handsfree-off
  */
-export function parseCommand(transcript) {
+// ---------- Result Viewer (only while it is open) ----------
+// numbers as said: digits, Thai words or English
+const NUMW = { แรก: 1, หนึ่ง: 1, สอง: 2, สาม: 3, สี่: 4, ห้า: 5, หก: 6, เจ็ด: 7, แปด: 8, เก้า: 9, สิบ: 10, first: 1, one: 1, second: 2, two: 2, third: 3, three: 3, fourth: 4, four: 4, fifth: 5, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+const NUMF = Object.fromEntries(Object.entries(NUMW).map(([k, n]) => [fold(k), n]));
+const NUM = `(\\d{1,2}|${Object.keys(NUMF).join('|')})`;
+const toNum = (x) => (x == null || x === '' ? null : /^\d+$/.test(x) ? Number(x) : NUMF[x] || null);
+const SEC = '(?:วินาที|วินา|วิ|seconds?|secs?|s)?'; // "วินา": the polite-word trim eats a final "ที"
+const VIEW = {
+  close: R('^(?:ปิด|ปิดหน้าจอ|ปิดจอ|ปิดหน้าต่าง|ปิดผลลัพธ์|ปิดวิดีโอ|ปิดคลิป|ปิดเลย|close|closeit|closethis|closeviewer|closewindow)$'),
+  next: R('^(?:ถัดไป|อันถัดไป|ต่อไป|อันต่อไป|next|nextone)$'),
+  prev: R('^(?:ก่อนหน้า|อันก่อนหน้า|ย้อนกลับ|previous|back|goback)$'),
+  open: R(`^(?:เปิด|ดู|เลือก)(?:อัน|ลิงก์|ลิ้ง|ข่าว|ผล|คลิป|วิดีโอ|รูป|เว็บ|หน้า)?(?:ที่)?${NUM}$`),
+  openEn: new RegExp(`^(?:open|show|select|play)(?:the)?(?:number|item|result|link)?${NUM}(?:one|item|result|link)?$`),
+  read: R(`^อ่าน(?:อัน|ข่าว|ผล|ลิงก์|หัวข้อ)?(?:ที่)?${NUM}(?:ให้ฟัง)?$`),
+  readEn: new RegExp(`^read(?:the)?(?:number|item|result)?${NUM}(?:one|item|result)?$`),
+  down: R('^(?:เลื่อนลง|เลื่อนลงอีก|ลงอีก|scrolldown|down)$'),
+  up: R('^(?:เลื่อนขึ้น|เลื่อนขึ้นอีก|scrollup|up)$'),
+  external: R('^(?:เปิดในเบราว์เซอร์|เปิดในบราวเซอร์|เปิดเบราว์เซอร์|เปิดบราวเซอร์|เปิดข้างนอก|openinbrowser|openinthebrowser|openexternally)$'),
+  play: R('^(?:เล่น|เล่นต่อ|เล่นวิดีโอ|เล่นคลิป|play|resume|playvideo)$'),
+  pause: R('^(?:หยุด|หยุดวิดีโอ|หยุดคลิป|หยุดก่อน|พัก|พักก่อน|pause|stop|stopvideo)$'),
+  fwd: R(`^(?:ข้าม|ข้ามไป|เดินหน้า|ไปข้างหน้า|skip|forward|skipforward)${NUM}?${SEC}$`),
+  back: R(`^(?:ถอยหลัง|ย้อน|ถอย|rewind|skipback)${NUM}?${SEC}$`),
+  louder: R('^(?:เสียงดังขึ้น|ดังขึ้น|ดังขึ้นอีก|เพิ่มเสียง|เร่งเสียง|volumeup|louder|turnitup)$'),
+  softer: R('^(?:เสียงเบาลง|เบาลง|เบาลงอีก|ลดเสียง|volumedown|quieter|softer|turnitdown)$'),
+};
+
+function viewerCommand(t, ctx) {
+  const v = (op, n) => ({ action: 'viewer', op, ...(n != null ? { n } : {}) });
+  if (ctx.video) {
+    if (VIEW.pause.test(t)) return v('pause');
+    if (VIEW.play.test(t)) return v('play');
+    let m = VIEW.fwd.exec(t);
+    if (m) return v('seek', toNum(m[1]) || 10);
+    m = VIEW.back.exec(t);
+    if (m) return v('seek', -(toNum(m[1]) || 10));
+    if (VIEW.louder.test(t)) return v('volume', 15);
+    if (VIEW.softer.test(t)) return v('volume', -15);
+  }
+  if (VIEW.close.test(t)) return v('close');
+  if (VIEW.next.test(t)) return v('next');
+  if (VIEW.prev.test(t)) return v('prev');
+  if (VIEW.down.test(t)) return v('scroll', 1);
+  if (VIEW.up.test(t)) return v('scroll', -1);
+  if (VIEW.external.test(t)) return v('external');
+  for (const [re, op] of [[VIEW.open, 'open'], [VIEW.openEn, 'open'], [VIEW.read, 'read'], [VIEW.readEn, 'read']]) {
+    const m = re.exec(t);
+    if (m && toNum(m[1])) return v(op, toNum(m[1]));
+  }
+  return null;
+}
+
+/** ctx: { viewer: the Result Viewer is open, video: a video is loaded in it } */
+export function parseCommand(transcript, ctx = {}) {
   const t = tight(stripWake(transcript));
   if (!t) return null;
+  if (ctx.viewer) {
+    const vc = viewerCommand(t, ctx);
+    if (vc) return vc;
+  }
   if (CMD.stop.test(t)) return { action: 'stop' };
   if (CMD.done.test(t)) return { action: 'done' };
   if (CMD.off.test(t) || CMD.offEn.test(t)) return { action: 'handsfree-off' };

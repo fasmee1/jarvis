@@ -17,6 +17,7 @@ const { VisionAssets } = require('./lib/installer/vision-assets');
 const { WakeAssets } = require('./lib/installer/wake-assets');
 const { pcm16ToWav } = require('./lib/stt/wav');
 const { trayIconPng } = require('./lib/tray-icon');
+const webReader = require('./lib/web/reader');
 
 const APP_ROOT = __dirname;
 const APP_ORIGIN = 'app://jarvis';
@@ -375,6 +376,24 @@ function registerIpc() {
     return shell.openPath(dir);
   });
 
+  // ---- Result Viewer: web pages ----
+  handle('web:inspect', async (p) => {
+    const url = v.str(p, 2000, 'url');
+    try {
+      return await webReader.inspect(url);
+    } catch (err) {
+      return { ok: false, error: err.name === 'AbortError' ? 'หมดเวลาโหลดหน้าเว็บ' : err.message };
+    }
+  });
+  handle('web:open-external', async (p) => {
+    const url = v.str(p, 2000, 'url');
+    let u;
+    try { u = new URL(url); } catch { return { ok: false, error: 'URL ไม่ถูกต้อง' }; }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return { ok: false, error: 'เปิดได้เฉพาะ http/https' };
+    await shell.openExternal(u.toString());
+    return { ok: true };
+  });
+
   // ---- Vision (phase 3) ----
   handle('vision:status', () => vision.status());
   handle('vision:install', () => vision.install((p) => send('install:progress', { what: 'vision', ...p })));
@@ -477,7 +496,13 @@ app.whenReady().then(async () => {
     const own = win && wc === win.webContents && String(details.requestingUrl || '').startsWith(APP_ORIGIN + '/');
     cb(own && (permission === 'media' || permission === 'speaker-selection'));
   });
-  ses.setPermissionCheckHandler((wc, permission) => (permission === 'media' || permission === 'speaker-selection') && !!win && wc === win.webContents);
+  // embedded pages in the Result Viewer share this webContents: only our own origin counts
+  ses.setPermissionCheckHandler((wc, permission, origin) => (permission === 'media' || permission === 'speaker-selection') && !!win && wc === win.webContents && String(origin || '').startsWith(APP_ORIGIN));
+  // YouTube embeds refuse to play without a Referer (error 153); app:// pages send none
+  ses.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/*', 'https://www.youtube.com/*'] }, (d, cb) => {
+    if (!d.requestHeaders.Referer && !d.requestHeaders.referer) d.requestHeaders.Referer = 'https://mee-jarvis.app/';
+    cb({ requestHeaders: d.requestHeaders });
+  });
 
   registerIpc();
   createWindow();

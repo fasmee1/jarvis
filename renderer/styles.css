@@ -463,9 +463,9 @@ body.booting .hud-sound-btn, body.booting .hf-btn { opacity: 0; pointer-events: 
 .dock-item .di-k { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); }
 .dock-item .di-t { font-weight: 500; font-size: 12px; letter-spacing: 0.14em; }
 
-/* ============ CAMERA MODE ============ */
-.home.cam-mode .core-wrap { z-index: 30; }
-.cam-viewer { position: absolute; z-index: 20; }
+/* ============ VIEWER MODE (camera + results, ui/stage-viewer.js) ============ */
+.home.viewer-mode .core-wrap { z-index: 30; }
+.sv { position: absolute; z-index: 20; }
 /* at ~0.35 scale: fewer details — no ticks, larger type so it stays legible */
 .core-wrap.mini .tick-layer { opacity: 0; }
 .core-wrap.mini .state-label { font-size: 32px; }
@@ -477,9 +477,9 @@ body.booting .hud-sound-btn, body.booting .hf-btn { opacity: 0; pointer-events: 
 .core-wrap.mini .dock-list { min-width: 360px; border-radius: 24px; }
 .core-wrap.mini .dock-node { --hit: 72px; }
 .core-wrap.mini .dock-lbl { font-size: 32px; padding: 4px 16px; border-radius: 12px; }
-body.cam-mode .cam-indicator { top: 12px; }
+body.viewer-mode .cam-indicator { top: 12px; }
 /* camera mode: the mini reactor sits where the footer is, so the footer steps aside */
-.home.cam-mode .caption-bl { opacity: 0 !important; transition: opacity var(--mid) var(--ease); }
+.home.viewer-mode .caption-bl { opacity: 0 !important; transition: opacity var(--mid) var(--ease); }
 
 /* ============ HANDS-FREE ============ */
 /* toggle: third 40px ghost square next to menu + sound */

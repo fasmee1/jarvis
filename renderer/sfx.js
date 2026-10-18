@@ -120,7 +120,7 @@ class Sfx {
       comp.attack.value = 0.005;
       comp.release.value = 0.2;
       const master = c.createGain();
-      master.gain.value = this.volume * LEVEL;
+      master.gain.value = this.volume * LEVEL * (this.duckLevel ?? 1);
       const limiter = c.createDynamicsCompressor(); // peak safety: keeps peaks near -6 dBFS
       limiter.threshold.value = -6;
       limiter.knee.value = 0;
@@ -356,8 +356,14 @@ class Sfx {
   setVolume(v) {
     this.volume = clamp(Number(v) || 0, 0, 1);
     save(KEY.vol, this.volume);
-    if (this.master) this.master.gain.setTargetAtTime(this.volume * LEVEL, this.ctx.currentTime, 0.05);
+    if (this.master) this.master.gain.setTargetAtTime(this.volume * LEVEL * (this.duckLevel ?? 1), this.ctx.currentTime, 0.05);
     this._emit();
+  }
+
+  /** Duck every HUD sound (1 = normal), e.g. while a video plays in the Result Viewer. */
+  setDuck(level) {
+    this.duckLevel = level;
+    if (this.master) this.master.gain.setTargetAtTime(this.volume * LEVEL * level, this.ctx.currentTime, 0.08);
   }
 
   setBootMuted(on) {

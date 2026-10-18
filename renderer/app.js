@@ -12,6 +12,9 @@ import { Mic, webSpeechOnce } from './audio/mic.js';
 import { Vision, listDevices } from './vision.js';
 import { HandsFree, ST as HF } from './handsfree/controller.js';
 import { OwwEngine } from './handsfree/engine.js';
+import { parseCommand } from './handsfree/commands.js';
+import { StageViewer } from './ui/stage-viewer.js';
+import { ResultViewer } from './ui/result-viewer.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -45,6 +48,7 @@ const S = {
   hfLat: null,
 };
 let hands = null; // hands-free controller (set up below)
+let resultViewer = null; // Result Viewer (set up below)
 
 const sections = new Sections({
   onChange: (name) => {
@@ -150,6 +154,7 @@ function refreshState(sub) {
   else home.setState(st, sub || STATE_TH[st] || '');
   updateDot();
   if (hands) hands.assistant({ speaking: S.speaking, busy: S.busy || !!S.pendingSend });
+  if (resultViewer) resultViewer.setAttention(S.speaking || S.listening || (!!hands && ['WAKE_DETECTED', 'COMMAND_LISTENING'].includes(hands.state)));
 }
 
 function fmtMs(ms) {
@@ -258,6 +263,7 @@ function onChatItem(item) {
     m.append(el('pre', { class: 'code mono', text: item.code }));
   } else if (item.type === 'block') {
     m.append(blockCard(item));
+    if (item.kind === 'result') resultViewer.show(item.data);
     if (item.kind === 'steps') {
       const st = item.data.steps;
       const firstOpen = st.findIndex((x) => !x.done);
@@ -292,6 +298,7 @@ function selectTab(name) {
 const acts = new Map();
 
 function onActivity(a) {
+  if (a.kind === 'tool-use' && a.name === 'WebSearch' && !a.parent) resultViewer.searchStarted(a.input && a.input.query);
   if (a.kind === 'tool-use') {
     const card = el('div', { class: `act running${a.parent ? ' sub' : ''}` });
     const head = el('div', { class: 'act-head' }, el('span', { class: 'act-name', text: a.name }), el('span', { class: 'act-status', text: '● กำลังทำงาน' }));
@@ -483,6 +490,7 @@ async function send(text, { fromVoice = false, latency = {} } = {}) {
     refreshState();
     return true;
   }
+  if (text) S.lastUserText = text;
   const t0 = Date.now();
   S.lat = { ...latency, t0 };
   S.turnSpoke = false;
@@ -608,6 +616,14 @@ async function onMicEnd({ pcm, hadSpeech, tListenEnd }) {
 }
 
 function afterTranscript(text, latency) {
+  if (resultViewer && resultViewer.isOpen) {
+    const cmd = parseCommand(text, resultViewer.context());
+    if (cmd && cmd.action === 'viewer') {
+      addSystemMsg(`🎙 ${text}`);
+      resultViewer.command(cmd);
+      return;
+    }
+  }
   if (needsTranscriptConfirm()) {
     $('transcript-confirm').hidden = false;
     $('transcript-text').value = text;
@@ -628,9 +644,26 @@ const vision = new Vision({
   onStatus: (t) => { $('vision-status').textContent = t; term(t, 'info'); },
 });
 
+// one large viewer for camera + results (same transition, never two at once)
+const viewer = new StageViewer({ home, openExternal: (u) => resultViewer.openExternal(u) });
+resultViewer = new ResultViewer({
+  viewer,
+  home,
+  api,
+  speaker,
+  sfx,
+  retry: () => { if (S.lastUserText) send(S.lastUserText); },
+});
+window.jarvisViewer = Object.freeze({
+  show: (data) => resultViewer.show(data),
+  close: () => viewer.closeAll(),
+  get open() { return viewer.isOpen; },
+});
+
 const cameraPanel = new CameraPanel({
   cards: home.cards,
   home,
+  viewer,
   vision,
   getDeviceId: () => (S.settings ? S.settings.cameraDeviceId : ''),
   setDeviceId: (id) => saveSetting({ cameraDeviceId: id }),
@@ -727,6 +760,7 @@ function hfLocal(cmd) {
     case 'card-close': home.docking.close(cmd.card); break;
     case 'card-open': home.docking.open(cmd.card); break;
     case 'handsfree-off': addSystemMsg('ปิดโหมด Hands-free'); break;
+    case 'viewer': resultViewer.command(cmd); break;
     default: break;
   }
 }
@@ -736,6 +770,7 @@ hands = new HandsFree({
   transcribe: hfTranscribe,
   send: hfSend,
   local: hfLocal,
+  context: () => resultViewer.context(),
   stopSpeaking: (ms) => speaker.stop(ms),
   abortTurn: () => {
     S.pendingSend = null;
@@ -796,7 +831,7 @@ window.jarvisHandsFree = {
   enable: () => toggleHandsFree(true),
   disable: () => hands.disable(),
 };
-try { if (localStorage.getItem('jarvis.hfDebug') === '1') window.jarvisHandsFree._dev = hands; } catch { /* storage unavailable */ }
+try { if (localStorage.getItem('jarvis.hfDebug') === '1') { window.jarvisHandsFree._dev = hands; window.__resultViewer = resultViewer; window.__cameraPanel = cameraPanel; } } catch { /* storage unavailable */ }
 
 function renderHandsFree() {
   const b = $('btn-handsfree');
@@ -1163,6 +1198,8 @@ function wireEvents() {
   api.on('app-state', applyAppState);
   api.on('settings', (s) => { S.settings = s; applyMode(s.permissionMode); applyModel(s.model); });
   api.on('turn:start', () => {
+    resultViewer.startTurn();
+    S.turnSpokenChars = 0;
     curMsg = null;
     curText = null;
     S.busy = true;
@@ -1218,6 +1255,8 @@ function wireEvents() {
       api.invoke('latency:report', S.lat).catch(() => {});
       recordLatency({ ...S.lat });
     }, 1500);
+    if (r.isError) resultViewer.fail(r.resultText || 'โหลดไม่สำเร็จ');
+    resultViewer.endTurn(S.replyText);
     curMsg = null;
     curText = null;
     sfx.done();
@@ -1229,6 +1268,9 @@ function wireEvents() {
   });
   api.on('tts:segment', ({ text }) => {
     if (S.muteThisTurn) return;
+    // results are on screen: say the short summary, not everything
+    if (resultViewer.turn && resultViewer.turn.hadResult && S.turnSpokenChars > 320) return;
+    S.turnSpokenChars = (S.turnSpokenChars || 0) + text.length;
     if (speaker.engine !== 'none') S.segTotal++;
     speaker.enqueue(text);
   });
