@@ -24,6 +24,8 @@
           <div id="core-elapsed" class="core-elapsed">0.0s</div>
           <div id="state-sub" class="state-sub"></div>
           <div id="core-cam" class="core-cam" hidden>● CAM</div>
+          <div id="hf-rec" class="hf-rec" hidden>● REC</div>
+          <div id="hf-transcript" class="hf-transcript fade" aria-live="polite"></div>
         </div>
       </div>
       <div id="cards" class="cards"></div>
@@ -50,6 +52,17 @@
     <span id="hb-dot" class="hb-dot" hidden></span>
   </button>
   <button id="btn-hud-sound" class="hud-sound-btn" type="button" aria-label="เปิด/ปิดเสียง HUD" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="snd-on" d="M11 5 6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7 M19 5a10 10 0 0 1 0 14"/><path class="snd-off" d="M11 5 6 9H2v6h4l5 4z M22 9l-6 6 M16 9l6 6"/></svg></button>
+  <button id="btn-handsfree" class="hf-btn" type="button" aria-label="Hands-free · พูด “จาร์วิส” เพื่อเรียก" aria-pressed="false" title="Hands-free · พูด 'จาร์วิส' เพื่อเรียก (Ctrl+Shift+H)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4 M8 7v10 M12 4v16 M16 7v10 M20 10v4"/></svg><span class="hf-dot" aria-hidden="true"></span></button>
+  <label class="model-pick" title="โมเดลของ Claude — เปลี่ยนแล้วบทสนทนาเดิมยังอยู่ (หรือพูดว่า &quot;เปลี่ยนโมเดลเป็น sonnet&quot;)">
+    <span class="mono">MODEL</span>
+    <select id="home-model" aria-label="เลือกโมเดลของ Claude">
+      <option value="">DEFAULT</option>
+      <option value="claude-fable-5-1">FABLE 5.1</option>
+      <option value="claude-opus-5-5">OPUS 5.5</option>
+      <option value="claude-sonnet-5-5">SONNET 5.5</option>
+      <option value="claude-haiku-5-5">HAIKU 5.5</option>
+    </select>
+  </label>
   <div id="drag-strip" class="drag-strip"></div>
 
   <!-- ============ MENU ============ -->
@@ -186,6 +199,7 @@
         <button data-stab="perm" class="tab">สิทธิ์ & ตัวกันพลาด</button>
         <button data-stab="voice" class="tab">เสียง</button>
         <button data-stab="camera" class="tab">กล้อง</button>
+        <button data-stab="handsfree" class="tab">Hands-free</button>
         <button data-stab="display" class="tab">การแสดงผล</button>
       </div>
       <div class="stab" id="stab-claude">
@@ -255,6 +269,31 @@
         <label>คำเรียกให้ดู (บรรทัดละคำ)<textarea id="s-triggerWords" rows="5"></textarea></label>
         <button id="s-trigger-save" class="btn small primary">บันทึกคำเรียก</button>
       </div>
+      <div class="stab" id="stab-handsfree" hidden>
+        <p class="dim">พูด “จาร์วิส” หรือ “Hey Jarvis” แล้วสั่งงานได้เลยโดยไม่ต้องกดอะไร · เปิด/ปิด: ปุ่มคลื่นเสียงมุมซ้ายบน หรือ Ctrl+Shift+H</p>
+        <label>ความไวของคำเรียก
+          <select id="s-handsFreeSensitivity">
+            <option value="low">Low — เรียกติดยากขึ้น แต่แทบไม่ติดเอง</option>
+            <option value="medium">Medium — แนะนำ</option>
+            <option value="high">High — เรียกติดง่าย อาจติดเองบ้าง</option>
+          </select>
+        </label>
+        <label class="check"><input id="s-handsFreeBargeVoice" type="checkbox"> พูดแทรกได้ด้วยเสียงพูดชัด ๆ ระหว่าง JARVIS กำลังตอบ (คำว่า “จาร์วิส” แทรกได้เสมอ)</label>
+        <label class="check"><input id="s-handsFreeLiveTranscript" type="checkbox"> แสดงคำพูดสด ๆ ระหว่างพูด (whisper ในเครื่อง)</label>
+        <label class="check"><input id="ui-wake-chime" type="checkbox"> เสียงตอบรับเมื่อได้ยินคำเรียก (ดังแม้ปิดเสียง HUD)</label>
+        <label class="check"><input id="s-handsFreeAutoStart" type="checkbox"> เปิด Hands-free อัตโนมัติเมื่อเปิดแอป</label>
+        <label>เมื่อย่อหน้าต่าง
+          <select id="s-handsFreeBackground">
+            <option value="pause">หยุดฟังชั่วคราว (แนะนำ)</option>
+            <option value="tray">ซ่อนไว้ที่ system tray และฟังต่อ</option>
+          </select>
+        </label>
+        <label class="check"><input id="s-saveVoiceHistory" type="checkbox"> บันทึกประวัติเสียง (ไฟล์เสียงคำสั่ง + ข้อความ) — ปิดไว้ = ไม่เก็บเสียงเลย</label>
+        <div class="row"><button id="s-hf-history" class="btn small">เปิดโฟลเดอร์ประวัติเสียง</button></div>
+        <div class="row"><span id="hf-status" class="dim mono"></span></div>
+        <p class="dim">คำสั่งในเครื่อง (ไม่ส่งให้ AI): “หยุด” · “พอแล้ว” · “เปิดกล้อง” / “ปิดกล้อง” · “เปิดการ์ด …” / “ปิดการ์ด …” · “ปิดโหมดแฮนด์ฟรี”</p>
+        <p class="dim">ตรวจจับคำเรียกด้วย openWakeWord (โมเดล hey_jarvis + โมเดล “จาร์วิส” ที่ฝึกเพิ่ม) และ Silero VAD ทำงานในเครื่องทั้งหมด</p>
+      </div>
       <div class="stab" id="stab-display" hidden>
         <label>คุณภาพกราฟิก
           <select id="ui-quality">
@@ -313,6 +352,23 @@
       <div class="approval-actions">
         <button id="barge-stop" class="btn danger">หยุดทั้งหมด</button>
         <button id="barge-keep" class="btn">ให้ทำต่อ (แค่หยุดพูด)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hands-free: first-enable consent (click only) -->
+  <div id="hf-consent" class="modal" hidden>
+    <div class="modal-card cut hf-consent" role="dialog" aria-modal="true" aria-labelledby="hf-consent-title">
+      <div class="approval-title" id="hf-consent-title">เปิดโหมด Hands-free?</div>
+      <ul class="hf-points">
+        <li>JARVIS จะเปิดไมโครโฟนค้างไว้เพื่อรอคำว่า <b>“จาร์วิส”</b> หรือ <b>“Hey Jarvis”</b> — การฟังคำเรียกทำในเครื่องนี้ทั้งหมด ไม่ส่งเสียงออกไปไหน</li>
+        <li>หลังได้ยินคำเรียก จะอัดเฉพาะคำสั่งของคุณ โดยมีไฟ <span class="hf-rec-inline">● REC</span> สีส้มแสดงตลอดเวลาที่อัด แล้วถอดเป็นข้อความ (whisper ในเครื่อง · ถ้าเลือก Azure เสียงคำสั่งจะถูกส่งไป Microsoft)</li>
+        <li>ไม่เก็บไฟล์เสียงไว้ เว้นแต่เปิด “บันทึกประวัติเสียง” ใน Settings</li>
+        <li>ปิดได้ทุกเมื่อ: ปุ่มคลื่นเสียงมุมซ้ายบน · Ctrl+Shift+H · หรือพูดว่า “ปิดโหมดแฮนด์ฟรี”</li>
+      </ul>
+      <div class="approval-actions">
+        <button id="hf-consent-yes" class="btn primary">เปิด Hands-free</button>
+        <button id="hf-consent-no" class="btn">ยังก่อน</button>
       </div>
     </div>
   </div>

@@ -10,6 +10,8 @@ import { sfx, setSfxEnabled, greetingLine } from './sfx.js';
 import { el, blockCard, renderForTab, TAB_FOR_KIND } from './blocks.js';
 import { Mic, webSpeechOnce } from './audio/mic.js';
 import { Vision, listDevices } from './vision.js';
+import { HandsFree, ST as HF } from './handsfree/controller.js';
+import { OwwEngine } from './handsfree/engine.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -39,7 +41,10 @@ const S = {
   sessionTokens: 0,
   dotErr: false,
   dotAtt: false,
+  hfRec: false, // hands-free is recording a command (the MIC card shows dB only then)
+  hfLat: null,
 };
+let hands = null; // hands-free controller (set up below)
 
 const sections = new Sections({
   onChange: (name) => {
@@ -56,7 +61,7 @@ const sections = new Sections({
 });
 const home = new Home({
   onOpen: (name) => sections.show(name),
-  onCoreClick: () => (S.listening ? stopListening() : startListening()),
+  onCoreClick: () => voiceButton(),
 });
 
 function updateDot() {
@@ -127,10 +132,24 @@ const STATE_TH = {
   ERROR: 'เกิดข้อผิดพลาด',
 };
 
+// Hands-free: reactor state + status text per conversation state
+const HF_VIEW = {
+  WAKE_LISTENING: { core: 'WAKE_LISTENING', label: 'SAY ‘JARVIS’', tone: 'tert' },
+  WAKE_DETECTED: { core: 'WAKE_DETECTED', label: '' },
+  COMMAND_LISTENING: { core: 'LISTENING', label: 'LISTENING' },
+  PROCESSING: { core: 'THINKING', label: 'THINKING' },
+  SPEAKING: { core: 'SPEAKING', label: 'SPEAKING' },
+  FOLLOW_UP: { core: 'FOLLOW_UP', label: 'LISTENING' },
+  PAUSED: { core: 'STANDBY', label: 'HANDS-FREE PAUSED', tone: 'tert' },
+};
+
 function refreshState(sub) {
   const st = displayState();
-  home.setState(st, sub || STATE_TH[st] || '');
+  const v = hands && hands.active && !['AWAITING_APPROVAL', 'ERROR'].includes(S.coreState) ? HF_VIEW[hands.state] : null;
+  if (v) home.setState(v.core, '', { label: v.label, tone: v.tone });
+  else home.setState(st, sub || STATE_TH[st] || '');
   updateDot();
+  if (hands) hands.assistant({ speaking: S.speaking, busy: S.busy || !!S.pendingSend });
 }
 
 function fmtMs(ms) {
@@ -457,11 +476,12 @@ async function send(text, { fromVoice = false, latency = {} } = {}) {
     }
   }
   S.frameAtListenEnd = null;
-  if (!text && !image) return;
+  if (!text && !image) return false;
   if (S.busy) {
     S.pendingSend = { text, image, latency };
     addSystemMsg('จะส่งข้อความนี้ทันทีที่ Claude ทำงานรอบนี้เสร็จ');
-    return;
+    refreshState();
+    return true;
   }
   const t0 = Date.now();
   S.lat = { ...latency, t0 };
@@ -476,7 +496,9 @@ async function send(text, { fromVoice = false, latency = {} } = {}) {
   if (!r.ok) {
     notice(r.error, r.code === 'NO_CWD' ? 'warn' : 'error');
     if (r.code === 'NO_CWD') $('btn-folder').focus();
+    return false;
   }
+  return true;
 }
 
 async function stopAll() {
@@ -507,6 +529,7 @@ const mic = new Mic({
 let webRec = null;
 
 async function startListening() {
+  if (hands && hands.active) return hands.manual();
   // Barge-in: stop speech and the current answer first.
   if (S.speaking || S.busy) {
     speaker.stop();
@@ -623,6 +646,259 @@ function toggleCamera() {
   cameraPanel.toggle();
 }
 
+// ---------------- hands-free (wake word) ----------------
+
+const HF_ERRORS = {
+  MIC_DENIED: 'ไม่ได้รับสิทธิ์ใช้ไมโครโฟน — อนุญาตใน Windows Settings › Privacy › Microphone แล้วเปิด Hands-free อีกครั้ง',
+  MIC_NOT_FOUND: 'ไม่พบไมโครโฟน — Hands-free จะกลับมาฟังเองทันทีที่เสียบไมค์',
+  MIC_LOST: 'ไมโครโฟนถูกถอดออก — Hands-free หยุดชั่วคราว และจะกลับมาฟังเองเมื่อเสียบไมค์อีกครั้ง',
+  MIC_ERROR: 'เปิดไมโครโฟนไม่ได้',
+  ENGINE_FAILED: 'โหลดระบบฟังคำเรียก “จาร์วิส” ไม่สำเร็จ — ใช้ Ctrl+Space (กดเพื่อพูด) แทนได้',
+  WORKER: 'ระบบฟังคำเรียกผิดพลาด',
+};
+
+function loadHfStats() {
+  try { return JSON.parse(localStorage.getItem('jarvis.hfStats') || '{}'); } catch { return {}; }
+}
+
+const hfEngine = new OwwEngine({
+  onEvent: (e) => hands.onEngine(e),
+  onLevel: (rms) => {
+    home.signals.mic = rms; // reactor: command + follow-up
+    if (S.hfRec) home.mic(rms, { listening: true }); // MIC card: live dB only while recording
+  },
+});
+
+// Web Speech fallback (sttProvider = webspeech): recognition runs live during the command
+let hfWeb = null;
+function hfWebStart() {
+  if (S.settings.sttProvider !== 'webspeech' || hfWeb) return;
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;
+  const r = new SR();
+  r.lang = 'th-TH';
+  r.interimResults = true;
+  r.continuous = true;
+  const st = { text: '', err: null, done: null };
+  st.ended = new Promise((res) => { st.done = res; });
+  r.onresult = (e) => {
+    st.text = Array.from(e.results).map((x) => x[0].transcript).join(' ');
+    if (hands.state === HF.COMMAND_LISTENING) home.hfTranscript(st.text, false);
+  };
+  r.onerror = (e) => { st.err = e.error; };
+  r.onend = () => st.done();
+  try { r.start(); } catch { return; }
+  hfWeb = { r, st };
+}
+
+async function hfTranscribe(pcm, { partial, verify }) {
+  if (verify) return api.invoke('stt:transcribe', { pcm, verify: true });
+  if (S.settings.sttProvider === 'webspeech') {
+    if (partial) return null;
+    const w = hfWeb;
+    hfWeb = null;
+    if (!w) return { ok: false, code: 'UNSUPPORTED', error: 'เครื่องนี้ไม่มี Web Speech API' };
+    try { w.r.stop(); } catch { /* ended */ }
+    await Promise.race([w.st.ended, new Promise((r) => setTimeout(r, 3000))]);
+    if (w.st.err && !w.st.text) return { ok: false, code: w.st.err, error: w.st.err === 'network' ? 'Web Speech ใช้ไม่ได้ใน Electron (error "network") — เลือก whisper ใน Settings › เสียง' : w.st.err };
+    return { ok: true, text: w.st.text };
+  }
+  const tEnd = Date.now();
+  const r = await api.invoke('stt:transcribe', { pcm, partial: !!partial });
+  if (!partial) S.hfLat = { t_listen_end: tEnd, t_transcribed: Date.now() };
+  return r;
+}
+
+async function hfSend(text) {
+  addSystemMsg(`🎙 ${text}`);
+  if (needsTranscriptConfirm()) {
+    // acceptEdits / bypassPermissions: voice text is confirmed on screen first (by click)
+    afterTranscript(text, S.hfLat || {});
+    notice('โหมดสิทธิ์นี้ต้องยืนยันข้อความเสียงบนจอก่อนส่ง', 'info', null, 4000);
+    return false;
+  }
+  return send(text, { fromVoice: true, latency: S.hfLat || {} });
+}
+
+function hfLocal(cmd) {
+  switch (cmd.action) {
+    case 'camera-on': cameraPanel.turnOn(); break;
+    case 'camera-off': cameraPanel.turnOff(); break;
+    case 'card-close': home.docking.close(cmd.card); break;
+    case 'card-open': home.docking.open(cmd.card); break;
+    case 'handsfree-off': addSystemMsg('ปิดโหมด Hands-free'); break;
+    default: break;
+  }
+}
+
+hands = new HandsFree({
+  engine: hfEngine,
+  transcribe: hfTranscribe,
+  send: hfSend,
+  local: hfLocal,
+  stopSpeaking: (ms) => speaker.stop(ms),
+  abortTurn: () => {
+    S.pendingSend = null;
+    // running tools are never killed by voice: they finish silently instead
+    if (S.toolRunning) S.muteThisTurn = speaker.muted = true;
+    else if (S.busy) api.invoke('chat:stop');
+  },
+  sfx,
+  stats: loadHfStats(),
+  saveStats: (st) => { try { localStorage.setItem('jarvis.hfStats', JSON.stringify(st)); } catch { /* storage unavailable */ } },
+  settings: () => ({
+    sensitivity: S.settings.handsFreeSensitivity,
+    bargeVoice: S.settings.handsFreeBargeVoice,
+    liveTranscript: S.settings.handsFreeLiveTranscript && S.settings.sttProvider === 'whisper',
+    verifyWake: S.settings.sttProvider === 'whisper', // local only
+    deviceId: S.settings.micDeviceId,
+    debug: (() => { try { return localStorage.getItem('jarvis.hfDebug') === '1'; } catch { return false; } })(),
+  }),
+  ui: {
+    state: (st) => {
+      if (st === HF.WAKE_DETECTED) home.hfWake();
+      renderHandsFree();
+      refreshState();
+    },
+    transcript: (text, final) => home.hfTranscript(text, final),
+    rec: (on) => {
+      S.hfRec = on;
+      home.hfRec(on);
+      if (!on) home.mic(null, { listening: false });
+    },
+    follow: (ms) => home.hfFollow(ms),
+    error: (code, msg) => {
+      const th = HF_ERRORS[code];
+      if (th) notice(code === 'ENGINE_FAILED' && msg ? `${th} (${msg})` : th, code === 'MIC_LOST' || code === 'MIC_NOT_FOUND' ? 'warn' : 'error', null, code === 'ENGINE_FAILED' ? 0 : 9000);
+      else notice(msg || code, 'error', ['NO_WHISPER', 'NO_MODEL', 'NO_AZURE_KEY', 'network'].includes(code) ? 'open-settings-voice' : null);
+      term(`hands-free: ${code} ${msg || ''}`, 'error');
+    },
+    log: (t) => { term(`hands-free: ${t}`, 'info'); if (/^score/.test(t)) console.log('[HF]', t); },
+  },
+});
+
+hands.on('command:start', () => hfWebStart());
+hands.on('command:end', () => {
+  if (vision.on) S.frameAtListenEnd = vision.snapshot(S.settings.snapshotWidth, S.settings.snapshotHeight, S.settings.snapshotQuality);
+});
+hands.on('handsfree:on', () => api.invoke('hf:active', { on: true }).catch(() => {}));
+hands.on('handsfree:off', () => {
+  api.invoke('hf:active', { on: false }).catch(() => {});
+  if (hfWeb) { try { hfWeb.r.abort(); } catch { /* ended */ } hfWeb = null; }
+});
+
+// Other modules: window.jarvisHandsFree.on('wake:detected' | 'command:start' |
+// 'command:end' | 'assistant:speaking' | 'followup:timeout', fn)
+window.jarvisHandsFree = {
+  on: (name, fn) => hands.on(name, fn),
+  get state() { return hands.state; },
+  get stats() { return { ...hands.stats }; },
+  enable: () => toggleHandsFree(true),
+  disable: () => hands.disable(),
+};
+try { if (localStorage.getItem('jarvis.hfDebug') === '1') window.jarvisHandsFree._dev = hands; } catch { /* storage unavailable */ }
+
+function renderHandsFree() {
+  const b = $('btn-handsfree');
+  const on = hands.active;
+  b.classList.toggle('on', on);
+  b.classList.toggle('paused', hands.state === HF.PAUSED);
+  b.setAttribute('aria-pressed', String(on));
+  home.cards.setMicMode(on);
+  if (!S.hfRec) home.mic(null, { listening: false });
+  const st = $('hf-status');
+  if (st) {
+    const cpu = hands.lastCpu ? ` · ${hands.lastCpu.msPerFrame.toFixed(1)} ms ต่อ 80 ms (${((hands.lastCpu.msPerFrame / 80) * 100).toFixed(1)}% ของ 1 core)` : '';
+    const info = hfEngine.info ? ` · VAD ${hfEngine.info.vad ? 'Silero' : 'energy'} · “จาร์วิส” ${hfEngine.info.head ? '✓' : '✕'}` : '';
+    st.textContent = `${on ? (hands.state === HF.PAUSED ? 'หยุดชั่วคราว' : 'กำลังฟัง') : 'ปิดอยู่'} · ${hfEngine.name}${info}${cpu} · false triggers ${hands.stats.falseTriggers} (กรองระหว่างพูด ${hands.stats.suppressed})`;
+  }
+}
+
+function askHfConsent() {
+  return new Promise((resolve) => {
+    const box = $('hf-consent');
+    box.hidden = false;
+    $('hf-consent-yes').focus();
+    const done = (v) => (ev) => {
+      if (!ev.isTrusted) return; // consent is a real click only
+      box.hidden = true;
+      resolve(v);
+    };
+    $('hf-consent-yes').onclick = done(true);
+    $('hf-consent-no').onclick = done(false);
+  });
+}
+
+async function toggleHandsFree(forceOn = false) {
+  if (hands.active && !forceOn) {
+    hands.disable();
+    return;
+  }
+  if (hands.active || hands.enabling) return;
+  if (!S.settings.handsFreeConsent) {
+    if (!(await askHfConsent())) return;
+    await saveSetting({ handsFreeConsent: true });
+  }
+  if (S.listening) { mic.cancel(); S.listening = false; $('btn-mic').classList.remove('listening'); }
+  const b = $('btn-handsfree');
+  b.classList.add('busy');
+  if (!hfEngine.worker) notice('กำลังเตรียมระบบฟังคำเรียก (ครั้งแรกจะดาวน์โหลดโมเดล ~5 MB)…', 'info', null, 4000);
+  await hands.enable();
+  b.classList.remove('busy');
+  renderHandsFree();
+  if (hands.active) term(`hands-free: เปิด · ${hfEngine.name} · VAD ${hfEngine.info && hfEngine.info.vad ? 'Silero' : 'energy'} · mic “${hfEngine.deviceLabel || 'default'}”`, 'info');
+}
+
+/** Mic button / reactor click / Ctrl+Space: push-to-talk, or "listen now" in hands-free. */
+function voiceButton() {
+  if (hands.active) return hands.manual();
+  return S.listening ? stopListening() : startListening();
+}
+
+function wireHandsFree() {
+  $('btn-handsfree').onclick = () => toggleHandsFree();
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyH') {
+      e.preventDefault();
+      toggleHandsFree();
+    }
+  });
+  // background / sleep: pause wake listening (tray mode keeps listening while hidden)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && S.settings.handsFreeBackground !== 'tray') hands.pause('background');
+    else hands.resume('background');
+  });
+  api.on('hf:power', ({ kind }) => {
+    if (kind === 'suspend') hands.pause('sleep');
+    if (kind === 'resume') hands.resume('sleep');
+    if (kind === 'lock-screen') hands.pause('lock');
+    if (kind === 'unlock-screen') hands.resume('lock');
+  });
+  api.on('hf:command', ({ action }) => { if (action === 'off') hands.disable(); });
+  // settings tab
+  for (const k of ['handsFreeBargeVoice', 'handsFreeLiveTranscript', 'handsFreeAutoStart', 'saveVoiceHistory']) {
+    $(`s-${k}`).onchange = async (e) => { await saveSetting({ [k]: e.target.checked }); hands.reconfigure(); };
+  }
+  for (const k of ['handsFreeSensitivity', 'handsFreeBackground']) {
+    $(`s-${k}`).onchange = async (e) => {
+      await saveSetting({ [k]: e.target.value });
+      hands.reconfigure();
+      if (hands.active) api.invoke('hf:active', { on: true }).catch(() => {});
+    };
+  }
+  $('ui-wake-chime').onchange = (e) => { sfx.setWakeChime(e.target.checked); if (e.target.checked) sfx.wakeChime(); };
+  $('s-hf-history').onclick = () => api.invoke('hf:open-history');
+}
+
+function fillHandsFreeSettings() {
+  const s = S.settings;
+  for (const k of ['handsFreeBargeVoice', 'handsFreeLiveTranscript', 'handsFreeAutoStart', 'saveVoiceHistory']) $(`s-${k}`).checked = !!s[k];
+  $('s-handsFreeSensitivity').value = s.handsFreeSensitivity;
+  $('s-handsFreeBackground').value = s.handsFreeBackground;
+  $('ui-wake-chime').checked = sfx.wakeChimeOn;
+  renderHandsFree();
+}
+
 // ---------------- session / misc actions ----------------
 
 async function openInteractive() {
@@ -645,6 +921,18 @@ function applyAppState(snap) {
   $('session-id').textContent = snap.sessionId ? `· ${snap.sessionId.slice(0, 8)}` : '';
   $('btn-teach').classList.toggle('on', !!snap.teachMode);
   applyMode(snap.permissionMode);
+  applyModel(snap.model);
+}
+
+function applyModel(model = '') {
+  const sel = $('home-model');
+  // A full model id typed in Settings (e.g. claude-opus-5-5) gets its own entry.
+  sel.querySelector('option[data-custom]')?.remove();
+  if (![...sel.options].some((o) => o.value === model)) {
+    sel.append(el('option', { value: model, text: model.toUpperCase(), 'data-custom': '' }));
+  }
+  sel.value = model;
+  sel.classList.toggle('custom', sel.selectedOptions[0]?.hasAttribute('data-custom'));
 }
 
 function applyMode(mode) {
@@ -695,6 +983,7 @@ function fillSettings() {
   };
   list($('s-mcp-list'), s.mcpConfigPaths, 'mcpConfigPaths');
   list($('s-dir-list'), s.addDirs, 'addDirs');
+  fillHandsFreeSettings();
 }
 
 async function fillDevices() {
@@ -724,7 +1013,7 @@ function openSettings(tab = 'claude') {
   refreshInstallStatus();
   if (sections.current !== 'settings') sections.show('settings');
   for (const b of $('settings-tabs').querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.stab === tab);
-  for (const t of ['claude', 'perm', 'voice', 'camera', 'display']) $(`stab-${t}`).hidden = t !== tab;
+  for (const t of ['claude', 'perm', 'voice', 'camera', 'handsfree', 'display']) $(`stab-${t}`).hidden = t !== tab;
 }
 
 function wireSettings() {
@@ -872,7 +1161,7 @@ function wireEvents() {
     refreshState(state === 'TOOL_RUNNING' && tool ? `Claude กำลังใช้ ${tool}` : undefined);
   });
   api.on('app-state', applyAppState);
-  api.on('settings', (s) => { S.settings = s; applyMode(s.permissionMode); });
+  api.on('settings', (s) => { S.settings = s; applyMode(s.permissionMode); applyModel(s.model); });
   api.on('turn:start', () => {
     curMsg = null;
     curText = null;
@@ -948,7 +1237,8 @@ function wireEvents() {
   api.on('tts:flush', () => speaker.flush());
   api.on('approval:request', onApprovalRequest);
   api.on('approval:close', onApprovalClose);
-  api.on('ptt', () => (S.listening ? stopListening() : startListening()));
+  api.on('ptt', () => voiceButton());
+  api.on('camera:cmd', ({ action }) => { if (action === 'on') cameraPanel.turnOn(); });
   api.on('install:progress', onInstallProgress);
 }
 
@@ -963,7 +1253,7 @@ function wireDom() {
     }
   });
   $('btn-stop').onclick = stopAll;
-  $('btn-mic').onclick = () => (S.listening ? stopListening() : startListening());
+  $('btn-mic').onclick = () => voiceButton();
   $('btn-cam').onclick = toggleCamera;
   $('btn-look').onclick = () => {
     if (!vision.on) return notice('เปิดกล้องก่อนใช้ "ดูนี่"', 'warn', null, 3000);
@@ -1004,6 +1294,13 @@ function wireDom() {
   $('btn-folder').onclick = async () => {
     const r = await api.invoke('folder:choose').catch((err) => notice(err.message, 'error'));
     if (r && r.ok) addSystemMsg(`โฟลเดอร์งาน: ${r.cwd}`);
+  };
+  $('home-model').onchange = async (e) => {
+    const model = e.target.value;
+    const r = await saveSetting({ model });
+    if (!r.ok) return applyModel(S.settings.model);
+    applyModel(model);
+    notice(S.busy ? `จะเปลี่ยนเป็น ${model || 'DEFAULT'} หลังตอบรอบนี้เสร็จ` : `เปลี่ยนโมเดลเป็น ${model || 'DEFAULT'} แล้ว — บทสนทนาเดิมยังอยู่`, 'info', null, 4000);
   };
   $('perm-mode').onchange = async (e) => {
     const mode = e.target.value;
@@ -1068,6 +1365,9 @@ function wireDom() {
   wireDom();
   wireEvents();
   wireSettings();
+  wireHandsFree();
+  // real spectra for the reactor segments (mic: hands-free engine or push-to-talk; voice: TTS output)
+  home.bandsProvider = (k) => (k === 'tts' ? speaker.bands() : hands.active ? hfEngine.bands() : mic.bands());
   const init = await api.invoke('app:init');
   S.settings = init.settings;
   applyAppState(init.snapshot);
@@ -1082,6 +1382,9 @@ function wireDom() {
   const { greet: greetAt } = await bootDone;
   await greetAt;
   greet();
+  if (await api.invoke('camera:autostart')) cameraPanel.turnOn();
+  // hands-free never starts by itself unless the user consented and asked for it
+  if (S.settings.handsFreeAutoStart && S.settings.handsFreeConsent) toggleHandsFree(true);
 })();
 
 /**

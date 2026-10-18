@@ -197,13 +197,17 @@ export class CameraPanel {
     });
   }
 
-  /** Viewer box in stage px: 80vw × 90vh, centred in the window. */
+  /**
+   * Viewer box in stage px: 80vw × 90vh, centred in the window — but never under
+   * the top-left buttons (menu · sound · hands-free end at 176 px).
+   */
   _geom() {
     const t = this.o.home.t;
+    const left = Math.max(innerWidth * 0.1, 192);
     return {
-      x: (innerWidth * 0.1 - t.ox) / t.scale,
+      x: (left - t.ox) / t.scale,
       y: (innerHeight * 0.05 - t.oy) / t.scale,
-      w: (innerWidth * 0.8) / t.scale,
+      w: (innerWidth - 2 * left) / t.scale,
       h: (innerHeight * 0.9) / t.scale,
     };
   }

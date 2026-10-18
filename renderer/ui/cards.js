@@ -152,7 +152,13 @@ export class Cards {
       close.title = `ปิดการ์ด ${name} — เก็บเข้าแกนกลาง`;
       close.append(icon('x', 'x-ico'));
       close.addEventListener('click', (e) => { e.stopPropagation(); this.onClose(def.id); });
-      head.append(icon(def.id), h('span', 'lbl', name), close);
+      head.append(icon(def.id), h('span', 'lbl', name));
+      if (def.id === 'mic') {
+        const tag = h('span', 'hf-tag', 'HANDS-FREE');
+        tag.hidden = !this.micHandsFree;
+        head.append(tag);
+      }
+      head.append(close);
       inner.append(head, h('div', 'rule'));
       el.append(fill, frame, inner);
       const parts = this[`_body_${def.id}`](inner, def);
@@ -344,12 +350,21 @@ export class Cards {
     }
   }
 
+  /** Hands-free on: a small HANDS-FREE label; the dB value shows only while a command records. */
+  setMicMode(handsFree) {
+    this.micHandsFree = !!handsFree;
+    const c = this.cards.get('mic');
+    if (!c) return;
+    const tag = c.el.querySelector('.hf-tag');
+    if (tag) tag.hidden = !this.micHandsFree;
+  }
+
   setMic(db, { listening = false, active = false } = {}) {
     const c = this.cards.get('mic');
     if (!c) return;
     if (!active || db == null) {
       this._setVal('mic', c.parts.val, '—', 'dB', { na: true });
-      c.parts.hint.textContent = 'ไมค์ปิดอยู่ · Ctrl+Space';
+      c.parts.hint.textContent = this.micHandsFree ? 'พูด “จาร์วิส” เพื่อเรียก' : 'ไมค์ปิดอยู่ · Ctrl+Space';
       this._seg(c.parts.seg, 0);
       c.parts.seg.classList.remove('hot');
       return;

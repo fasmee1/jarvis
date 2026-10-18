@@ -85,23 +85,24 @@ export class Home {
 
   // ---------- inputs from the app (real data only) ----------
 
-  setState(st, sub) {
+  /** view: optional { label, tone: 'tert' } — hands-free shows its own status text. */
+  setState(st, sub, view = null) {
     if (st !== this.state) {
       this.state = st;
       this.stateAt = performance.now();
       this.core.setState(st);
     }
-    this._label = { st, sub };
+    this._label = { st, sub, view };
     if (this.booting) return; // boot sequence owns the label until Ready
     this.applyLabel();
   }
 
   /** Write the current state into the core readout. */
   applyLabel() {
-    const { st, sub } = this._label || { st: this.state, sub: '' };
+    const { st, sub, view } = this._label || { st: this.state, sub: '' };
     const lab = $('state-label');
-    lab.textContent = st.replace(/_/g, ' ');
-    lab.className = `state-label${st === 'ERROR' ? ' err' : st === 'AWAITING_APPROVAL' ? ' att' : ''}`;
+    lab.textContent = view && view.label != null ? view.label : st.replace(/_/g, ' ');
+    lab.className = `state-label${st === 'ERROR' ? ' err' : st === 'AWAITING_APPROVAL' ? ' att' : ''}${view && view.tone ? ' ' + view.tone : ''}`;
     $('state-sub').textContent = sub || '';
   }
 
@@ -146,6 +147,42 @@ export class Home {
     this.cards.setTokens(n);
   }
 
+  // ---------- hands-free ----------
+  /** Wake word heard: the reactor reacts once. */
+  hfWake() {
+    this.core.wake();
+  }
+
+  /** Follow-up countdown arc (ms) or null to hide. */
+  hfFollow(ms) {
+    this.core.setFollow(ms);
+  }
+
+  /** "● REC" in amber — only while a command is being recorded. */
+  hfRec(on) {
+    $('hf-rec').hidden = !on;
+  }
+
+  /**
+   * One-line live transcript under the status text (≤ 60 characters,
+   * ellipsized from the left). Secondary while speaking, primary when final;
+   * an empty text fades the line out.
+   */
+  hfTranscript(text, final) {
+    const el = $('hf-transcript');
+    clearTimeout(this._trTimer);
+    if (!text) {
+      el.classList.add('fade');
+      this._trTimer = setTimeout(() => { el.textContent = ''; }, 400);
+      return;
+    }
+    const t = text.replace(/\s+/g, ' ').trim();
+    // never start the cut on a Thai vowel / tone mark (U+0E31, U+0E34–0E3A, U+0E47–0E4E): it would render on a dotted circle
+    el.textContent = t.length > 60 ? '…' + t.slice(-59).replace(/^[ัิ-ฺ็-๎]+/, '') : t;
+    el.classList.remove('fade');
+    el.classList.toggle('final', !!final);
+  }
+
   /** Small "● CAM" indicator in the core readout while the camera is live. */
   setCamera(on) {
     $('core-cam').hidden = !on;
@@ -165,7 +202,7 @@ export class Home {
     const st = this.state;
     let level = 0;
     let bands = null;
-    if (st === 'LISTENING' && this.signals.mic != null) {
+    if ((st === 'LISTENING' || st === 'FOLLOW_UP') && this.signals.mic != null) {
       level = Math.min(1, this.signals.mic * 7);
       bands = this.bandsProvider && this.bandsProvider('mic');
     } else if (this.speaking && this.signals.tts != null) {

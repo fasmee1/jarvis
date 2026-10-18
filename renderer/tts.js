@@ -171,11 +171,28 @@ export class Speaker {
     return out;
   }
 
-  stop() {
+  /** fadeMs > 0: fade the voice out (barge-in) instead of cutting it. */
+  stop(fadeMs = 0) {
     this.gen++;
     this.queue = [];
-    for (const s of this.sources) {
-      try { s.stop(); } catch { /* not started */ }
+    const out = this.out;
+    if (fadeMs > 0 && out && this.sources.size) {
+      // fade this run's gain to 0, then stop its sources; new speech gets a fresh gain
+      const playing = [...this.sources];
+      const c = out.context;
+      const t = c.currentTime;
+      out.gain.cancelScheduledValues(t);
+      out.gain.setValueAtTime(out.gain.value, t);
+      out.gain.linearRampToValueAtTime(0, t + fadeMs / 1000);
+      setTimeout(() => {
+        for (const s of playing) { try { s.stop(); } catch { /* not started */ } }
+        try { out.disconnect(); } catch { /* gone */ }
+      }, fadeMs + 30);
+      this.out = null;
+    } else {
+      for (const s of this.sources) {
+        try { s.stop(); } catch { /* not started */ }
+      }
     }
     this.sources.clear();
     for (const t of this.timers) clearTimeout(t);
@@ -271,7 +288,11 @@ export class Speaker {
     if (item.fx && this.voiceFx) {
       try { fx = this.voiceFx(src); } catch { fx = null; }
     }
-    (fx ? fx.out : src).connect(bus);
+    if (!this.out || this.out.context !== c) {
+      this.out = c.createGain(); // per-run gain, so stop(fadeMs) can fade the voice
+      this.out.connect(bus);
+    }
+    (fx ? fx.out : src).connect(this.out);
     src.start(at);
     this.playhead = at + buf.duration + item.pause;
     this.started = true;

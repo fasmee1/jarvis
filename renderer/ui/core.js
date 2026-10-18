@@ -17,12 +17,17 @@ const R = {
   segOut: 232, segIn: 222, // 72 segments, 10px long, inside the track
   inner: 150, // inner circle (with the faint disc)
   amber: 72, // amber arcs around the logo
+  follow: 58, // hands-free follow-up countdown arc (between the logo and the readout)
 };
 const SEGS = 72;
 const STANDBY_ARC = 40; // degrees
 const ORBIT = 12; // seconds per rotation at standby
 const WAVE = 6; // seconds per standby wave lap
 const PROCESSING = new Set(['TRANSCRIBING', 'THINKING', 'TOOL_RUNNING', 'STREAMING']);
+// hands-free: waiting for the wake word (very calm) and the follow-up window
+const WAKE_IDLE = new Set(['WAKE_LISTENING', 'WAKE_DETECTED']);
+const WAKE_MS = 400; // wake reaction: logo pulse + one bright sweep
+const RIPPLE_MS = 700;
 
 const PAL = {
   accent: [91, 225, 240],
@@ -60,6 +65,18 @@ export class Core {
     this.err = 0;
     this.mini = false;
     this.lineRipples = [];
+    this.wakeAt = -1e9;
+    this.follow = null; // { at, ms } while the follow-up window is open
+  }
+
+  /** Hands-free wake word heard: logo 1 → 1.08 → 1, one soft ripple, one bright ring sweep. */
+  wake() {
+    this.wakeAt = performance.now();
+  }
+
+  /** Follow-up window: a thin arc around the core that shrinks over ms (null = hide). */
+  setFollow(ms) {
+    this.follow = ms ? { at: performance.now(), ms } : null;
   }
 
   resize(scale) {
@@ -135,10 +152,11 @@ export class Core {
   frame(now, dt) {
     const s = this.state;
     const audio = s === 'LISTENING' || s === 'SPEAKING';
+    const calm = WAKE_IDLE.has(s);
     const busy = PROCESSING.has(s);
     this.blend = Math.min(1, this.blend + dt / 0.5);
     this.activity *= Math.pow(0.25, dt);
-    if (!audio) this.level *= Math.pow(0.08, dt);
+    if (!audio && s !== 'FOLLOW_UP') this.level *= Math.pow(0.08, dt);
     this.err += ((s === 'ERROR' ? 1 : 0) - this.err) * Math.min(1, dt * 4);
     this.mini = !!(this.canvas.parentElement && this.canvas.parentElement.classList.contains('mini'));
     // amber arcs: fade in / out over ~300 ms
@@ -153,7 +171,8 @@ export class Core {
       this.sweepT += dt / 1.6;
       target = 30 + 130 * (0.5 - 0.5 * Math.cos(this.sweepT * TAU));
       speed = TAU / 1.4;
-    } else if (s === 'ERROR') speed = 0;
+    } else if (calm) speed = TAU / 24; // slow, dim breathing while waiting for the wake word
+    else if (s === 'ERROR') speed = 0;
     if (this.reduced) speed = 0;
     this.head += speed * dt;
     this.arcLen += (target - this.arcLen) * Math.min(1, dt * (audio ? 14 : 6));
@@ -169,8 +188,33 @@ export class Core {
 
   /** Target brightness per segment (0..1) from real audio, a processing sweep, or the standby wave. */
   _segTargets(now) {
+    const out = this._segBase(now);
+    // wake reaction: one bright sweep round the ring (400 ms)
+    const p = (now - this.wakeAt) / WAKE_MS;
+    if (p >= 0 && p < 1 && !this.reduced) {
+      const head = p * 360;
+      for (let i = 0; i < SEGS; i++) {
+        const d = (head - (i / SEGS) * 360 + 720) % 360;
+        if (d < 70) out[i] = Math.max(out[i], Math.pow(1 - d / 70, 2) * 0.95);
+      }
+    }
+    return out;
+  }
+
+  _segBase(now) {
     const s = this.state;
     const out = new Float32Array(SEGS);
+    if (s === 'FOLLOW_UP') {
+      // follow-up: segments follow the mic softly (half strength)
+      const lv = Math.min(1, this.level * 1.2) * 0.5;
+      const b = this.bands;
+      for (let i = 0; i < SEGS; i++) {
+        const pos = i < SEGS / 2 ? i : SEGS - i;
+        const v = b && b.length ? (b[Math.floor((pos / (SEGS / 2)) * (b.length - 1))] || 0) * 0.6 : lv * (0.55 + 0.45 * Math.cos((pos / (SEGS / 2)) * Math.PI * 0.5));
+        out[i] = Math.min(1, v);
+      }
+      return out;
+    }
     if (s === 'LISTENING' || s === 'SPEAKING') {
       const b = this.bands;
       const lv = Math.min(1, this.level * 1.2);
@@ -245,7 +289,8 @@ export class Core {
     // ---- the live arc: 2px cyan, round caps ----
     if (B.arc > 0 && this.arcLen > 0.5) {
       const len = ((this.arcLen * Math.PI) / 180) * B.arc;
-      ctx.strokeStyle = rgba(accent, 0.95);
+      const calmA = WAKE_IDLE.has(this.state) && !this.reduced ? 0.22 + 0.2 * (0.5 + 0.5 * Math.sin((now / 5000) * TAU)) : WAKE_IDLE.has(this.state) ? 0.35 : 0.95;
+      ctx.strokeStyle = rgba(accent, calmA);
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       ctx.beginPath();
@@ -314,7 +359,9 @@ export class Core {
 
     // ---- logo: 1.6× larger, soft halo behind, slow breathing (4 s) ----
     if (B.logo > 0) {
-      const sc = 0.98 + 0.02 * B.logo;
+      const wp = (now - this.wakeAt) / WAKE_MS;
+      const pulse = wp >= 0 && wp < 1 && !this.reduced ? 1 + 0.08 * Math.sin(Math.PI * wp) : 1;
+      const sc = (0.98 + 0.02 * B.logo) * pulse;
       ctx.save();
       ctx.scale(sc, sc);
       if (this.quality === 'high') {
@@ -331,6 +378,35 @@ export class Core {
       ctx.globalAlpha = (0.85 + 0.15 * breathe) * B.logo;
       this._logo(ctx, accent);
       ctx.restore();
+    }
+
+    // ---- wake ripple: one soft cyan ring expanding from the core ----
+    const rp = (now - this.wakeAt) / RIPPLE_MS;
+    if (rp >= 0 && rp < 1) {
+      const q = 1 - Math.pow(1 - rp, 3);
+      ctx.strokeStyle = rgba(accent, 0.45 * (1 - rp));
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 56 + q * (R.track - 56), 0, TAU);
+      ctx.stroke();
+    }
+
+    // ---- follow-up window: a thin arc around the core shrinking to 0 ----
+    if (this.follow) {
+      const frac = Math.max(0, 1 - (now - this.follow.at) / this.follow.ms);
+      ctx.strokeStyle = rgba(W, 0.06);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, R.follow, 0, TAU);
+      ctx.stroke();
+      if (frac > 0) {
+        ctx.strokeStyle = rgba(accent, 0.75);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(0, 0, R.follow, -Math.PI / 2, -Math.PI / 2 + frac * TAU);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+      }
     }
 
     // ---- amber arcs: thin, only while listening or speaking (300 ms fades) ----

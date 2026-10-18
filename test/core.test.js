@@ -181,3 +181,15 @@ test('ClaudeSession reports a missing executable', async () => {
   assert.strictEqual(e.code, 'CLAUDE_NOT_FOUND');
   assert.strictEqual(s.busy, false);
 });
+
+test('voice/typed model commands map to --model aliases', () => {
+  const { parseModelCommand } = require('../lib/jarvis-core');
+  assert.strictEqual(parseModelCommand('/model haiku'), 'haiku');
+  assert.strictEqual(parseModelCommand('เปลี่ยนโมเดลเป็น sonnet'), 'sonnet');
+  assert.strictEqual(parseModelCommand('เปลี่ยนโมเดลเป็นโอปุสครับ'), 'opus');
+  assert.strictEqual(parseModelCommand('สลับโมเดลเป็น ไฮกุ'), 'haiku');
+  assert.strictEqual(parseModelCommand('ใช้โมเดล ค่าเริ่มต้น'), '');
+  assert.strictEqual(parseModelCommand('/model'), null);
+  assert.strictEqual(parseModelCommand('เปลี่ยนโมเดลเป็น gpt'), null);
+  assert.strictEqual(parseModelCommand('ช่วยอธิบายว่าเปลี่ยนโมเดลเป็น sonnet ยังไง'), null);
+});

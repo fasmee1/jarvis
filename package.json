@@ -23,6 +23,7 @@
     "gsap": "^3.15.0"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "1.1.1"
+    "@mediapipe/tasks-vision": "1.1.1",
+    "onnxruntime-web": "1.29.0"
   }
 }

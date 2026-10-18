@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, session: eSession, globalShortcut, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session: eSession, globalShortcut, protocol, net, powerMonitor, Tray, Menu, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -14,11 +14,32 @@ const { installThaiVoice } = require('./lib/installer/thai-voice');
 const { PERMISSION_MODES } = require('./lib/claude/args');
 const { SttService } = require('./lib/stt');
 const { VisionAssets } = require('./lib/installer/vision-assets');
+const { WakeAssets } = require('./lib/installer/wake-assets');
+const { pcm16ToWav } = require('./lib/stt/wav');
+const { trayIconPng } = require('./lib/tray-icon');
 
 const APP_ROOT = __dirname;
 const APP_ORIGIN = 'app://jarvis';
 // Only these folders are reachable from the renderer via app://jarvis/…
-const SERVED_DIRS = ['renderer', path.join('node_modules', '@mediapipe', 'tasks-vision')];
+const SERVED_DIRS = ['renderer', path.join('node_modules', '@mediapipe', 'tasks-vision'), path.join('node_modules', 'onnxruntime-web', 'dist')];
+
+// Dev aid: JARVIS_USER_DATA=<dir> runs with a separate profile (own settings,
+// own single-instance lock) next to a normally running JARVIS.
+if (process.env.JARVIS_USER_DATA) app.setPath('userData', process.env.JARVIS_USER_DATA);
+
+// Dev aid (hands-free tests): JARVIS_FAKE_AUDIO=<file.wav> replaces the microphone
+// with that WAV, looping; JARVIS_METRICS=<file> logs per-process CPU every 2 s.
+if (process.env.JARVIS_FAKE_AUDIO) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.JARVIS_FAKE_AUDIO);
+}
+if (process.env.JARVIS_METRICS) {
+  app.whenReady().then(() => setInterval(() => {
+    const m = app.getAppMetrics().map((p) => `${p.type}:${p.cpu.percentCPUUsage.toFixed(1)}`).join(' ');
+    fs.appendFileSync(process.env.JARVIS_METRICS, `${Date.now()} ${m}\n`);
+  }, 2000));
+}
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
@@ -42,14 +63,24 @@ let settings = null;
 let tts = null;
 let stt = null;
 let vision = null;
+let wakeAssets = null;
+let tray = null;
+// hands-free state reported by the renderer (for tray mode + background throttling)
+const hf = { on: false };
+
+// `jarvis --camera-on` asks for the camera once the app has booted. Only an explicit
+// launch flag from the user starts the camera; the renderer still needs the same
+// permission prompt as the CAM button.
+let cameraAutoStart = process.argv.includes('--camera-on');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     if (win) {
       if (win.isMinimized()) win.restore();
       win.focus();
+      if (argv.includes('--camera-on')) send('camera:cmd', { action: 'on' });
     }
   });
 }
@@ -84,6 +115,14 @@ function createWindow() {
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.on('closed', () => { win = null; });
+  // Hands-free: in tray mode a minimized window hides to the tray and keeps
+  // listening; otherwise the renderer pauses wake listening while hidden.
+  win.on('minimize', () => {
+    if (hf.on && settings.get().handsFreeBackground === 'tray') {
+      win.hide();
+      showTray();
+    }
+  });
   // F11 toggles fullscreen. Esc is left to the page and never exits the app.
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type === 'keyDown' && input.key === 'F11') {
@@ -126,6 +165,11 @@ function handle(channel, fn) {
 }
 
 function registerIpc() {
+  handle('camera:autostart', () => {
+    const want = cameraAutoStart;
+    cameraAutoStart = false;
+    return want;
+  });
   handle('app:init', () => ({
     snapshot: core.snapshot(),
     settings: settings.get(),
@@ -293,12 +337,42 @@ function registerIpc() {
   handle('stt:transcribe', async (p) => {
     v.obj(p);
     const pcm = v.bytes(p.pcm, 16000 * 2 * 180, 'pcm'); // ≤ 3 minutes of 16 kHz mono int16
+    const partial = p.partial === undefined ? false : v.bool(p.partial, 'partial');
+    // verify: second-stage wake check on the ~1.6 s around a detection — local whisper
+    // only (this audio is from before the wake word, so it never goes to a cloud service), never saved
+    const verify = p.verify === undefined ? false : v.bool(p.verify, 'verify');
+    if (verify && settings.get().sttProvider !== 'whisper') return { ok: false, code: 'SKIPPED' };
     try {
-      const text = await stt.transcribe(pcm);
+      const text = await stt.transcribe(pcm, { partial });
+      if (partial) return text == null ? { ok: false, code: 'SKIPPED' } : { ok: true, text };
+      if (settings.get().saveVoiceHistory && !verify) saveVoice(pcm, text);
       return { ok: true, text };
     } catch (err) {
       return { ok: false, code: err.code || 'STT_FAILED', error: err.message };
     }
+  });
+
+  // ---- Hands-free (wake word models + background behaviour) ----
+  handle('hf:status', () => wakeAssets.status());
+  handle('hf:install', () => wakeAssets.install((p) => send('install:progress', { what: 'hands-free', ...p })));
+  handle('hf:model', (p) => {
+    v.oneOf(p, WakeAssets.MODEL_NAMES, 'model');
+    const buf = wakeAssets.read(p);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+  handle('hf:active', (p) => {
+    v.obj(p);
+    hf.on = v.bool(p.on, 'on');
+    // tray mode keeps timers running at full rate while the window is hidden
+    win.webContents.setBackgroundThrottling(!(hf.on && settings.get().handsFreeBackground === 'tray'));
+    if (tray) updateTray();
+    if (!hf.on && tray && win.isVisible()) hideTray();
+    return { ok: true };
+  });
+  handle('hf:open-history', () => {
+    const dir = path.join(app.getPath('userData'), 'voice-history');
+    fs.mkdirSync(dir, { recursive: true });
+    return shell.openPath(dir);
   });
 
   // ---- Vision (phase 3) ----
@@ -322,6 +396,50 @@ function registerIpc() {
   });
 }
 
+/** Optional voice history (Settings, off by default): command audio + transcript. */
+function saveVoice(pcm, text) {
+  try {
+    const dir = path.join(app.getPath('userData'), 'voice-history');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = path.join(dir, new Date().toISOString().replace(/[:.]/g, '-'));
+    fs.writeFileSync(base + '.wav', pcm16ToWav(pcm));
+    fs.writeFileSync(base + '.txt', text || '', 'utf8');
+  } catch { /* history is optional */ }
+}
+
+// ---- system tray (hands-free tray mode only) ----
+function showTray() {
+  if (!tray) {
+    tray = new Tray(nativeImage.createFromBuffer(trayIconPng(32, { live: hf.on }), { scaleFactor: 2 }));
+    tray.on('click', restoreFromTray);
+  }
+  updateTray();
+}
+
+function updateTray() {
+  if (!tray) return;
+  tray.setImage(nativeImage.createFromBuffer(trayIconPng(32, { live: hf.on }), { scaleFactor: 2 }));
+  tray.setToolTip(hf.on ? 'Mee JARVIS · Hands-free กำลังฟัง “จาร์วิส”' : 'Mee JARVIS');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'เปิด JARVIS', click: restoreFromTray },
+    { label: 'ปิด Hands-free', enabled: hf.on, click: () => send('hf:command', { action: 'off' }) },
+    { type: 'separator' },
+    { label: 'ออกจากแอป', click: () => app.quit() },
+  ]));
+}
+
+function restoreFromTray() {
+  if (!win) return;
+  win.show();
+  if (win.isMinimized()) win.restore();
+  win.focus();
+  hideTray();
+}
+
+function hideTray() {
+  if (tray) { tray.destroy(); tray = null; }
+}
+
 // Push-to-talk hotkey. Electron's globalShortcut has no key-up event, so the
 // hotkey toggles listening; VAD ends the recording on silence.
 function registerHotkey() {
@@ -342,6 +460,7 @@ app.whenReady().then(async () => {
   stt = new SttService({ dataDir: path.join(userData, 'stt'), tempDir: path.join(app.getPath('temp'), 'mee-jarvis') });
   stt.configure(settings.get());
   vision = new VisionAssets({ dataDir: path.join(userData, 'vision') });
+  wakeAssets = new WakeAssets({ dataDir: path.join(userData, 'handsfree') });
   core = new JarvisCore({
     settings,
     tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
@@ -363,10 +482,15 @@ app.whenReady().then(async () => {
   registerIpc();
   createWindow();
   registerHotkey();
+  // device sleep / screen lock pause hands-free listening; resume restarts it
+  for (const ev of ['suspend', 'resume', 'lock-screen', 'unlock-screen']) {
+    powerMonitor.on(ev, () => send('hf:power', { kind: ev }));
+  }
 });
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  hideTray();
   if (core) core.cleanup();
   if (tts) tts.dispose();
   if (stt) stt.dispose();

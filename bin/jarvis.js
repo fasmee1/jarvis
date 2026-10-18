@@ -20,9 +20,11 @@ try {
 
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
-const arg = process.argv[2];
-if (arg === '-h' || arg === '--help') {
-  console.log('ใช้งาน: jarvis [โฟลเดอร์โปรเจกต์]');
+const args = process.argv.slice(2);
+const flags = args.filter((a) => a.startsWith('--'));
+const arg = args.find((a) => !a.startsWith('--'));
+if (args.includes('-h') || args.includes('--help')) {
+  console.log('ใช้งาน: jarvis [โฟลเดอร์โปรเจกต์] [--camera-on]');
   process.exit(0);
 }
 if (arg) {
@@ -34,6 +36,7 @@ if (arg) {
   env.JARVIS_START_CWD = dir;
 }
 
-const child = spawn(electron, [appRoot], { detached: true, stdio: 'ignore', env, shell: false, windowsHide: false });
+// Flags go to Electron's argv; the running app reads them in main.js.
+const child = spawn(electron, [appRoot, ...flags], { detached: true, stdio: 'ignore', env, shell: false, windowsHide: false });
 child.unref();
-console.log('เปิด Mee JARVIS แล้ว' + (env.JARVIS_START_CWD ? ` (โฟลเดอร์: ${env.JARVIS_START_CWD})` : ''));
+console.log('เปิด Mee JARVIS แล้ว' + (env.JARVIS_START_CWD ? ` (โฟลเดอร์: ${env.JARVIS_START_CWD})` : '') + (flags.includes('--camera-on') ? ' พร้อมเปิดกล้อง' : ''));

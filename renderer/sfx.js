@@ -16,6 +16,7 @@ const KEY = {
   vol: 'jarvis.sfxVolume',
   bootMute: 'jarvis.bootSoundMuted',
   greet: 'jarvis.voiceGreeting',
+  wake: 'jarvis.wakeChime',
 };
 const LOOKAHEAD = 0.01;
 const WET = 0.2;
@@ -94,6 +95,8 @@ class Sfx {
     this.volume = Number.isFinite(vol) ? clamp(vol, 0, 1) : 0.6;
     this.bootMuted = load(KEY.bootMute, '0') === '1';
     this.greeting = load(KEY.greet, '1') !== '0';
+    // hands-free wake chime: important feedback, plays even with HUD sound off
+    this.wakeChimeOn = load(KEY.wake, '1') !== '0';
     this.chat = true; // send / done / approval cues (the SFX button in TALK)
     this.quietUntil = 0;
     this.lastHover = 0;
@@ -177,6 +180,7 @@ class Sfx {
 
   /** Context for a sound in `group`, or null when that sound should stay silent. */
   _ready(group = 'ui') {
+    if (group === 'wake') return this.wakeChimeOn ? this.context() : null;
     if (!this.enabled) return null;
     if (group === 'boot' && this.bootMuted) return null;
     if (group === 'chat' && !this.chat) return null;
@@ -369,6 +373,12 @@ class Sfx {
     this._emit();
   }
 
+  setWakeChime(on) {
+    this.wakeChimeOn = !!on;
+    save(KEY.wake, this.wakeChimeOn ? '1' : '0');
+    this._emit();
+  }
+
   setChat(on) {
     this.chat = !!on;
   }
@@ -503,6 +513,48 @@ class Sfx {
     const v = this._voice(c, { len: 0.18, wet: 0.18 });
     this._tone(v, { freq: 990, a: 0.004, d: 0.07, peak: 0.05 });
     this._tone(v, { freq: 660, at: v.t + 0.08, a: 0.004, d: 0.08, peak: 0.05 });
+  }
+
+  // ================= hands-free =================
+  /** Wake word heard: a short rising two-note chime, E5 → B5, sine, 120 ms in total. */
+  wakeChime() {
+    const c = this._ready('wake');
+    if (!c) return;
+    const v = this._voice(c, { len: 0.2, wet: 0.2, group: 'wake' });
+    this._tone(v, { freq: 659.25, a: 0.004, d: 0.056, peak: 0.07 });
+    this._tone(v, { freq: 987.77, at: v.t + 0.06, a: 0.004, d: 0.056, peak: 0.07 });
+  }
+
+  /** The command was captured: one soft blip. */
+  captureBlip() {
+    const c = this._ready('ui');
+    if (!c) return;
+    const v = this._voice(c, { len: 0.12, wet: 0.15 });
+    this._tone(v, { freq: 1318.51, a: 0.003, d: 0.06, peak: 0.04 });
+  }
+
+  /** Timeout / cancel: a quiet falling blip. */
+  cancelBlip() {
+    const c = this._ready('ui');
+    if (!c) return;
+    const v = this._voice(c, { len: 0.2, wet: 0.15 });
+    this._tone(v, { freq: 740, to: 494, glide: 0.12, a: 0.004, d: 0.13, peak: 0.03 });
+  }
+
+  /** Hands-free on: a soft rising tone. */
+  hfOn() {
+    const c = this._ready('ui');
+    if (!c) return;
+    const v = this._voice(c, { len: 0.32, wet: 0.25 });
+    this._tone(v, { freq: 523.25, to: 783.99, glide: 0.2, a: 0.02, d: 0.24, peak: 0.05 });
+  }
+
+  /** Hands-free off: the same tone, falling. */
+  hfOff() {
+    const c = this._ready('ui');
+    if (!c) return;
+    const v = this._voice(c, { len: 0.32, wet: 0.25 });
+    this._tone(v, { freq: 783.99, to: 523.25, glide: 0.2, a: 0.02, d: 0.24, peak: 0.045 });
   }
 
   /** Camera mode: a subtle whoosh over a soft low sine glide. dir 'in' rises, 'out' falls. */

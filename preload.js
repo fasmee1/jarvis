@@ -31,6 +31,12 @@ const INVOKE = [
   'mcp:choose-config',
   'dir:choose-extra',
   'window:control',
+  'hf:status',
+  'hf:install',
+  'hf:model',
+  'hf:active',
+  'hf:open-history',
+  'camera:autostart',
 ];
 
 const EVENTS = [
@@ -56,6 +62,9 @@ const EVENTS = [
   'ptt',
   'install:progress',
   'window:state',
+  'hf:power',
+  'hf:command',
+  'camera:cmd',
 ];
 
 contextBridge.exposeInMainWorld('jarvis', {
