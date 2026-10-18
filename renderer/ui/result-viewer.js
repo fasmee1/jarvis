@@ -13,13 +13,14 @@ const LONG_ANSWER = 700; // characters: a reply this long without a payload open
 
 export class ResultViewer {
   /**
-   * o: { viewer, home, api, speaker, sfx, retry(): void }
+   * o: { viewer, home, api, speaker, sfx, web: WebViewer, retry(): void }
    */
   constructor(o) {
     this.o = o;
     this.viewer = o.viewer;
     this.turn = null; // { skeletonId, hadResult }
     this.last = null; // last payload shown (for "ดูผลลัพธ์อีกครั้ง")
+    this.lastAt = 0;
     this.playing = new Set(); // tab ids whose video is playing
     this.attention = false; // JARVIS listening / speaking → videos duck
     this.sel = -1;
@@ -33,7 +34,7 @@ export class ResultViewer {
   /** Voice-command context for the parser. */
   context() {
     const t = this.viewer.current;
-    return { viewer: this.viewer.isOpen, video: !!(t && t.ctl && t.ctl.video) };
+    return { viewer: this.viewer.isOpen, video: !!(t && t.ctl && t.ctl.video), web: !!(this.o.web && this.o.web.current) };
   }
 
   // ---------- turn lifecycle (from app.js) ----------
@@ -88,6 +89,16 @@ export class ResultViewer {
 
   // ---------- tabs ----------
   _openPayload(data, replaceId) {
+    if (data.type === 'web' && this.o.web) {
+      // live page + AI summary (Web Viewer); the search skeleton, if any, goes away
+      const url = safeUrl(data.url || (data.items && data.items[0] && data.items[0].url));
+      if (url) {
+        if (replaceId && this.viewer.tabs.has(replaceId)) this.viewer.close(replaceId);
+        this.o.web.open(url, { initiator: 'jarvis', question: data.question || '', title: data.title || '', speak: !data.spokenSummary });
+        return null;
+      }
+    }
+    this.lastAt = Date.now();
     const meta = TYPE_META[data.type] || TYPE_META.text;
     const items = data.items || [];
     const title = data.title && !data.title.startsWith(meta.label) ? `${meta.label}: ${data.title}` : data.title || meta.label;
@@ -131,7 +142,8 @@ export class ResultViewer {
       this._openPayload({ type: 'youtube', title: title || 'YouTube', items: [{ videoId: vid, title: title || '' }] }, null);
       return;
     }
-    this._openPayload({ type: 'web', title: title || domainOf(u), url: u }, null);
+    if (this.o.web) this.o.web.open(u, { initiator: 'jarvis', title: title || '' });
+    else this._openPayload({ type: 'web', title: title || domainOf(u), url: u }, null);
   }
 
   openExternal(url) {
@@ -143,7 +155,6 @@ export class ResultViewer {
     return {
       openWeb: (url, title) => this.openWeb(url, title),
       openExternal: (url) => this.openExternal(url),
-      inspect: (url) => this.o.api.invoke('web:inspect', url).catch((err) => ({ ok: false, error: err.message })),
       speak: (text) => this.speak(text),
       retry: () => this.o.retry(),
       reveal: (el) => this.viewer.reveal(el),
@@ -185,7 +196,8 @@ export class ResultViewer {
     if (ev === 'close' && tab) this._video(tab.id, 'none');
     if (ev === 'select') this.sel = -1;
     if (ev === 'closed') {
-      // back on the HUD: LAST REPLY offers the last result again
+      // back on the HUD: LAST REPLY offers the last result (or web page) again
+      if (this.o.web && this.o.web.lastAt > this.lastAt && this.o.web.offerReopen()) return;
       this.o.home.cards.setReplyReopen(this.last ? () => this.reopenLast() : null);
     }
     if (ev === 'opened') this.o.home.cards.setReplyReopen(null);
@@ -199,6 +211,7 @@ export class ResultViewer {
     const ctl = (t && t.ctl) || {};
     const items = ctl.items || [];
     const item = (n) => items[n - 1];
+    if (cmd.op !== 'close' && this.o.web && this.o.web.command(cmd)) return true;
     switch (cmd.op) {
       case 'close': v.closeAll(); return true;
       case 'next':

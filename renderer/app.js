@@ -15,6 +15,7 @@ import { OwwEngine } from './handsfree/engine.js';
 import { parseCommand } from './handsfree/commands.js';
 import { StageViewer } from './ui/stage-viewer.js';
 import { ResultViewer } from './ui/result-viewer.js';
+import { WebViewer } from './ui/web-viewer.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -46,9 +47,12 @@ const S = {
   dotAtt: false,
   hfRec: false, // hands-free is recording a command (the MIC card shows dB only then)
   hfLat: null,
+  webThinking: false, // the Web Viewer is reading / summarizing a page
+  voiceAsk: null, // { cb, timer }: the next transcript answers "ถามหน้านี้" instead of going to Claude
 };
 let hands = null; // hands-free controller (set up below)
 let resultViewer = null; // Result Viewer (set up below)
+let webViewer = null; // Web Viewer (set up below)
 
 const sections = new Sections({
   onChange: (name) => {
@@ -121,6 +125,7 @@ function displayState() {
   if (S.coreState === 'AWAITING_APPROVAL' || S.coreState === 'ERROR') return S.coreState;
   if (S.coreState === 'TOOL_RUNNING') return 'TOOL_RUNNING';
   if (S.speaking) return 'SPEAKING';
+  if (S.webThinking && S.coreState === 'STANDBY') return 'THINKING';
   return S.coreState;
 }
 
@@ -615,14 +620,42 @@ async function onMicEnd({ pcm, hadSpeech, tListenEnd }) {
   afterTranscript(r.text, { t_listen_end: tListenEnd, t_transcribed: tTranscribed });
 }
 
+/** The next transcript goes to cb (Web Viewer "ถามหน้านี้" by voice). */
+function voiceAsk(cb) {
+  if (S.voiceAsk) { clearTimeout(S.voiceAsk.timer); S.voiceAsk.cb(null); }
+  S.voiceAsk = { cb, timer: setTimeout(() => takeVoiceAsk(null), 30000) };
+  startListening();
+}
+
+function takeVoiceAsk(text) {
+  const va = S.voiceAsk;
+  if (!va) return false;
+  S.voiceAsk = null;
+  clearTimeout(va.timer);
+  va.cb(text);
+  return true;
+}
+
+/** "เปิดเว็บ pantip" / "ไปที่ github.com": known sites open here, anything else goes to Claude. */
+async function openSite(cmd, fallback) {
+  let url = null;
+  try { url = await api.invoke('web:resolve', cmd.name); } catch { /* not resolvable */ }
+  if (url) webViewer.open(url, { initiator: 'jarvis' });
+  else fallback(cmd.text);
+}
+
 function afterTranscript(text, latency) {
-  if (resultViewer && resultViewer.isOpen) {
-    const cmd = parseCommand(text, resultViewer.context());
-    if (cmd && cmd.action === 'viewer') {
-      addSystemMsg(`🎙 ${text}`);
-      resultViewer.command(cmd);
-      return;
-    }
+  if (takeVoiceAsk(text)) return;
+  const cmd = parseCommand(text, resultViewer ? resultViewer.context() : {});
+  if (cmd && cmd.action === 'viewer' && resultViewer && resultViewer.isOpen) {
+    addSystemMsg(`🎙 ${text}`);
+    resultViewer.command(cmd);
+    return;
+  }
+  if (cmd && cmd.action === 'open-site') {
+    addSystemMsg(`🎙 ${text}`);
+    openSite(cmd, (t) => send(t, { fromVoice: true, latency }));
+    return;
   }
   if (needsTranscriptConfirm()) {
     $('transcript-confirm').hidden = false;
@@ -646,16 +679,27 @@ const vision = new Vision({
 
 // one large viewer for camera + results (same transition, never two at once)
 const viewer = new StageViewer({ home, openExternal: (u) => resultViewer.openExternal(u) });
+webViewer = new WebViewer({
+  viewer,
+  api,
+  home,
+  speak: (text) => resultViewer.speak(text),
+  notice: (text, level) => notice(text, level || 'info', null, 6000),
+  onThinking: (on) => { S.webThinking = on; refreshState(); },
+  voiceAsk,
+});
 resultViewer = new ResultViewer({
   viewer,
   home,
   api,
   speaker,
   sfx,
+  web: webViewer,
   retry: () => { if (S.lastUserText) send(S.lastUserText); },
 });
 window.jarvisViewer = Object.freeze({
   show: (data) => resultViewer.show(data),
+  openWeb: (url, opts) => webViewer.open(url, { initiator: 'jarvis', ...(opts || {}) }),
   close: () => viewer.closeAll(),
   get open() { return viewer.isOpen; },
 });
@@ -743,6 +787,7 @@ async function hfTranscribe(pcm, { partial, verify }) {
 }
 
 async function hfSend(text) {
+  if (takeVoiceAsk(text)) return false; // answered by the Web Viewer, no Claude turn to wait for
   addSystemMsg(`🎙 ${text}`);
   if (needsTranscriptConfirm()) {
     // acceptEdits / bypassPermissions: voice text is confirmed on screen first (by click)
@@ -761,6 +806,7 @@ function hfLocal(cmd) {
     case 'card-open': home.docking.open(cmd.card); break;
     case 'handsfree-off': addSystemMsg('ปิดโหมด Hands-free'); break;
     case 'viewer': resultViewer.command(cmd); break;
+    case 'open-site': openSite(cmd, (t) => hfSend(t)); break;
     default: break;
   }
 }
@@ -1048,7 +1094,7 @@ function openSettings(tab = 'claude') {
   refreshInstallStatus();
   if (sections.current !== 'settings') sections.show('settings');
   for (const b of $('settings-tabs').querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.stab === tab);
-  for (const t of ['claude', 'perm', 'voice', 'camera', 'handsfree', 'display']) $(`stab-${t}`).hidden = t !== tab;
+  for (const t of ['claude', 'perm', 'voice', 'camera', 'handsfree', 'display', 'web']) $(`stab-${t}`).hidden = t !== tab;
 }
 
 function wireSettings() {
@@ -1137,6 +1183,14 @@ function wireSettings() {
   $('s-dir-add').onclick = async () => {
     const p = await api.invoke('dir:choose-extra');
     if (p && !S.settings.addDirs.includes(p)) { await saveSetting({ addDirs: [...S.settings.addDirs, p] }); fillSettings(); }
+  };
+  $('s-web-clear').onclick = async (e) => {
+    if (!e.isTrusted) return;
+    e.target.disabled = true;
+    $('s-web-clear-status').textContent = 'กำลังล้าง…';
+    const r = await api.invoke('web:clear-data').catch((err) => ({ ok: false, error: err.message }));
+    e.target.disabled = false;
+    $('s-web-clear-status').textContent = r.ok ? 'ล้างข้อมูลเว็บแล้ว' : `ล้างไม่สำเร็จ: ${r.error}`;
   };
   $('s-stt-install').onclick = async (e) => {
     e.target.disabled = true;

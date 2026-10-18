@@ -18,6 +18,9 @@ const { WakeAssets } = require('./lib/installer/wake-assets');
 const { pcm16ToWav } = require('./lib/stt/wav');
 const { trayIconPng } = require('./lib/tray-icon');
 const webReader = require('./lib/web/reader');
+const { WebBrowser } = require('./lib/web/browser');
+const { WebPermissions } = require('./lib/web/permissions');
+const { resolveSite } = require('./lib/web/web-utils');
 
 const APP_ROOT = __dirname;
 const APP_ORIGIN = 'app://jarvis';
@@ -66,6 +69,7 @@ let stt = null;
 let vision = null;
 let wakeAssets = null;
 let tray = null;
+let web = null; // Web Viewer browser (WebContentsViews in the main window)
 // hands-free state reported by the renderer (for tray mode + background throttling)
 const hf = { on: false };
 
@@ -129,7 +133,9 @@ function createWindow() {
     if (input.type === 'keyDown' && input.key === 'F11') {
       e.preventDefault();
       win.setFullScreen(!win.isFullScreen());
+      return;
     }
+    if (web) web.hudKey(e, input); // a web page is shown: Ctrl+R / Ctrl+W / Ctrl+L / Ctrl+F act on it
   });
   win.on('enter-full-screen', () => send('window:state', { fullscreen: true }));
   win.on('leave-full-screen', () => send('window:state', { fullscreen: false }));
@@ -140,8 +146,17 @@ function createWindow() {
   if (shot) {
     const logFile = shot.replace(/\.png$/i, '') + '.console.log';
     fs.writeFileSync(logFile, '');
+    const grab = async () => {
+      const img = await win.webContents.capturePage();
+      return web ? web.composite(img).catch(() => img) : img;
+    };
     win.webContents.on('console-message', (e) => {
       fs.appendFileSync(logFile, `[${e.level}] ${e.message} (${e.sourceId}:${e.lineNumber})\n`);
+      // a page script can ask for extra frames: console.log('[shot] name') → <shot>-name.png
+      const m = /^\[shot\] ([\w-]{1,40})$/.exec(String(e.message || ''));
+      if (m) grab().then((img) => fs.writeFileSync(shot.replace(/\.png$/i, '') + `-${m[1]}.png`, img.toPNG()), () => {});
+      // '[crash-web]' crashes the shown web page (tests the crash notice)
+      if (e.message === '[crash-web]' && web && web.tab(web.active)) web.tab(web.active).wc.forcefullyCrashRenderer();
     });
     win.webContents.once('did-finish-load', () => {
       // Optional page script for UI smoke tests (synthetic clicks are untrusted,
@@ -150,7 +165,7 @@ function createWindow() {
         setTimeout(() => win.webContents.executeJavaScript(process.env.JARVIS_SCREENSHOT_SCRIPT).catch((err) => fs.appendFileSync(logFile, `[script] ${err.message}\n`)), 2500);
       }
       setTimeout(async () => {
-        const img = await win.webContents.capturePage();
+        const img = await grab();
         fs.writeFileSync(shot, img.toPNG());
         if (process.env.JARVIS_SCREENSHOT_QUIT) app.quit();
       }, Number(process.env.JARVIS_SCREENSHOT_DELAY) || 5000);
@@ -376,15 +391,7 @@ function registerIpc() {
     return shell.openPath(dir);
   });
 
-  // ---- Result Viewer: web pages ----
-  handle('web:inspect', async (p) => {
-    const url = v.str(p, 2000, 'url');
-    try {
-      return await webReader.inspect(url);
-    } catch (err) {
-      return { ok: false, error: err.name === 'AbortError' ? 'หมดเวลาโหลดหน้าเว็บ' : err.message };
-    }
-  });
+  // ---- Result Viewer: open pages externally ----
   handle('web:open-external', async (p) => {
     const url = v.str(p, 2000, 'url');
     let u;
@@ -392,6 +399,51 @@ function registerIpc() {
     if (u.protocol !== 'https:' && u.protocol !== 'http:') return { ok: false, error: 'เปิดได้เฉพาะ http/https' };
     await shell.openExternal(u.toString());
     return { ok: true };
+  });
+
+  // ---- Web Viewer: live pages in WebContentsViews ----
+  const tabId = (x) => v.str(x, 20, 'tabId');
+  handle('web:open', (p) => {
+    v.obj(p);
+    return web.open({ url: v.str(p.url, 4000, 'url'), initiator: v.oneOf(p.initiator ?? 'user', ['user', 'jarvis'], 'initiator') });
+  });
+  handle('web:resolve', (p) => resolveSite(v.str(p, 300, 'name')));
+  handle('web:bounds', (p) => {
+    v.obj(p);
+    let rect = null;
+    if (p.rect) {
+      v.obj(p.rect, 'rect');
+      rect = {};
+      for (const k of ['x', 'y', 'width', 'height']) rect[k] = v.num(p.rect[k], `rect.${k}`, { min: -10000, max: 20000 });
+    }
+    web.setBounds({ tabId: p.tabId == null ? null : tabId(p.tabId), rect, visible: v.bool(p.visible, 'visible') });
+    return { ok: true };
+  });
+  handle('web:nav', (p) => {
+    v.obj(p);
+    const action = v.oneOf(p.action, ['back', 'forward', 'reload', 'stop', 'go'], 'action');
+    return web.nav(tabId(p.tabId), action, action === 'go' ? v.str(p.url, 4000, 'url') : undefined);
+  });
+  handle('web:close', (p) => { web.close(tabId(p)); return { ok: true }; });
+  handle('web:focus', (p) => { web.focus(tabId(p)); return { ok: true }; });
+  handle('web:capture', (p) => web.capture(tabId(p)));
+  handle('web:pause', async (p) => { await web.pauseMedia(tabId(p)); return { ok: true }; });
+  handle('web:find', (p) => {
+    v.obj(p);
+    web.find(tabId(p.tabId), v.str(p.text ?? '', 300, 'text'), { forward: p.forward !== false, next: p.next === true });
+    return { ok: true };
+  });
+  handle('web:prompt-respond', (p) => {
+    v.obj(p);
+    return { ok: web.respond(v.str(p.id, 20, 'id'), v.bool(p.allow, 'allow'), p.remember === true) };
+  });
+  handle('web:clear-data', async () => {
+    try {
+      await web.clearData();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 
   // ---- Vision (phase 3) ----
@@ -502,6 +554,14 @@ app.whenReady().then(async () => {
   ses.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/*', 'https://www.youtube.com/*'] }, (d, cb) => {
     if (!d.requestHeaders.Referer && !d.requestHeaders.referer) d.requestHeaders.Referer = 'https://mee-jarvis.app/';
     cb({ requestHeaders: d.requestHeaders });
+  });
+
+  web = new WebBrowser({
+    getWin: () => (win && !win.isDestroyed() ? win : null),
+    send,
+    perms: new WebPermissions(userData),
+    checkPublicUrl: (u) => webReader.checkUrl(u),
+    log: process.env.JARVIS_WEB_DEBUG && process.env.JARVIS_SCREENSHOT ? (m) => fs.appendFileSync(process.env.JARVIS_SCREENSHOT.replace(/\.png$/i, '') + '.console.log', `[main] ${m}\n`) : null,
   });
 
   registerIpc();

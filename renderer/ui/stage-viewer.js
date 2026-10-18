@@ -22,6 +22,7 @@ import './ease.js';
 const gsap = window.gsap;
 const NS = 'http://www.w3.org/2000/svg';
 const MINI = 0.35; // reactor scale while the viewer is open
+const MINI_WEB = 0.2; // smaller badge over a live web page (the native page can't sit under it)
 const R_VIS = 306; // reactor visual radius at scale 1 (stage px)
 const HEAD = 48; // header height (window px)
 const VCUT = 6; // same chamfer as the cards
@@ -255,6 +256,7 @@ export class StageViewer {
     this._renderHead();
     if (t.ctl && t.ctl.onShow) t.ctl.onShow();
     if (prev && prev.id !== id && this.mode) this.reveal(t.body);
+    if (prev && prev.id !== id && (prev.kind === 'web') !== (t.kind === 'web')) this._moveReactor();
     this._emit('select', t);
   }
 
@@ -268,6 +270,14 @@ export class StageViewer {
   close(id) {
     const t = this.tabs.get(id);
     if (!t) return;
+    // a live web page first swaps itself for a screenshot (native views can't animate)
+    if (t.ctl && t.ctl.freeze && !t.frozen && this.order.length === 1) {
+      t.frozen = true;
+      Promise.race([Promise.resolve().then(() => t.ctl.freeze()), new Promise((r) => setTimeout(r, 400))])
+        .catch(() => {})
+        .finally(() => this.close(id));
+      return;
+    }
     this.tabs.delete(id);
     this.order = this.order.filter((k) => k !== id);
     if (t.ctl && t.ctl.dispose) { try { t.ctl.dispose(); } catch { /* best effort */ } }
@@ -311,7 +321,7 @@ export class StageViewer {
     v.meta.textContent = s.meta || '';
     v.extras.replaceChildren(...(s.extras ? [s.extras] : []));
     v.tabs.hidden = this.order.length < 2;
-    v.ext.hidden = !(t && t.external && t.external());
+    v.ext.hidden = !(t && t.external && t.external()) || !!s.hideExt;
     v.root.setAttribute('aria-label', s.title ? `ผลลัพธ์: ${s.title}` : 'ผลลัพธ์');
     const f = s.footer;
     v.foot.hidden = !f || (!f.text && !f.sources);
@@ -333,15 +343,42 @@ export class StageViewer {
     };
   }
 
+  _mini() {
+    const t = this.current;
+    return t && t.kind === 'web' ? MINI_WEB : MINI;
+  }
+
+  /** The mini reactor's circle in window px ({ cx, cy, r }), for content that must stay clear of it. */
+  badge() {
+    const g = this.g || this._geom();
+    const R = this._reactorTarget(g);
+    const t = this.home.t;
+    return { cx: t.ox + (CORE.x + R.x) * t.scale, cy: t.oy + (CORE.y + R.y) * t.scale, r: R_VIS * R.s * t.scale };
+  }
+
+  /** Re-target the reactor (e.g. switching between a web page and another tab). */
+  _moveReactor() {
+    if (!this.mode || this.busy) return;
+    const R = this.home.cards.reactor;
+    const last = this._reactorTarget(this.g || this._geom());
+    document.getElementById('core-wrap').classList.toggle('mini-web', last.s === MINI_WEB);
+    this._layout(this.g || this._geom());
+    if (this.reduced || !gsap) { Object.assign(R, last); this.home.applyReactor(); }
+    else gsap.to(R, { x: last.x, y: last.y, s: last.s, r: 0, duration: 0.35, ease: 'calm', onUpdate: () => this.home.applyReactor() });
+    this.docking.floatArea = this._floatArea(this.g, last);
+    this._emit('layout', this.current);
+  }
+
   /** Reactor transform that centres it on the viewer's bottom-left corner (kept on screen). */
   _reactorTarget(g) {
     const t = this.home.t;
-    const r = R_VIS * MINI;
+    const mini = this._mini();
+    const r = R_VIS * mini;
     const minX = -t.ox / t.scale + r + 8;
     const maxY = (innerHeight - t.oy) / t.scale - r - 8;
     const cx = Math.max(g.x, minX);
     const cy = Math.min(g.y + g.h, maxY);
-    return { x: cx - CORE.x, y: cy - CORE.y, s: MINI, r: 0 };
+    return { x: cx - CORE.x, y: cy - CORE.y, s: mini, r: 0 };
   }
 
   _layout(g) {
@@ -354,13 +391,13 @@ export class StageViewer {
     // content in window px
     Object.assign(inner.style, { width: `${g.w * k}px`, height: `${g.h * k}px`, transform: `scale(${1 / k})` });
     // the mini reactor covers the bottom-left corner: footer text starts after it
-    inner.style.setProperty('--badge', `${Math.round((R_VIS * MINI + 12) * k)}px`);
+    inner.style.setProperty('--badge', `${Math.round((R_VIS * this._mini() + 12) * k)}px`);
     this.g = g;
   }
 
   _floatArea(g, R) {
     const cy = CORE.y + R.y;
-    return { x: g.x + 28, bottom: cy - R_VIS * MINI - 12, top: g.y + (HEAD + 16) / this.home.t.scale };
+    return { x: g.x + 28, bottom: cy - R_VIS * R.s - 12, top: g.y + (HEAD + 16) / this.home.t.scale };
   }
 
   _relayout() {
@@ -375,6 +412,7 @@ export class StageViewer {
     Object.assign(this.home.cards.reactor, R);
     this.home.applyReactor();
     this.docking.floatArea = this._floatArea(g, R);
+    this._emit('layout', this.current);
   }
 
   // ---------- keys ----------
@@ -449,6 +487,7 @@ export class StageViewer {
         defaults: { ease: 'calm' },
         onComplete: () => {
           wrap.classList.add('mini');
+          wrap.classList.toggle('mini-web', last.s === MINI_WEB);
           gsap.set([root, head, bodies, foot, base, ...accs], { clearProps: 'transform,opacity,strokeDasharray,strokeDashoffset,transformOrigin' });
           dock.unlock();
           root.focus({ preventScroll: true });
@@ -495,7 +534,7 @@ export class StageViewer {
     const { root, head, bodies, foot, frame } = this.v;
     const g = this.g || this._geom();
     dock.lock();
-    wrap.classList.remove('mini');
+    wrap.classList.remove('mini', 'mini-web');
     const apply = () => home.applyReactor();
     const accs = frame.querySelectorAll('.acc');
 

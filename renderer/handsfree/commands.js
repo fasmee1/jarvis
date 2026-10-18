@@ -158,6 +158,32 @@ const VIEW = {
   softer: R('^(?:เสียงเบาลง|เบาลง|เบาลงอีก|ลดเสียง|volumedown|quieter|softer|turnitdown)$'),
 };
 
+// ---------- Web Viewer (a live web page is the current tab) ----------
+const WEB = {
+  summarize: R('^(?:สรุปหน้านี้|สรุปหน้าเว็บ|สรุปเว็บนี้|สรุปอีกครั้ง|สรุปใหม่|สรุปให้หน่อย|สรุป|summarize|summarizethis|summarizethispage|summary)$'),
+  more: R('^(?:อ่านต่อ|สรุปต่อ|readmore|continuereading)$'),
+  top: R('^(?:ไปบนสุด|ขึ้นบนสุด|กลับไปบนสุด|เลื่อนขึ้นบนสุด|บนสุด|scrolltotop|totop|top)$'),
+  back: R('^(?:ย้อนกลับ|กลับหน้าก่อน|หน้าก่อน|ถอยกลับ|กลับ|goback|back)$'),
+  forward: R('^(?:ไปข้างหน้า|หน้าถัดไป|เดินหน้า|forward|goforward)$'),
+  reload: R('^(?:รีโหลด|โหลดใหม่|รีเฟรช|รีเฟรซ|reload|refresh)$'),
+  nextTab: R('^(?:แท็บถัดไป|แทบถัดไป|แท็บต่อไป|nexttab)$'),
+  closeTab: R('^(?:ปิดแท็บ|ปิดแทบ|ปิดแท็บนี้|closetab|closethistab)$'),
+  expand: R('^(?:ขยายเว็บ|ขยายหน้าเว็บ|ขยาย|ซ่อนสรุป|expand|hidesummary)$'),
+};
+const WEB_OPS = [['summarize', 'summarize'], ['more', 'more'], ['top', 'top'], ['back', 'back'], ['forward', 'forward'], ['reload', 'reload'], ['nextTab', 'next-tab'], ['closeTab', 'close-tab'], ['expand', 'expand']];
+// on the raw transcript (spaces kept): "คลิกลิงก์ ราคาทอง", "click the link pricing"
+const CLICK = /^(?:คลิก|คลิ๊ก|กด|เปิด)\s*(?:ที่)?\s*ลิ(?:ง|้ง)ค?ก์?\s*(?:ที่ชื่อ|ชื่อ|ที่ว่า)?\s*(.+?)\s*(?:ครับ|ค่ะ|คะ|หน่อย|ให้หน่อย|นะ)*[.!]?$|^click(?:\s+on)?(?:\s+the)?\s+link\s+(.+?)[.!]?$/i;
+
+function webCommand(t, raw) {
+  for (const [k, op] of WEB_OPS) if (WEB[k].test(t)) return { action: 'viewer', op };
+  const m = CLICK.exec(raw);
+  if (m && (m[1] || m[2])) return { action: 'viewer', op: 'click', text: (m[1] || m[2]).trim().slice(0, 200) };
+  return null;
+}
+
+// "เปิดเว็บ pantip", "ไปที่ github.com", "open github" (anywhere; unknown names go to Claude)
+const OPEN_SITE = /^(?:เปิดเว็บไซต์|เปิดเว็บ|เปิดหน้าเว็บ|เข้าเว็บ|ไปเว็บ|ไปที่เว็บ|ไปที่|open\s+(?:the\s+)?(?:website\s+)?|go\s+to\s+)\s*([\p{L}\p{N}][\p{L}\p{N}\p{M}.\-/:]*?)\s*(?:ครับ|ค่ะ|คะ|หน่อย|ให้หน่อย|นะ|please)*[.!]?$/iu;
+
 function viewerCommand(t, ctx) {
   const v = (op, n) => ({ action: 'viewer', op, ...(n != null ? { n } : {}) });
   if (ctx.video) {
@@ -185,8 +211,13 @@ function viewerCommand(t, ctx) {
 
 /** ctx: { viewer: the Result Viewer is open, video: a video is loaded in it } */
 export function parseCommand(transcript, ctx = {}) {
-  const t = tight(stripWake(transcript));
+  const raw = stripWake(transcript).trim();
+  const t = tight(raw);
   if (!t) return null;
+  if (ctx.viewer && ctx.web) {
+    const wc = webCommand(t, raw);
+    if (wc) return wc;
+  }
   if (ctx.viewer) {
     const vc = viewerCommand(t, ctx);
     if (vc) return vc;
@@ -202,6 +233,8 @@ export function parseCommand(transcript, ctx = {}) {
     const id = cardId(m[1]);
     if (id) return { action, card: id };
   }
+  const site = OPEN_SITE.exec(raw);
+  if (site) return { action: 'open-site', name: site[1].trim(), text: raw };
   return null;
 }
 

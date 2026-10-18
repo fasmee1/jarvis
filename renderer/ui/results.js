@@ -4,8 +4,7 @@
 //
 // Safety: everything from the model or the web is written with textContent;
 // links and images must be http(s); YouTube ids must look like ids. Raw HTML is
-// never injected. Web pages come from main as plain-text reader blocks or as a
-// sandboxed iframe (only when the site allows framing).
+// never injected. Live web pages are the Web Viewer's job (ui/web-viewer.js).
 //
 // Each renderer returns a controller:
 //   { items: [{ el, open(), read: string }], external?(): url, video?, dispose?(), onShow?(), onHide?() }
@@ -310,78 +309,6 @@ function renderYoutube(root, data, ctx) {
   return ctl;
 }
 
-// ---------- web (iframe when allowed, otherwise reader view) ----------
-function renderWeb(root, data, ctx) {
-  const url = safeUrl(data.url || (data.items && data.items[0] && data.items[0].url));
-  if (!url) return renderEmpty(root, 'ไม่มีลิงก์ที่เปิดได้', ctx.retry);
-  const ctl = { items: [], external: () => url };
-  const bar = h('div', 'wv-bar');
-  const addr = h('span', 'wv-url', url);
-  const toggle = h('button', 'rv-btn', 'Reader');
-  toggle.type = 'button';
-  toggle.hidden = true;
-  const ext = h('button', 'rv-btn', 'เปิดในเบราว์เซอร์');
-  ext.type = 'button';
-  ext.addEventListener('click', (e) => { e.stopPropagation(); ctx.openExternal(url); });
-  bar.append(vicon('web', 'wv-i'), addr, toggle, ext);
-  const view = h('div', 'wv-view');
-  root.append(bar, view);
-  renderSkeleton(view, 'web');
-  let page = null;
-  let mode = 'reader';
-
-  const showReader = () => {
-    mode = 'reader';
-    toggle.textContent = 'หน้าเว็บ';
-    view.classList.remove('framed');
-    view.replaceChildren();
-    const art = h('article', 'rd');
-    if (page.siteName) art.append(h('div', 'rd-site', page.siteName));
-    art.append(h('h1', 'rd-title', page.title || url));
-    if (page.published) art.append(h('div', 'rd-time', relTime(page.published)));
-    const pic = img(page.image, 'rd-img', '');
-    if (pic) art.append(pic);
-    const blocks = page.blocks && page.blocks.length ? page.blocks : page.description ? [{ kind: 'p', text: page.description }] : [];
-    for (const b of blocks) art.append(h(b.kind === 'h' ? 'h2' : b.kind === 'li' ? 'li' : b.kind === 'quote' ? 'blockquote' : 'p', `rd-${b.kind}`, b.text));
-    if (!blocks.length) art.append(h('p', 'rd-p dim', 'ดึงเนื้อหาจากหน้านี้ไม่ได้ — เปิดในเบราว์เซอร์แทน'));
-    view.append(art);
-    root.scrollTop = 0;
-    if (root.parentElement) root.closest('.sv-body')?.scrollTo(0, 0);
-    ctx.reveal(view);
-  };
-  const showFrame = () => {
-    mode = 'frame';
-    toggle.textContent = 'Reader';
-    view.classList.add('framed');
-    const f = document.createElement('iframe');
-    f.className = 'wv-frame';
-    // sandboxed: scripts run in the site's own origin, but it can't navigate or open this app
-    f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
-    f.referrerPolicy = 'no-referrer';
-    f.src = page.url || url;
-    f.title = page.title || url;
-    view.replaceChildren(f);
-  };
-  toggle.addEventListener('click', (e) => { e.stopPropagation(); if (mode === 'reader') showFrame(); else showReader(); });
-
-  ctx.inspect(url).then((r) => {
-    if (!root.isConnected && !ctl.alive) return;
-    if (!r || !r.ok) {
-      view.replaceChildren();
-      renderEmpty(view, `โหลดไม่สำเร็จ${r && r.error ? ` — ${r.error}` : ''}`, () => { root.replaceChildren(); Object.assign(ctl, renderWeb(root, data, ctx)); }, () => ctx.openExternal(url));
-      return;
-    }
-    page = r;
-    addr.textContent = r.url || url;
-    toggle.hidden = !r.frameable;
-    if (r.frameable && !r.nonHtml) showFrame();
-    else showReader();
-  });
-  ctl.alive = true;
-  ctl.dispose = () => { ctl.alive = false; const f = view.querySelector('iframe'); if (f) f.src = 'about:blank'; };
-  return ctl;
-}
-
 // ---------- images ----------
 function renderImages(root, data, ctx) {
   const items = [];
@@ -674,7 +601,6 @@ const RENDERERS = {
   search: renderSearch,
   news: renderNews,
   youtube: renderYoutube,
-  web: renderWeb,
   images: renderImages,
   weather: renderWeather,
   table: renderTable,
@@ -711,7 +637,7 @@ export function isEmptyResult(data) {
 
 /**
  * Render a payload into `root` (a viewer tab body).
- * ctx: { openWeb(url, title), openExternal(url), inspect(url), speak(text), retry(), onVideo(state), reveal(el) }
+ * ctx: { openWeb(url, title), openExternal(url), speak(text), retry(), onVideo(state), reveal(el) }
  */
 export function renderResult(root, data, ctx) {
   if (isEmptyResult(data)) return renderEmpty(root, 'ไม่พบผลลัพธ์', ctx.retry);

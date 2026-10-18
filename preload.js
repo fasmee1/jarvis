@@ -37,8 +37,23 @@ const INVOKE = [
   'hf:active',
   'hf:open-history',
   'camera:autostart',
-  'web:inspect',
   'web:open-external',
+  'web:open',
+  'web:resolve',
+  'web:summarize',
+  'web:ask',
+  'web:highlight',
+  'web:scroll',
+  'web:click-link',
+  'web:bounds',
+  'web:nav',
+  'web:close',
+  'web:focus',
+  'web:capture',
+  'web:pause',
+  'web:find',
+  'web:prompt-respond',
+  'web:clear-data',
 ];
 
 const EVENTS = [
@@ -67,6 +82,9 @@ const EVENTS = [
   'hf:power',
   'hf:command',
   'camera:cmd',
+  'web:tab',
+  'web:prompt',
+  'web:summary',
 ];
 
 contextBridge.exposeInMainWorld('jarvis', {

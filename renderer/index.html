@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="ui/camera.css">
   <link rel="stylesheet" href="ui/viewer.css">
+  <link rel="stylesheet" href="ui/web.css">
 </head>
 <body>
   <!-- ============ HOME: one full-screen instrument ============ -->
@@ -203,6 +204,7 @@
         <button data-stab="camera" class="tab">กล้อง</button>
         <button data-stab="handsfree" class="tab">Hands-free</button>
         <button data-stab="display" class="tab">การแสดงผล</button>
+        <button data-stab="web" class="tab">เว็บ</button>
       </div>
       <div class="stab" id="stab-claude">
         <label>Path ของ claude (เว้นว่าง = หาอัตโนมัติ)<input id="s-claudePath" type="text" placeholder="C:\Users\...\claude.exe"></label>
@@ -316,6 +318,12 @@
         <label class="check"><input id="ui-voice-greeting" type="checkbox"> พูดทักทายหลังเปิดเครื่อง (ใช้เสียงพูดภาษาไทยของ Windows)</label>
         <p class="dim">คลิกหรือกด Esc ระหว่างเปิดเครื่องเพื่อข้าม</p>
         <p class="dim">ถ้าระบบตั้ง "ลดการเคลื่อนไหว" (reduced motion) ไว้ HUD จะหยุดการหมุนและการเคลื่อนไหวอัตโนมัติ · F11 สลับเต็มจอ</p>
+      </div>
+      <div class="stab" id="stab-web" hidden>
+        <p>หน้าเว็บที่ JARVIS เปิดใช้ข้อมูลแยกจากแอป (คุกกี้ การล็อกอิน แคช) และเก็บไว้ระหว่างการเปิดแอปแต่ละครั้ง</p>
+        <div class="row"><button id="s-web-clear" class="btn danger">ล้างข้อมูลเว็บ</button><span id="s-web-clear-status" class="dim"></span></div>
+        <p class="dim">ล้างคุกกี้ การล็อกอิน แคช และสิทธิ์ที่จำไว้ (กล้อง ไมค์ ตำแหน่ง การแจ้งเตือน) ของทุกเว็บ · แท็บเว็บที่เปิดอยู่จะถูกปิด</p>
+        <p class="dim">คีย์ลัดในหน้าเว็บ: Ctrl+L ที่อยู่ · Alt+← / → ย้อนกลับ / ไปข้างหน้า · Ctrl+R โหลดใหม่ · Ctrl+W ปิดแท็บ · Ctrl+F ค้นหาในหน้า</p>
       </div>
     </div>
   </section>

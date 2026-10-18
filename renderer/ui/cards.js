@@ -219,7 +219,7 @@ export class Cards {
     const foot = h('div', 'foot');
     const seg = this._meter();
     const cnt = h('span', 'mono', '—');
-    const reopen = h('button', 'reply-reopen', 'ดูผลลัพธ์อีกครั้ง');
+    const reopen = h('button', 'reply-reopen', this.replyReopenLabel || 'ดูผลลัพธ์อีกครั้ง');
     reopen.type = 'button';
     reopen.hidden = !this.replyReopen;
     reopen.addEventListener('click', (e) => { e.stopPropagation(); if (this.replyReopen) this.replyReopen(); });
@@ -339,10 +339,14 @@ export class Cards {
   }
 
   /** LAST REPLY: show a small "ดูผลลัพธ์อีกครั้ง" link that runs fn (null hides it). */
-  setReplyReopen(fn) {
+  setReplyReopen(fn, label = 'ดูผลลัพธ์อีกครั้ง') {
     this.replyReopen = fn || null;
+    this.replyReopenLabel = label;
     const c = this.cards.get('reply');
-    if (c && c.parts.reopen) c.parts.reopen.hidden = !fn;
+    if (c && c.parts.reopen) {
+      c.parts.reopen.hidden = !fn;
+      c.parts.reopen.textContent = label;
+    }
   }
 
   setReply(text, { spoken = 0, total = 0 } = {}) {
