@@ -1,10 +1,24 @@
 // TTS providers + a queue that speaks segments in order.
-//  - 'winrt': Windows OneCore voices via main (only way to reach Thai voices on Windows)
+//  - 'winrt': synthesized in main — Edge neural voices (th-TH-NiwatNeural, listed
+//             first) with automatic fallback to Windows OneCore voices offline
 //  - 'web'  : speechSynthesis with a th-TH voice, if Chromium exposes one
-// Segments are short (≈ one sentence) which also avoids Chromium's bug where
-// long utterances stop by themselves.
+//
+// WinRT playback is gapless: each segment is synthesized and decoded as soon as
+// it arrives, the ~0.1 s lead / ~0.8 s tail silence Windows adds is trimmed, and
+// segments are scheduled back to back on the Web Audio clock with a short
+// natural pause. Speech starts once a few seconds are buffered, the reply is
+// complete (flush), or PREBUFFER_MAX_MS has passed — whichever comes first.
 
 const api = window.jarvis;
+
+const PREBUFFER_SEC = 3; // start once this much audio is ready…
+const PREBUFFER_MAX_MS = 1500; // …or after this long, so short replies don't lag
+const PAUSE_SENTENCE = 0.28; // gap after . ! ? ฯ
+const PAUSE_PHRASE = 0.12; // gap after a phrase cut (space / newline)
+const SILENCE = 0.01; // ≈ -40 dBFS: below this counts as silence when trimming
+const PAD_LEAD = 0.02;
+const PAD_TAIL = 0.05;
+const FADE = 0.005; // tiny fade at both ends so trimmed edges never click
 
 function webThaiVoice() {
   const voices = window.speechSynthesis ? speechSynthesis.getVoices() : [];
@@ -21,6 +35,37 @@ function waitVoices(ms = 1500) {
       resolve();
     };
   });
+}
+
+/** Copy of `buf` without leading/trailing silence, with short fades. */
+function trimSilence(c, buf) {
+  const ch = buf.numberOfChannels;
+  const n = buf.length;
+  const loud = (i) => {
+    for (let k = 0; k < ch; k++) if (Math.abs(buf.getChannelData(k)[i]) > SILENCE) return true;
+    return false;
+  };
+  let a = 0;
+  while (a < n && !loud(a)) a++;
+  if (a >= n) return buf; // all silent: leave as is
+  let z = n - 1;
+  while (z > a && !loud(z)) z--;
+  const sr = buf.sampleRate;
+  a = Math.max(0, a - Math.round(PAD_LEAD * sr));
+  z = Math.min(n - 1, z + Math.round(PAD_TAIL * sr));
+  const len = z - a + 1;
+  const out = c.createBuffer(ch, len, sr);
+  const f = Math.min(Math.round(FADE * sr), Math.floor(len / 2));
+  for (let k = 0; k < ch; k++) {
+    const d = out.getChannelData(k);
+    d.set(buf.getChannelData(k).subarray(a, z + 1));
+    for (let i = 0; i < f; i++) {
+      const g = i / f;
+      d[i] *= g;
+      d[len - 1 - i] *= g;
+    }
+  }
+  return out;
 }
 
 export class Speaker {
@@ -40,8 +85,15 @@ export class Speaker {
     this.queue = [];
     this.speaking = false;
     this.gen = 0; // increments on stop() to drop in-flight work
-    this.audio = null;
     this.muted = false;
+    // WinRT scheduler state
+    this.sources = new Set(); // scheduled/playing buffer sources
+    this.timers = new Set();
+    this.playhead = 0; // context time where the next segment may start
+    this.started = false; // prebuffer gate passed for the current run
+    this.flushed = false; // reply text complete: start without waiting
+    this.firstAt = 0; // when the first segment of this run was queued
+    this.pumping = false;
   }
 
   async detect() {
@@ -83,12 +135,26 @@ export class Speaker {
     }
     const gen = this.gen;
     const item = { text, gen, rate: opts.rate ?? this.rate, pitch: opts.pitch ?? 1, fx: !!opts.fx };
-    // Pre-synthesize WinRT audio right away so playback is gapless.
     if (this.engine === 'winrt') {
-      item.wav = api.invoke('tts:synthesize', { text, voice: this.voiceName, rate: item.rate, pitch: item.pitch });
+      // Synthesize + decode right away (in parallel with whatever is playing).
+      item.pause = /[.!?ฯ]$/.test(text.trim()) ? PAUSE_SENTENCE : PAUSE_PHRASE;
+      item.buf = api
+        .invoke('tts:synthesize', { text, voice: this.voiceName, rate: item.rate, pitch: item.pitch })
+        .then((r) => this._decode(r))
+        .then((b) => { item.dur = b.duration; return b; });
+      item.buf.catch(() => {}); // handled in _pump
+      if (!this.started && !this.queue.length && !this.sources.size) this.firstAt = performance.now();
+      this.queue.push(item);
+      this._pump();
+      return;
     }
     this.queue.push(item);
     if (!this.speaking) this._next();
+  }
+
+  /** The reply text is complete: start speaking now instead of waiting to buffer. */
+  flush() {
+    if (this.queue.length || this.sources.size) this.flushed = true;
   }
 
   /** 32 real output FFT bands (WinRT playback only) or null. */
@@ -108,18 +174,157 @@ export class Speaker {
   stop() {
     this.gen++;
     this.queue = [];
-    if (this.audio) {
-      this.audio.pause();
-      this.audio.src = '';
-      this.audio = null;
+    for (const s of this.sources) {
+      try { s.stop(); } catch { /* not started */ }
     }
+    this.sources.clear();
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
+    this._resetRun();
     if (window.speechSynthesis) speechSynthesis.cancel();
     clearInterval(this.keepAlive);
     if (this.speaking) {
       this.speaking = false;
+      this.analyser = null;
+      this.onLevel(0);
       this.onIdle();
     }
   }
+
+  // ================= WinRT: gapless scheduler =================
+
+  _ctx() {
+    const shared = this.getContext ? this.getContext() : null;
+    return shared || (this.actx = this.actx || new AudioContext());
+  }
+
+  async _decode(r) {
+    if (!r || !r.ok) throw new Error((r && r.error) || 'TTS failed');
+    const u8 = r.wav instanceof Uint8Array ? r.wav : new Uint8Array(r.wav);
+    const ab = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+    const c = this._ctx();
+    return trimSilence(c, await c.decodeAudioData(ab));
+  }
+
+  _resetRun() {
+    this.playhead = 0;
+    this.started = false;
+    this.flushed = false;
+  }
+
+  /** Seconds of decoded audio waiting in the queue. */
+  _ready() {
+    let s = 0;
+    for (const it of this.queue) if (it.dur) s += it.dur + it.pause;
+    return s;
+  }
+
+  _gateOpen() {
+    return this.started || this.flushed || this._ready() >= PREBUFFER_SEC
+      || performance.now() - this.firstAt >= PREBUFFER_MAX_MS;
+  }
+
+  async _pump() {
+    if (this.pumping) return;
+    this.pumping = true;
+    const gen = this.gen;
+    try {
+      while (this.queue.length && gen === this.gen) {
+        while (!this._gateOpen() && gen === this.gen) await new Promise((r) => setTimeout(r, 40));
+        if (gen !== this.gen) break;
+        const item = this.queue[0];
+        let buf = null;
+        try {
+          buf = await item.buf;
+        } catch (err) {
+          this.onProblem('TTS_FAILED', err.message);
+        }
+        if (gen !== this.gen) break;
+        this.queue.shift();
+        if (buf) this._schedule(item, buf);
+      }
+    } finally {
+      this.pumping = false;
+    }
+    if (gen === this.gen) this._checkIdle();
+  }
+
+  _bus(c) {
+    if (!this.an || this.anCtx !== c) {
+      this.an = c.createAnalyser();
+      this.an.fftSize = 512;
+      this.an.connect(c.destination);
+      this.anCtx = c;
+      this.fft = new Uint8Array(this.an.frequencyBinCount);
+    }
+    return this.an;
+  }
+
+  _schedule(item, buf) {
+    const c = this._ctx();
+    const bus = this._bus(c);
+    const now = c.currentTime;
+    const at = Math.max(now + 0.05, this.playhead);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    let fx = null;
+    if (item.fx && this.voiceFx) {
+      try { fx = this.voiceFx(src); } catch { fx = null; }
+    }
+    (fx ? fx.out : src).connect(bus);
+    src.start(at);
+    this.playhead = at + buf.duration + item.pause;
+    this.started = true;
+    this.sources.add(src);
+
+    const gen = this.gen;
+    const t = setTimeout(() => {
+      this.timers.delete(t);
+      if (gen === this.gen) this.onStart(item.text);
+    }, Math.max(0, (at - now) * 1000));
+    this.timers.add(t);
+
+    src.onended = () => {
+      this.sources.delete(src);
+      if (fx) fx.dispose();
+      try { src.disconnect(); } catch { /* gone */ }
+      if (gen === this.gen) this._checkIdle();
+    };
+
+    if (!this.speaking) {
+      this.speaking = true;
+      this.analyser = bus;
+      this._meter();
+    }
+  }
+
+  _checkIdle() {
+    if (this.sources.size || this.queue.length || this.pumping) return;
+    this._resetRun();
+    if (this.speaking) {
+      this.speaking = false;
+      this.analyser = null;
+      this.onLevel(0);
+      this.onIdle();
+    }
+  }
+
+  _meter() {
+    const an = this.analyser;
+    if (!an) return;
+    const buf = new Float32Array(an.fftSize);
+    const tick = () => {
+      if (!this.speaking || this.analyser !== an) return;
+      an.getFloatTimeDomainData(buf);
+      let s = 0;
+      for (const x of buf) s += x * x;
+      this.onLevel(Math.min(1, Math.sqrt(s / buf.length) * 4));
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  // ================= speechSynthesis fallback =================
 
   async _next() {
     const item = this.queue.shift();
@@ -133,66 +338,11 @@ export class Speaker {
     if (item.gen !== this.gen) return this._next();
     this.speaking = true;
     try {
-      if (this.engine === 'winrt') await this._playWinrt(item);
-      else await this._playWeb(item);
+      await this._playWeb(item);
     } catch (err) {
       this.onProblem('TTS_FAILED', err.message);
     }
     if (item.gen === this.gen) this._next();
-  }
-
-  async _playWinrt(item) {
-    const r = await item.wav;
-    if (item.gen !== this.gen) return;
-    if (!r.ok) throw new Error(r.error);
-    const url = URL.createObjectURL(new Blob([r.wav], { type: 'audio/wav' }));
-    const audio = new Audio(url);
-    this.audio = audio;
-    await new Promise((resolve) => {
-      audio.onplay = () => this.onStart(item.text);
-      audio.onended = audio.onerror = () => resolve();
-      audio.play().catch(resolve);
-      this._meter(audio, item);
-    });
-    URL.revokeObjectURL(url);
-    if (this.audio === audio) this.audio = null;
-  }
-
-  _ctx() {
-    const shared = this.getContext ? this.getContext() : null;
-    return shared || (this.actx = this.actx || new AudioContext());
-  }
-
-  _meter(audio, item = {}) {
-    try {
-      const c = this._ctx();
-      const src = c.createMediaElementSource(audio);
-      const an = c.createAnalyser();
-      an.fftSize = 512;
-      this.analyser = an;
-      this.fft = new Uint8Array(an.frequencyBinCount);
-      let fx = null;
-      if (item.fx && this.voiceFx) {
-        try { fx = this.voiceFx(src); } catch { fx = null; }
-      }
-      (fx ? fx.out : src).connect(an);
-      an.connect(c.destination);
-      const buf = new Float32Array(an.fftSize);
-      const tick = () => {
-        if (audio.paused || audio.ended) {
-          this.analyser = null;
-          if (fx) fx.dispose();
-          try { src.disconnect(); an.disconnect(); } catch { /* already gone */ }
-          return this.onLevel(0);
-        }
-        an.getFloatTimeDomainData(buf);
-        let s = 0;
-        for (const x of buf) s += x * x;
-        this.onLevel(Math.min(1, Math.sqrt(s / buf.length) * 4));
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    } catch { /* metering is cosmetic */ }
   }
 
   _playWeb(item) {

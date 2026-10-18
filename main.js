@@ -8,6 +8,8 @@ const { SettingsStore, defaults: settingDefaults } = require('./lib/settings');
 const { JarvisCore } = require('./lib/jarvis-core');
 const { v } = require('./lib/ipc-validate');
 const { WinRtTts } = require('./lib/tts/winrt');
+const { EdgeTts } = require('./lib/tts/edge');
+const { HybridTts } = require('./lib/tts/hybrid');
 const { installThaiVoice } = require('./lib/installer/thai-voice');
 const { PERMISSION_MODES } = require('./lib/claude/args');
 const { SttService } = require('./lib/stt');
@@ -336,7 +338,7 @@ function registerHotkey() {
 app.whenReady().then(async () => {
   const userData = app.getPath('userData');
   settings = new SettingsStore(userData);
-  tts = new WinRtTts();
+  tts = new HybridTts({ edge: new EdgeTts(), fallback: new WinRtTts() });
   stt = new SttService({ dataDir: path.join(userData, 'stt'), tempDir: path.join(app.getPath('temp'), 'mee-jarvis') });
   stt.configure(settings.get());
   vision = new VisionAssets({ dataDir: path.join(userData, 'vision') });
@@ -356,7 +358,7 @@ app.whenReady().then(async () => {
     const own = win && wc === win.webContents && String(details.requestingUrl || '').startsWith(APP_ORIGIN + '/');
     cb(own && (permission === 'media' || permission === 'speaker-selection'));
   });
-  ses.setPermissionCheckHandler((wc, permission) => permission === 'media' && !!win && wc === win.webContents);
+  ses.setPermissionCheckHandler((wc, permission) => (permission === 'media' || permission === 'speaker-selection') && !!win && wc === win.webContents);
 
   registerIpc();
   createWindow();

@@ -52,6 +52,7 @@ const EVENTS = [
   'tts:segment',
   'tts:announce',
   'tts:stop',
+  'tts:flush',
   'ptt',
   'install:progress',
   'window:state',

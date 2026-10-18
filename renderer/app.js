@@ -660,8 +660,13 @@ const FIELDS = {
   num: ['approvalTimeoutSec', 'vadSilenceMs', 'snapshotWidth', 'snapshotHeight'],
   float: ['ttsRate', 'snapshotQuality'],
   bool: ['persistentProcess', 'guardEnabled', 'confirmVoiceBeforeSend', 'visionOverlay'],
-  select: ['sttProvider', 'whisperModel', 'micDeviceId', 'cameraDeviceId'],
+  select: ['sttProvider', 'whisperModel', 'micDeviceId', 'speakerDeviceId', 'cameraDeviceId'],
 };
+
+async function applySpeaker() {
+  const ok = await sfx.setOutputDevice(S.settings.speakerDeviceId);
+  if (!ok && S.settings.speakerDeviceId) notice('ไม่พบลำโพงที่เลือก ใช้ลำโพงค่าเริ่มต้นของระบบแทน', 'warn');
+}
 
 async function saveSetting(partial) {
   const r = await api.invoke('settings:update', partial);
@@ -700,6 +705,7 @@ async function fillDevices() {
     sel.value = cur || '';
   };
   await fill($('s-micDeviceId'), 'audioinput', S.settings.micDeviceId);
+  await fill($('s-speakerDeviceId'), 'audiooutput', S.settings.speakerDeviceId);
   await fill($('s-cameraDeviceId'), 'videoinput', S.settings.cameraDeviceId);
 }
 
@@ -774,7 +780,11 @@ function wireSettings() {
   for (const k of FIELDS.num) $(`s-${k}`).onchange = (e) => saveSetting({ [k]: parseInt(e.target.value, 10) });
   for (const k of FIELDS.float) $(`s-${k}`).onchange = async (e) => { await saveSetting({ [k]: parseFloat(e.target.value) }); speaker.setRate(S.settings.ttsRate); };
   for (const k of FIELDS.bool) $(`s-${k}`).onchange = (e) => saveSetting({ [k]: e.target.checked });
-  for (const k of FIELDS.select) $(`s-${k}`).onchange = async (e) => { await saveSetting({ [k]: e.target.value }); refreshInstallStatus(); };
+  for (const k of FIELDS.select) $(`s-${k}`).onchange = async (e) => {
+    await saveSetting({ [k]: e.target.value });
+    if (k === 'speakerDeviceId') { await applySpeaker(); sfx.send(); } // short blip so you hear where it goes
+    refreshInstallStatus();
+  };
   const lines = (id) => $(id).value.split('\n').map((x) => x.trim()).filter(Boolean);
   $('s-guard-save').onclick = async () => {
     const r = await saveSetting({ guardBlock: lines('s-guardBlock'), guardAsk: lines('s-guardAsk'), guardBlockPaths: lines('s-guardBlockPaths') });
@@ -933,8 +943,9 @@ function wireEvents() {
     if (speaker.engine !== 'none') S.segTotal++;
     speaker.enqueue(text);
   });
-  api.on('tts:announce', ({ text }) => speaker.enqueue(text));
+  api.on('tts:announce', ({ text }) => { speaker.enqueue(text); speaker.flush(); });
   api.on('tts:stop', () => speaker.stop());
+  api.on('tts:flush', () => speaker.flush());
   api.on('approval:request', onApprovalRequest);
   api.on('approval:close', onApprovalClose);
   api.on('ptt', () => (S.listening ? stopListening() : startListening()));
@@ -1061,6 +1072,7 @@ function wireDom() {
   S.settings = init.settings;
   applyAppState(init.snapshot);
   setSfxEnabled(S.settings.sfx);
+  applySpeaker();
   $('btn-sfx').classList.toggle('on', S.settings.sfx);
   refreshState();
   if (!init.snapshot.cwd) addSystemMsg('สวัสดีครับ เลือกโฟลเดอร์โปรเจกต์ (📁) แล้วพิมพ์หรือกด 🎙 เพื่อเริ่มคุยกับ JARVIS');
@@ -1083,4 +1095,5 @@ function greet() {
   if (speaker.engine === 'none' || speaker.muted) return;
   // fx: light robotic color (ring mod + highpass + reverb) on the Windows voice
   speaker.enqueue(text, { rate: 0.95, pitch: 0.9, fx: true });
+  speaker.flush();
 }

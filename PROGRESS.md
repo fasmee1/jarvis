@@ -30,7 +30,7 @@
 
 ## การตัดสินใจ / จุดที่ต่างจากต้นฉบับ (พร้อมเหตุผล)
 
-1. **TTS ภาษาไทย**: เครื่องนี้ไม่มีเสียง th-TH และ Chromium `speechSynthesis` เห็นเฉพาะเสียง SAPI → เพิ่ม provider `winrt` (Windows OneCore ผ่าน PowerShell worker ค้างไว้ ~100 ms/ประโยค) ซึ่งเข้าถึงเสียง "Microsoft Pattara" ได้เมื่อติดตั้งแล้ว; ปุ่มติดตั้งจะรัน `Add-WindowsCapability Language.TextToSpeech~~~th-TH` (ต้องกด UAC) — **ยังไม่ได้รันจริงเพราะต้องให้ผู้ใช้กดยืนยันสิทธิ์ admin**
+1. **TTS ภาษาไทย**: เครื่องนี้ไม่มีเสียง th-TH และ Chromium `speechSynthesis` เห็นเฉพาะเสียง SAPI → เพิ่ม provider `winrt` (Windows OneCore ผ่าน PowerShell worker ค้างไว้ ~100 ms/ประโยค) ซึ่งเข้าถึงเสียง "Microsoft Pattara" ได้เมื่อติดตั้งแล้ว; ปุ่มติดตั้งจะรัน `Add-WindowsCapability Language.TextToSpeech~~~th-TH` (ต้องกด UAC) — **ติดตั้งแล้ว (2026-10-18): Pattara ลงทะเบียนใน Speech_OneCore และ WinRtTts สังเคราะห์เสียงไทยได้จริง**
 2. **คีย์ลัด Ctrl+Space**: Electron `globalShortcut` ไม่มี event ปล่อยปุ่ม → กดครั้งแรกเริ่มฟัง, VAD หยุดเองเมื่อเงียบ, กดซ้ำเพื่อหยุดทันที (กดค้างแบบแท้ต้องใช้ native hook เช่น uiohook — ยังไม่ทำ)
 3. **โหมดสอนประดิษฐ์**: CLI บันทึก system prompt ต่อ conversation (`--system-prompt-snapshot on`) การ restart ด้วย `--append-system-prompt` ใหม่จึงไม่มีผลกับ session ที่ resume → ส่งคำสั่งโหมดเป็นข้อความกำกับพร้อมข้อความถัดไปแทน (มีผลทันที ไม่เสีย context)
 4. **ตัวกันพลาดแบบ "ถามบนจอ"** (อัปโหลดลงบอร์ด/admin): hook เชื่อมต่อ pipe ของแอปเองแล้วรอผู้ใช้คลิก → ทำงานได้ทุกโหมดรวม bypassPermissions (ทดสอบกับ CLI จริงแล้ว) hook ติดตั้งผ่าน `--settings` จึงไม่แก้ไฟล์ settings ของผู้ใช้

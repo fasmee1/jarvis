@@ -136,11 +136,35 @@ class Sfx {
       for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
 
       Object.assign(this, { ctx: c, bus, master, revIn, noiseBuf: noise });
+      if (this.sinkId) this._applySink();
       return c;
     } catch {
       this.failed = true;
       this.ctx = null;
       return null;
+    }
+  }
+
+  /**
+   * Route all app audio (sound effects + TTS, which share this context) to an
+   * output device. '' = system default. Safe to call before the context exists.
+   */
+  async setOutputDevice(id) {
+    this.sinkId = id || '';
+    if (this.ctx) return this._applySink();
+    return true;
+  }
+
+  async _applySink() {
+    const c = this.ctx;
+    if (!c || typeof c.setSinkId !== 'function') return false;
+    try {
+      await c.setSinkId(this.sinkId || '');
+      return true;
+    } catch {
+      // Device gone (e.g. Bluetooth speaker turned off): fall back to default.
+      try { await c.setSinkId(''); } catch { /* ignore */ }
+      return false;
     }
   }
 
