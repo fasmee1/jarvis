@@ -78,11 +78,15 @@ body {
 /* tick ring (ticks.js): one crisp ring, no glow */
 .tick-layer { position: absolute; inset: 0; width: 720px; height: 720px; overflow: visible; pointer-events: none; z-index: 2; transition: opacity var(--mid) var(--ease); }
 .tick-layer line { stroke: var(--text-1); stroke-linecap: butt; shape-rendering: geometricPrecision; }
-.tk-labels text { font-family: var(--font-mono); font-size: 10px; fill: var(--text-3); letter-spacing: 0.04em; }
+.tk-labels text { font-family: var(--font-mono); font-size: 10px; fill: var(--text-3); letter-spacing: 0.04em; paint-order: stroke; stroke: #0C1016; stroke-width: 6px; stroke-linejoin: round; }
+/* the fine tick ring turns very slowly: one rotation per 120 s */
+.tk-ring { transform-box: view-box; transform-origin: 360px 360px; animation: tk-turn 120s linear infinite; }
+@keyframes tk-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tk-ring { animation: none; } }
 
 .core-hit { position: absolute; left: 260px; top: 260px; width: 200px; height: 200px; border-radius: 50%; background: transparent; border: none; cursor: pointer; z-index: 3; }
 .core-hit:focus-visible { outline: 1px solid var(--accent-soft); outline-offset: 8px; }
-.core-readout { position: absolute; left: 0; right: 0; top: 400px; text-align: center; pointer-events: none; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.core-readout { position: absolute; left: 0; right: 0; top: 424px; text-align: center; pointer-events: none; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .state-label { font-size: 12px; font-weight: 500; letter-spacing: 0.3em; padding-left: 0.3em; color: var(--text-2); line-height: 1.5; transition: color var(--mid) var(--ease); }
 .state-label.err { color: var(--error); }
 .state-label.att { color: var(--orange); }
@@ -96,9 +100,9 @@ body {
 .cards { position: absolute; inset: 0; pointer-events: none; }
 .card { position: absolute; pointer-events: auto; cursor: pointer; transition: translate var(--mid) var(--ease), opacity 0.4s var(--ease); }
 .card .frame { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); overflow: visible; pointer-events: none; }
-.card .fill { position: absolute; inset: 0; background: var(--surface); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.card .fill { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 /* border + corner accents (drawFrame in cards.js) */
-.frame .base { fill: none; stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; transition: stroke var(--fast) var(--ease); }
+.frame .base { fill: none; stroke: rgba(255, 255, 255, 0.09); stroke-width: 1; vector-effect: non-scaling-stroke; transition: stroke var(--fast) var(--ease); }
 .frame .acc path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: miter; stroke-linecap: butt; }
 .card:hover { translate: 0 -1px; }
 .card:hover .frame .base { stroke: var(--border-hover); }
@@ -120,13 +124,13 @@ body {
 .card.floating { z-index: 40; }
 .card.hidden-card { display: none; }
 
-.card .body { margin: 16px 0 0 28px; position: relative; min-width: 0; }
+.card .body { margin: 12px 0 0 28px; position: relative; min-width: 0; }
 .card .val {
-  font-family: var(--font-mono); font-weight: 300; font-size: 40px; line-height: 1; letter-spacing: -0.01em;
+  font-family: var(--font-mono); font-weight: 300; font-size: 32px; line-height: 1; letter-spacing: -0.01em;
   color: var(--text-1); font-variant-numeric: tabular-nums; display: inline-flex; align-items: baseline; white-space: nowrap;
 }
-.card .val .u { font-size: 0.4em; font-weight: 400; color: var(--text-2); margin-left: 4px; letter-spacing: 0.02em; }
-.card .val.na { color: var(--text-3); }
+.card .val .u { font-size: 0.45em; font-weight: 400; color: var(--text-2); margin-left: 0.3em; letter-spacing: 0.02em; }
+.card .val.na, .card .val.na .u { color: var(--text-3); }
 .card .val.hot { color: var(--orange); }
 .card .hint { font-size: 12px; line-height: 1.5; color: var(--text-2); margin-top: 8px; }
 .roll { display: inline-block; animation: roll var(--mid) var(--ease); }
@@ -144,8 +148,6 @@ body {
 /* small cards: value + one short line side by side */
 .card-small .vrow { display: flex; align-items: center; gap: 16px; min-height: 32px; }
 .card-small .vrow .hint { margin: 0; max-width: 168px; }
-.card-small .val { font-size: 32px; }
-.card-small .body { margin-top: 12px; }
 .card-small .meter, .card-small .dots { margin-top: 8px; }
 
 /* LAST REPLY */
@@ -156,11 +158,13 @@ body {
 .card-reply .foot .meter { flex: 1; margin: 0; }
 .card-reply .foot .mono { font-size: 11px; color: var(--text-3); }
 /* LATENCY */
-.card-latency .chart { display: flex; align-items: flex-end; justify-content: space-between; height: 56px; margin: 20px 4px 0 28px; }
-.card-latency .chart i { width: 2px; border-radius: 1px 1px 0 0; background: rgba(255, 255, 255, 0.25); min-height: 2px; transition: height 0.5s var(--ease); }
-.card-latency .chart i.text { background: rgba(255, 255, 255, 0.14); }
+.card-latency .chart { position: relative; display: flex; align-items: flex-end; justify-content: space-around; height: 64px; margin: 20px 8px 0 28px; }
+.card-latency .chart i { width: 3px; border-radius: 1.5px; background: rgba(255, 255, 255, 0.3); min-height: 4px; transition: height 0.5s var(--ease), background var(--mid) var(--ease); }
+.card-latency .chart i.text { background: rgba(255, 255, 255, 0.18); }
 .card-latency .chart i.empty { background: rgba(255, 255, 255, 0.08); height: 4px !important; }
 .card-latency .chart i.last { background: var(--accent); }
+.card-latency .chart .avg { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed rgba(255, 255, 255, 0.14); pointer-events: none; transition: bottom 0.5s var(--ease); }
+.card-latency .chart .avg[hidden] { display: none; }
 .card-latency .lrow { display: flex; align-items: flex-end; justify-content: space-between; margin: auto 4px 0 28px; }
 .card-latency .meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); letter-spacing: 0.08em; padding-bottom: 4px; }
 .card-latency.compact .chart { display: none; }
@@ -175,7 +179,7 @@ body {
 .card-elapsed svg.ring .fg { stroke: var(--accent); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
 
 /* leader lines + framing */
-#leaders .ld { fill: none; stroke: rgba(230, 237, 243, 0.10); stroke-width: 1; transition: stroke var(--fast) var(--ease); }
+#leaders .ld { fill: none; stroke: rgba(255, 255, 255, 0.14); stroke-width: 1; transition: stroke var(--fast) var(--ease); }
 #leaders .ld.on { stroke: var(--accent-soft); }
 #leaders .dot { fill: rgba(230, 237, 243, 0.3); }
 #leaders .pulse { fill: var(--accent); }
@@ -439,6 +443,7 @@ body.booting .hud-sound-btn { opacity: 0; pointer-events: none; }
 .dock-lbl.r { left: calc(100% + 4px); }
 .dock-lbl.l { right: calc(100% + 4px); }
 .dock-node:hover .dock-lbl, .dock-node:focus-visible .dock-lbl { opacity: 1; }
+.dock-node.open { cursor: default; }
 .dock-tray { position: relative; margin-top: 8px; pointer-events: auto; display: inline-block; }
 .dock-tray-btn {
   background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--text-2); cursor: pointer;

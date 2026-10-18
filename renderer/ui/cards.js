@@ -69,13 +69,19 @@ function framePath(w, hh, cut, size = CUT, pad = 6) {
  * corner accents (top-left and bottom-right) that follow the chamfer.
  * @param {SVGSVGElement} svg  overlay covering the box plus `pad` on every side
  */
-export function drawFrame(svg, w, hh, cut, { size = CUT, pad = 6, arm = ARM } = {}) {
-  svg.setAttribute('viewBox', `0 0 ${w + pad * 2} ${hh + pad * 2}`);
+export function drawFrame(svg, W0, H0, cut, { size = CUT, pad = 6, arm = ARM } = {}) {
+  svg.setAttribute('viewBox', `0 0 ${W0 + pad * 2} ${H0 + pad * 2}`);
   if (!svg.querySelector('.base')) {
     svg.replaceChildren(svgEl('path', { class: 'base' }), svgEl('g', { class: 'acc acc-tl' }), svgEl('g', { class: 'acc acc-br' }));
   }
-  svg.querySelector('.base').setAttribute('d', framePath(w, hh, cut, size, pad));
-  const P = (x, y) => [x + pad, y + pad];
+  // Border and accents share one centreline, inset by half the accent stroke,
+  // so both sit exactly on the card's edge and nothing pokes outside it.
+  const i = 0.75;
+  const w = W0 - i * 2;
+  const hh = H0 - i * 2;
+  const o = pad + i;
+  svg.querySelector('.base').setAttribute('d', framePath(w, hh, cut, size, o));
+  const P = (x, y) => [x + o, y + o];
   const f = (n) => n.toFixed(1);
   const L = (pts) => 'M' + pts.map((p) => `${f(p[0])} ${f(p[1])}`).join(' L');
   const tl = cut.includes('tl') ? size : 0;
@@ -212,7 +218,7 @@ export class Cards {
     return { q, wave, seg, cnt };
   }
   _body_mic(inner) {
-    return this._smallBody(inner, 'ไมค์ปิดอยู่', this._meter());
+    return this._smallBody(inner, 'ไมค์ปิดอยู่ · Ctrl+Space', this._meter());
   }
   _body_tts(inner) {
     return this._smallBody(inner, 'ยังไม่ได้พูด', this._dots(10));
@@ -230,17 +236,20 @@ export class Cards {
   _body_latency(inner) {
     const chart = h('div', 'chart');
     const bars = [];
-    for (let i = 0; i < 13; i++) {
+    for (let i = 0; i < 8; i++) {
       const b = h('i', 'empty');
       bars.push(b);
       chart.append(b);
     }
+    const avg = h('div', 'avg');
+    avg.hidden = true;
+    chart.append(avg);
     const row = h('div', 'lrow');
     const meta = h('div', 'meta', '0 / 8 TURNS');
     const val = h('div', 'val na', '—');
     row.append(meta, val);
     inner.append(chart, row);
-    return { bars, meta, val };
+    return { bars, meta, val, avg };
   }
   _body_step(inner) {
     const b = h('div', 'body');
@@ -295,7 +304,8 @@ export class Cards {
   }
 
   // ----- value plumbing -----
-  _setVal(id, el, text, unit, { na = false, hot = false } = {}) {
+  /** live: a continuously streaming value (voice level) — no update pulse. */
+  _setVal(id, el, text, unit, { na = false, hot = false, live = false } = {}) {
     const c = this.cards.get(id);
     if (!c) return;
     const key = `${text}|${unit}|${na}|${hot}`;
@@ -306,7 +316,16 @@ export class Cards {
     el.replaceChildren();
     el.append(h('span', changed && !hot ? 'roll' : '', text));
     if (unit) el.append(h('span', 'u', unit));
-    if (changed && !na) this.core.flashNode(c.def.node);
+    if (changed && !na && !hot && !live) this._updated(c);
+  }
+
+  /** Data changed in a card: its node pulses and one small cyan dot runs along its connector. */
+  _updated(c) {
+    const now = performance.now();
+    if (now - (c.pulsedAt || 0) < 1200) return; // live values (mic, voice) must not stream pulses
+    c.pulsedAt = now;
+    this.core.flashNode(c.def.node);
+    this.pulse(c.def.id, true);
   }
 
   setReply(text, { spoken = 0, total = 0 } = {}) {
@@ -317,7 +336,7 @@ export class Cards {
       c.last.q = t;
       c.parts.q.className = 'quote';
       c.parts.q.textContent = `“${t}”`;
-      this.core.flashNode(c.def.node);
+      this._updated(c);
     }
     if (total) {
       this._seg(c.parts.seg, spoken / total);
@@ -329,8 +348,8 @@ export class Cards {
     const c = this.cards.get('mic');
     if (!c) return;
     if (!active || db == null) {
-      this._setVal('mic', c.parts.val, '—', '', { na: true });
-      c.parts.hint.textContent = 'ไมค์ปิดอยู่ · คลิกแกนกลาง หรือ Ctrl+Space';
+      this._setVal('mic', c.parts.val, '—', 'dB', { na: true });
+      c.parts.hint.textContent = 'ไมค์ปิดอยู่ · Ctrl+Space';
       this._seg(c.parts.seg, 0);
       c.parts.seg.classList.remove('hot');
       return;
@@ -346,42 +365,51 @@ export class Cards {
     const c = this.cards.get('tts');
     if (!c) return;
     if (engine === 'none') {
-      this._setVal('tts', c.parts.val, '—', '', { na: true });
+      this._setVal('tts', c.parts.val, '—', '%', { na: true });
       c.parts.hint.textContent = 'ไม่มีเสียงพูดภาษาไทยในเครื่อง';
       this._seg(c.parts.seg, 0);
       return;
     }
     if (pct == null) {
-      this._setVal('tts', c.parts.val, '—', '', { na: true });
+      this._setVal('tts', c.parts.val, '—', '%', { na: true });
       c.parts.hint.textContent = speaking ? 'เสียงระบบไม่ให้ค่าระดับเสียง' : 'ยังไม่ได้พูด';
       this._seg(c.parts.seg, 0);
       return;
     }
-    this._setVal('tts', c.parts.val, String(Math.round(pct)), '%');
+    this._setVal('tts', c.parts.val, String(Math.round(pct)), '%', { live: true });
     c.parts.hint.textContent = speaking ? 'กำลังพูด' : '';
     this._seg(c.parts.seg, pct / 100);
   }
 
-  /** @param {{ms:number, kind:'speech'|'text'}[]} hist last turns (oldest first) */
+  /**
+   * Always 8 bar slots (oldest → latest). Heights are relative to the largest
+   * visible bar, so one value still reads as a proper bar; a faint dashed line
+   * marks the average.
+   * @param {{ms:number, kind:'speech'|'text'}[]} hist last turns (oldest first)
+   */
   setLatency(hist) {
     const c = this.cards.get('latency');
     if (!c) return;
     const last8 = hist.slice(-8);
-    const lastN = hist.slice(-13);
-    const max = Math.max(1000, ...lastN.map((x) => x.ms));
+    const max = Math.max(1, ...last8.map((x) => x.ms));
+    const PAD = 8; // highest bar stops just short of the chart top
+    const pct = (ms) => Math.max(6, (ms / max) * (100 - PAD));
     c.parts.bars.forEach((b, i) => {
-      const it = lastN[i - (13 - lastN.length)];
+      const it = last8[i - (8 - last8.length)];
       if (!it) {
         b.className = 'empty';
         b.style.height = '';
         return;
       }
-      b.className = `${it.kind === 'text' ? 'text' : ''}${i === 12 ? ' last' : ''}`;
-      b.style.height = `${Math.max(8, (it.ms / max) * 100)}%`;
+      b.className = `${it.kind === 'text' ? 'text' : ''}${i === 7 ? ' last' : ''}`;
+      b.style.height = `${pct(it.ms)}%`;
     });
+    const avg = c.parts.avg;
+    avg.hidden = last8.length < 2;
+    if (last8.length >= 2) avg.style.bottom = `${pct(last8.reduce((a, x) => a + x.ms, 0) / last8.length)}%`;
     c.parts.meta.textContent = `${last8.length} / 8 TURNS`;
     const cur = last8[last8.length - 1];
-    if (!cur) this._setVal('latency', c.parts.val, '—', '', { na: true });
+    if (!cur) this._setVal('latency', c.parts.val, '—', 's', { na: true });
     else this._setVal('latency', c.parts.val, (cur.ms / 1000).toFixed(2), 's');
   }
 
@@ -389,7 +417,7 @@ export class Cards {
     const c = this.cards.get('step');
     if (!c) return;
     if (!step) {
-      this._setVal('step', c.parts.val, '—', '', { na: true });
+      this._setVal('step', c.parts.val, '00', '/00', { na: true });
       c.parts.sub.textContent = 'ยังไม่มีโปรเจกต์';
       this._seg(c.parts.seg, 0);
       return;

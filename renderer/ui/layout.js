@@ -14,19 +14,23 @@ export const W = 1920;
 export const H = 1080;
 export const CORE = { x: 960, y: 540, rNode: 276, rOuter: 292 };
 
+// Three sizes — small 11×5 (MIC, TTS), medium 13×7 (STEP, TOKENS, CAMERA,
+// ELAPSED), large 18×9 (LAST REPLY, LATENCY) — mirrored around the reactor's
+// vertical axis (col 40): every left card has a twin at col 80 − col − w.
 const BASE = [
   { id: 'reply', col: 6, row: 5, w: 18, h: 9, tag: 'A3', size: 'large', cut: ['tl', 'br'], anchor: { side: 'r', at: 0.45 }, node: 310, route: 'h45', depth: 1 },
-  { id: 'mic', col: 26, row: 3, w: 11, h: 5, tag: 'B4', size: 'small', cut: ['tl', 'tr', 'br', 'bl'], anchor: { side: 'b', at: 0.55 }, node: 334, route: 'v45', depth: 0 },
-  { id: 'tts', col: 42, row: 3, w: 10, h: 5, tag: 'C6', size: 'small', cut: ['tl', 'bl', 'br'], anchor: { side: 'b', at: 0.45 }, node: 25, route: 'v45', depth: 0 },
-  { id: 'latency', col: 57, row: 5, w: 18, h: 9, tag: 'D8', size: 'medium', cut: ['tr', 'bl'], anchor: { side: 'l', at: 0.6 }, node: 63, route: 'h45', depth: 1 },
-  { id: 'step', col: 8, row: 21, w: 15, h: 7, tag: 'B2', size: 'small', cut: ['tl', 'br', 'bl'], anchor: { side: 'r', at: 0.215 }, node: 270, route: 'd', depth: 1 },
-  { id: 'tokens', col: 57, row: 21, w: 12, h: 7, tag: 'C7', size: 'small', cut: ['tl', 'tr', 'br'], anchor: { side: 'l', at: 0.215 }, node: 90, route: 'd', depth: 0 },
-  { id: 'camera', col: 15, row: 37, w: 13, h: 5, tag: 'B5', size: 'small', cut: ['tr', 'bl'], anchor: { side: 't', at: 0.9 }, node: 225, route: 'v45', depth: 0 },
-  { id: 'elapsed', col: 44, row: 37, w: 13, h: 5, tag: 'D6', size: 'small', cut: ['tl', 'br'], anchor: { side: 'l', at: 0.1 }, node: 180, route: 'h45', depth: 1 },
+  { id: 'mic', col: 26, row: 3, w: 11, h: 5, tag: 'B4', size: 'small', cut: ['tl', 'br'], anchor: { side: 'b', at: 0.55 }, node: 334, route: 'v45', depth: 0 },
+  { id: 'tts', col: 43, row: 3, w: 11, h: 5, tag: 'C6', size: 'small', cut: ['tl', 'br'], anchor: { side: 'b', at: 0.45 }, node: 26, route: 'v45', depth: 0 },
+  { id: 'latency', col: 56, row: 5, w: 18, h: 9, tag: 'D8', size: 'large', cut: ['tl', 'br'], anchor: { side: 'l', at: 0.45 }, node: 50, route: 'h45', depth: 1 },
+  { id: 'step', col: 10, row: 21, w: 13, h: 7, tag: 'B2', size: 'medium', cut: ['tl', 'br'], anchor: { side: 'r', at: 36 / 168 }, node: 270, route: 'd', depth: 1 },
+  { id: 'tokens', col: 57, row: 21, w: 13, h: 7, tag: 'C7', size: 'medium', cut: ['tl', 'br'], anchor: { side: 'l', at: 36 / 168 }, node: 90, route: 'd', depth: 0 },
+  // bottom pair: straight 45° connectors into the 225° / 135° nodes
+  { id: 'camera', col: 15, row: 36, w: 13, h: 7, tag: 'B5', size: 'medium', cut: ['tl', 'br'], anchor: { side: 't', at: 276 / 312 }, node: 225, route: 'd', depth: 0 },
+  { id: 'elapsed', col: 52, row: 36, w: 13, h: 7, tag: 'D6', size: 'medium', cut: ['tl', 'br'], anchor: { side: 't', at: 36 / 312 }, node: 135, route: 'd', depth: 1 },
 ];
 
 // ~1440: pull the far cards a little closer to the core.
-const MID = BASE.map((c) => ({ ...c, ...({ reply: { col: 7, w: 17 }, latency: { col: 56 }, step: { col: 9 } }[c.id] || {}) }));
+const MID = BASE.map((c) => ({ ...c, ...({ reply: { col: 7, w: 17 }, latency: { col: 56, w: 17 } }[c.id] || {}) }));
 // ≤1280 / narrow aspect: drop the least important cards (hide order: tts, tokens, latency chart, mic).
 const NARROW = BASE.map((c) => ({ ...c, hidden: c.id === 'tts' || c.id === 'tokens', compact: c.id === 'latency' }));
 

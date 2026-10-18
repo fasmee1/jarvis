@@ -198,7 +198,7 @@ function playBoot({ home }) {
       .to(ticks.over, { opacity: 1, duration: 0.6 }, 0.45)
       .to(B, { logo: 1, duration: 0.6 }, 0.5)
       .to(B, { arc: 1, duration: 0.7 }, 0.6)
-      .to(B, { lines: 60, duration: 0.6, ease: 'none' }, 0.6);
+      .to(B, { lines: 72, duration: 0.6, ease: 'none' }, 0.6);
 
     // 3. status (0.7 → 1.4)
     const label = $('state-label');

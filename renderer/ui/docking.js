@@ -484,20 +484,20 @@ export class Docking {
       const docked = this.userDocked.has(id) || (this.camMode && !floating);
       const s = { tl: null, mode: null, target: docked, docked: false, nd: { v: 0 }, dot: null, btn: null };
       this.st.set(id, s);
-      // docked-node hit area + hover label, positioned on the node in core-wrap px
+      // node hit area on every node: hover shows a cyan ring + the card name;
+      // when the card is docked, clicking reopens it
       const n = nodePoint(c.def.node);
       const b = h('button', 'dock-node');
       b.type = 'button';
       b.style.left = `${n.x - WRAP.x}px`;
       b.style.top = `${n.y - WRAP.y}px`;
-      b.setAttribute('aria-label', `เปิดการ์ด ${NAMES[id]}`);
-      b.title = `เปิดการ์ด ${NAMES[id]} (Alt+${ORDER.indexOf(id) + 1})`;
-      const lbl = h('span', `dock-lbl ${n.x >= CORE.x - 4 ? 'r' : 'l'}`, SHORT[id]);
+      const lbl = h('span', `dock-lbl ${n.x >= CORE.x - 4 ? 'r' : 'l'}`, NAMES[id].toUpperCase());
       b.append(lbl);
-      b.hidden = true;
+      b.addEventListener('mouseenter', () => this.core.setHover(c.def.node));
+      b.addEventListener('mouseleave', () => this.core.setHover(null));
       b.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.open(id);
+        if (this.isDocked(id)) this.open(id);
       });
       this.layer.append(b);
       s.btn = b;
@@ -516,9 +516,15 @@ export class Docking {
 
   _sync() {
     let n = 0;
-    for (const s of this.st.values()) {
+    for (const [id, s] of this.st) {
       const on = s.target && (s.docked || s.nd.v >= 0.5);
-      if (s.btn) s.btn.hidden = !on;
+      if (s.btn) {
+        // open card: hover-only node (not a tab stop); docked: a real "reopen" button
+        s.btn.classList.toggle('open', !on);
+        s.btn.tabIndex = on ? 0 : -1;
+        s.btn.setAttribute('aria-label', on ? `เปิดการ์ด ${NAMES[id]}` : NAMES[id]);
+        s.btn.title = on ? `เปิดการ์ด ${NAMES[id]} (Alt+${ORDER.indexOf(id) + 1})` : '';
+      }
       if (s.target) n++;
     }
     const { tray, btn, list } = this.tray;

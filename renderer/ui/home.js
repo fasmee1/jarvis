@@ -123,7 +123,6 @@ export class Home {
 
   delta() {
     this.core.pulseActivity();
-    this.cards.pulse('reply');
   }
 
   reply(text, prog) {
