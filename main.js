@@ -21,6 +21,8 @@ const webReader = require('./lib/web/reader');
 const { WebBrowser } = require('./lib/web/browser');
 const { WebPermissions } = require('./lib/web/permissions');
 const { resolveSite } = require('./lib/web/web-utils');
+const { Summarizer } = require('./lib/web/summarize');
+const { PageReader } = require('./lib/web/page-reader');
 
 const APP_ROOT = __dirname;
 const APP_ORIGIN = 'app://jarvis';
@@ -70,6 +72,7 @@ let vision = null;
 let wakeAssets = null;
 let tray = null;
 let web = null; // Web Viewer browser (WebContentsViews in the main window)
+let reader = null; // Web Viewer page reader (extraction + summaries)
 // hands-free state reported by the renderer (for tray mode + background throttling)
 const hf = { on: false };
 
@@ -403,9 +406,37 @@ function registerIpc() {
 
   // ---- Web Viewer: live pages in WebContentsViews ----
   const tabId = (x) => v.str(x, 20, 'tabId');
-  handle('web:open', (p) => {
+  handle('web:open', async (p) => {
     v.obj(p);
-    return web.open({ url: v.str(p.url, 4000, 'url'), initiator: v.oneOf(p.initiator ?? 'user', ['user', 'jarvis'], 'initiator') });
+    const question = v.str(p.question ?? '', 500, 'question');
+    const r = await web.open({ url: v.str(p.url, 4000, 'url'), initiator: v.oneOf(p.initiator ?? 'user', ['user', 'jarvis'], 'initiator') });
+    if (r.ok && question) reader.setQuestion(r.tabId, question);
+    return r;
+  });
+  handle('web:summarize', (p) => {
+    v.obj(p);
+    const t = web.tab(tabId(p.tabId));
+    if (!t) return { ok: false, error: 'ไม่พบแท็บ' };
+    const q = v.str(p.question ?? '', 500, 'question');
+    if (q) reader.setQuestion(t.id, q);
+    reader.read(t, v.oneOf(p.mode ?? 'full', ['full', 'continue'], 'mode')).catch(() => {});
+    return { ok: true };
+  });
+  handle('web:ask', (p) => {
+    v.obj(p);
+    return reader.ask(tabId(p.tabId), v.str(p.question, 500, 'question'));
+  });
+  handle('web:highlight', async (p) => {
+    v.obj(p);
+    return { ok: await reader.highlight(tabId(p.tabId), v.str(p.ref, 12, 'ref')).catch(() => false) };
+  });
+  handle('web:scroll', async (p) => {
+    v.obj(p);
+    return { ok: await reader.scroll(tabId(p.tabId), v.oneOf(p.dir, ['up', 'down', 'top'], 'dir')).catch(() => false) };
+  });
+  handle('web:click-link', (p) => {
+    v.obj(p);
+    return reader.clickLink(tabId(p.tabId), v.str(p.text, 200, 'text'), p.confirmed === true).catch((err) => ({ ok: false, error: err.message }));
   });
   handle('web:resolve', (p) => resolveSite(v.str(p, 300, 'name')));
   handle('web:bounds', (p) => {
@@ -562,6 +593,12 @@ app.whenReady().then(async () => {
     perms: new WebPermissions(userData),
     checkPublicUrl: (u) => webReader.checkUrl(u),
     log: process.env.JARVIS_WEB_DEBUG && process.env.JARVIS_SCREENSHOT ? (m) => fs.appendFileSync(process.env.JARVIS_SCREENSHOT.replace(/\.png$/i, '') + '.console.log', `[main] ${m}\n`) : null,
+  });
+  reader = new PageReader({
+    browser: web,
+    summarizer: new Summarizer({ getSettings: () => settings.get(), tempDir: path.join(app.getPath('temp'), 'mee-jarvis') }),
+    send,
+    log: web.o.log,
   });
 
   registerIpc();

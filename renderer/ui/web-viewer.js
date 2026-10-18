@@ -135,7 +135,7 @@ export class WebViewer {
     const initiator = opts.initiator === 'user' ? 'user' : 'jarvis';
     let r;
     try {
-      r = await this.api.invoke('web:open', { url: String(url || ''), initiator });
+      r = await this.api.invoke('web:open', { url: String(url || ''), initiator, question: String(opts.question || '').slice(0, 500) });
     } catch (err) {
       r = { ok: false, error: err.message };
     }
@@ -867,9 +867,14 @@ export class WebViewer {
       p.append(sec);
     }
     if (s.tldr) {
-      const sec = this._sec('TL;DR', s.translatedFrom ? `แปลจาก ${s.translatedFrom}` : '');
+      const sec = this._sec(s.mode === 'continue' ? 'TL;DR · ส่วนถัดไป' : 'TL;DR', s.translatedFrom ? `แปลจาก ${s.translatedFrom}` : '');
       sec.append(h('p', 'wp-text wp-tldr', s.tldr));
       p.append(sec);
+    }
+    if (s.injection) {
+      const note = h('div', 'wp-warn');
+      note.append(ico('alert', 'wb-i'), h('span', null, 'หน้านี้มีข้อความที่พยายามสั่ง AI — JARVIS ไม่ได้ทำตาม'));
+      p.append(note);
     }
     if (s.keyPoints && s.keyPoints.length) {
       const sec = this._sec('ประเด็นสำคัญ');

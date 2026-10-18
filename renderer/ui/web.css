@@ -123,6 +123,8 @@
 .wp-note-t { color: var(--text-1); font-size: 15px; }
 .wp-note-s { color: var(--text-3); font-size: 13px; }
 .wp-note.fail { border-color: rgba(255, 92, 108, 0.3); }
+.wp-warn { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--warning); line-height: 1.5; }
+.wp-warn .wb-i { stroke: var(--warning); margin-top: 2px; }
 .wp-ask { padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 .wp-answers { display: flex; flex-direction: column; gap: 14px; }
 .wp-ans { display: flex; flex-direction: column; gap: 4px; }
