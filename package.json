@@ -1,0 +1,28 @@
+{
+  "name": "mee-jarvis",
+  "version": "0.1.0",
+  "description": "Mee JARVIS — Thai voice HUD for Claude Code CLI",
+  "main": "main.js",
+  "bin": {
+    "jarvis": "bin/jarvis.js"
+  },
+  "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
+    "start": "electron .",
+    "check": "node scripts/check-all.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "devDependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans-thai": "^5.3.0",
+    "@fontsource/rajdhani": "^5.3.0",
+    "@fontsource/share-tech-mono": "^5.3.0",
+    "electron": "44.8.0",
+    "gsap": "^3.15.0"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "1.1.1"
+  }
+}

@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob:; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <title>Mee JARVIS</title>
+  <link rel="stylesheet" href="ui/fonts.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="ui/camera.css">
+</head>
+<body>
+  <!-- ============ HOME: one full-screen instrument ============ -->
+  <div id="home" class="home">
+    <canvas id="grid-bg" class="layer-fill"></canvas>
+    <canvas id="grid-fx" class="layer-fill"></canvas>
+    <div id="stage" class="stage">
+      <svg id="framing" class="stage-svg" viewBox="0 0 1920 1080" aria-hidden="true"></svg>
+      <svg id="leaders" class="stage-svg" viewBox="0 0 1920 1080" aria-hidden="true"></svg>
+      <div id="core-wrap" class="core-wrap">
+        <canvas id="core" class="core-canvas"></canvas>
+        <button id="core-hit" class="core-hit" title="คลิกเพื่อพูด (หรือ Ctrl+Space)" aria-label="พูดกับ JARVIS"></button>
+        <div class="core-readout">
+          <div id="state-label" class="state-label">STANDBY</div>
+          <div id="core-elapsed" class="core-elapsed">0.0s</div>
+          <div id="state-sub" class="state-sub"></div>
+          <div id="core-cam" class="core-cam" hidden>● CAM</div>
+        </div>
+      </div>
+      <div id="cards" class="cards"></div>
+      <div id="caption-tr" class="caption caption-tr"></div>
+      <div class="caption caption-bl">REAL TIME · AI ASSISTANT<br>HUMAN + MACHINE · BETTER TOGETHER</div>
+      <form id="home-prompt" class="home-prompt" hidden autocomplete="off">
+        <span class="hp-caret">›</span>
+        <input id="home-input" type="text" maxlength="20000" placeholder="พิมพ์ข้อความถึง JARVIS หรือ /คำสั่ง" aria-label="ข้อความถึง JARVIS">
+        <span class="hp-keys mono">ENTER ส่ง · ESC/TAB ปิด</span>
+      </form>
+    </div>
+    <div id="card-tip" class="card-tip" hidden></div>
+    <!-- camera elements; the camera viewer (camera mode) moves them into its feed -->
+    <div hidden><video id="cam" autoplay muted playsinline></video><canvas id="cam-overlay"></canvas></div>
+  </div>
+
+  <!-- Persistent, always-visible safety indicators -->
+  <div id="bypass-bar" class="bypass-bar" hidden>BYPASS PERMISSIONS — Claude ทำทุกอย่างได้โดยไม่ถาม (ตัวกันพลาดยังทำงาน) · กลับเป็น default เมื่อเริ่ม session ใหม่</div>
+  <div id="cam-indicator" class="cam-indicator" hidden>● กล้องเปิดอยู่</div>
+
+  <!-- The only control on home -->
+  <button id="hamburger" class="hamburger" aria-label="เมนู" aria-haspopup="true" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16 M4 12h16 M4 17h16"/></svg>
+    <span id="hb-dot" class="hb-dot" hidden></span>
+  </button>
+  <button id="btn-hud-sound" class="hud-sound-btn" type="button" aria-label="เปิด/ปิดเสียง HUD" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="snd-on" d="M11 5 6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7 M19 5a10 10 0 0 1 0 14"/><path class="snd-off" d="M11 5 6 9H2v6h4l5 4z M22 9l-6 6 M16 9l6 6"/></svg></button>
+  <div id="drag-strip" class="drag-strip"></div>
+
+  <!-- ============ MENU ============ -->
+  <nav id="menu" class="menu" hidden>
+    <div class="menu-panel cut">
+      <div class="menu-head">
+        <span class="mono dim">MEE JARVIS</span>
+        <span id="menu-project" class="mono menu-project"></span>
+      </div>
+      <button class="menu-item" data-section="talk"><span class="mi-k">01</span><span class="mi-t">TALK</span><span class="mi-th">บทสนทนา</span></button>
+      <button class="menu-item" data-section="maker"><span class="mi-k">02</span><span class="mi-t">MAKER</span><span class="mi-th">ขั้นตอน · แผนผัง · อุปกรณ์ · โค้ด</span></button>
+      <button class="menu-item" data-section="activity"><span class="mi-k">03</span><span class="mi-t">ACTIVITY</span><span class="mi-th">เครื่องมือที่ Claude ใช้</span></button>
+      <button class="menu-item" data-section="diagnostics"><span class="mi-k">04</span><span class="mi-t">DIAGNOSTICS</span><span class="mi-th">latency · tokens · terminal</span></button>
+      <button class="menu-item" id="btn-settings" data-section="settings"><span class="mi-k">05</span><span class="mi-t">SETTINGS</span><span class="mi-th">ตั้งค่า</span></button>
+      <div class="menu-sep"></div>
+      <div class="menu-snd">
+        <span class="mono dim">SOUND</span>
+        <button id="menu-snd-toggle" class="btn small toggle" type="button" aria-label="เปิด/ปิดเสียง HUD" aria-pressed="true">ON</button>
+        <input id="menu-snd-vol" type="range" min="0" max="100" step="1" aria-label="ความดังเสียง HUD">
+        <span id="menu-snd-val" class="mono dim">60%</span>
+      </div>
+      <div class="menu-sep"></div>
+      <div class="menu-win">
+        <button class="btn small" data-win="toggle-fullscreen" id="win-fs">⛶ เต็มจอ (F11)</button>
+        <button class="btn small" data-win="minimize">— ย่อ</button>
+        <button class="btn small danger" data-win="close">✕ ปิดแอป</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ============ SECTIONS (one at a time, full screen) ============ -->
+  <section class="view" id="view-talk" hidden>
+    <header class="view-head">
+      <button class="btn back" data-home>◂ HOME</button>
+      <h1>TALK <span class="th">บทสนทนา</span> <span id="session-id" class="mono dim"></span></h1>
+      <div class="view-tools">
+        <button id="btn-folder" class="btn small">📁 โฟลเดอร์</button>
+        <span id="cwd-path" class="mono dim cwd"></span>
+        <select id="perm-mode" title="Permission mode">
+          <option value="default">default — ถามทุกครั้ง</option>
+          <option value="acceptEdits">acceptEdits — แก้ไฟล์ได้เลย</option>
+          <option value="plan">plan — วางแผนอย่างเดียว</option>
+          <option value="bypassPermissions">bypassPermissions — ไม่ถาม</option>
+        </select>
+        <button id="btn-teach" class="btn small toggle">โหมดสอน</button>
+        <button id="btn-new" class="btn small">＋ Session ใหม่</button>
+        <button id="btn-new-summary" class="btn small">↻ ใหม่จากสรุป</button>
+        <button id="btn-interactive" class="btn small">⌨ Terminal</button>
+        <button id="btn-sfx" class="btn small toggle" title="เสียงเอฟเฟกต์">SFX</button>
+      </div>
+    </header>
+    <div class="view-body talk-body">
+      <div id="chat" class="chat"></div>
+      <div id="transcript-confirm" class="transcript-confirm" hidden>
+        <div class="dim">ข้อความที่ถอดเสียงได้ — ตรวจก่อนส่ง</div>
+        <textarea id="transcript-text" rows="2"></textarea>
+        <div class="row">
+          <button id="btn-transcript-send" class="btn primary">ส่ง</button>
+          <button id="btn-transcript-cancel" class="btn">ยกเลิก</button>
+        </div>
+      </div>
+      <div class="composer cut">
+        <textarea id="input" rows="2" placeholder="พิมพ์ข้อความ หรือ /คำสั่ง แล้วกด Enter (Shift+Enter ขึ้นบรรทัดใหม่)"></textarea>
+        <div class="composer-actions">
+          <button id="btn-mic" class="btn mic" title="พูด (Ctrl+Space)">MIC</button>
+          <button id="btn-cam" class="btn toggle" title="เปิด/ปิดกล้อง">CAM</button>
+          <button id="btn-look" class="btn toggle" title="ดูนี่ — แนบภาพกล้องกับข้อความถัดไป (Alt+L)">ดูนี่</button>
+          <button id="btn-send" class="btn primary">ส่ง ▸</button>
+          <button id="btn-stop" class="btn danger">■ หยุด</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-maker" hidden>
+    <header class="view-head">
+      <button class="btn back" data-home>◂ HOME</button>
+      <h1>MAKER <span class="th">สอนประดิษฐ์</span></h1>
+    </header>
+    <div class="view-body">
+      <div class="tabs" id="display-tabs">
+        <button data-tab="steps" class="tab active">ขั้นตอน</button>
+        <button data-tab="diagram" class="tab">แผนผัง</button>
+        <button data-tab="bom" class="tab">อุปกรณ์</button>
+        <button data-tab="code" class="tab">โค้ด</button>
+        <button data-tab="model3d" class="tab">โมเดล 3D</button>
+      </div>
+      <div class="tab-body" id="tab-steps"><div class="placeholder">— ยังไม่มีขั้นตอน · เปิดโหมดสอนแล้วบอก JARVIS ว่าจะประดิษฐ์อะไร</div></div>
+      <div class="tab-body" id="tab-diagram" hidden><div class="placeholder">— ยังไม่มีแผนผังวงจร</div></div>
+      <div class="tab-body" id="tab-bom" hidden><div class="placeholder">— ยังไม่มีรายการอุปกรณ์</div></div>
+      <div class="tab-body" id="tab-code" hidden><div class="placeholder">— ยังไม่มีโค้ด Arduino / OpenSCAD</div></div>
+      <div class="tab-body" id="tab-model3d" hidden><div class="placeholder">— พื้นที่โมเดล 3D (ระยะถัดไป)</div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-activity" hidden>
+    <header class="view-head">
+      <button class="btn back" data-home>◂ HOME</button>
+      <h1>ACTIVITY <span class="th">เครื่องมือที่ Claude ใช้</span> <span id="activity-count" class="mono dim"></span></h1>
+    </header>
+    <div class="view-body activity-body">
+      <div id="todos" class="todos cut" hidden></div>
+      <div id="activity" class="activity"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-diagnostics" hidden>
+    <header class="view-head">
+      <button class="btn back" data-home>◂ HOME</button>
+      <h1>DIAGNOSTICS <span class="th">วินิจฉัยระบบ</span></h1>
+    </header>
+    <div class="view-body diag-body">
+      <div class="diag-metrics">
+        <div class="diag-cell cut"><div class="micro">LATENCY</div><div id="lat" class="mono">t2−t0: — · t3−t0: —</div></div>
+        <div class="diag-cell cut"><div class="micro">TOKENS / COST</div><div id="cost" class="mono">tokens: — · $—</div></div>
+        <div class="diag-cell cut"><div class="micro">TTS ENGINE</div><div id="tts-engine" class="mono">—</div></div>
+      </div>
+      <div class="diag-hist cut"><div class="micro">LAST TURNS · เวลาถึงเสียงแรก (t3−t0) หรือข้อความแรก (t2−t0) เมื่อไม่มีเสียง</div><div id="diag-history" class="mono"></div></div>
+      <section class="terminal cut" id="terminal-panel">
+        <div class="micro clickable" id="terminal-toggle">TERMINAL · stderr · raw events · errors <span id="terminal-badge" class="badge" hidden></span></div>
+        <pre id="terminal" class="terminal-body mono"></pre>
+      </section>
+    </div>
+  </section>
+
+  <section class="view" id="settings" hidden>
+    <header class="view-head">
+      <button class="btn back" data-home id="settings-close">◂ HOME</button>
+      <h1>SETTINGS <span class="th">ตั้งค่า</span></h1>
+    </header>
+    <div class="view-body settings-body">
+      <div class="tabs" id="settings-tabs">
+        <button data-stab="claude" class="tab active">Claude</button>
+        <button data-stab="perm" class="tab">สิทธิ์ & ตัวกันพลาด</button>
+        <button data-stab="voice" class="tab">เสียง</button>
+        <button data-stab="camera" class="tab">กล้อง</button>
+        <button data-stab="display" class="tab">การแสดงผล</button>
+      </div>
+      <div class="stab" id="stab-claude">
+        <label>Path ของ claude (เว้นว่าง = หาอัตโนมัติ)<input id="s-claudePath" type="text" placeholder="C:\Users\...\claude.exe"></label>
+        <label>Model (--model) เว้นว่าง = ตามค่าของ Claude Code<input id="s-model" type="text" placeholder="เช่น opus, sonnet, haiku"></label>
+        <label class="check"><input id="s-persistentProcess" type="checkbox"> เปิด process ค้างไว้ (เร็วกว่า) — ปิด = เปิดใหม่ทุกรอบด้วย --resume</label>
+        <div class="field">
+          <div>MCP config เพิ่มเติม (--mcp-config)</div>
+          <ul id="s-mcp-list" class="plain-list mono"></ul>
+          <button id="s-mcp-add" class="btn small">＋ เพิ่มไฟล์ MCP config</button>
+        </div>
+        <div class="field">
+          <div>โฟลเดอร์ที่ให้เข้าถึงเพิ่ม (--add-dir)</div>
+          <ul id="s-dir-list" class="plain-list mono"></ul>
+          <button id="s-dir-add" class="btn small">＋ เพิ่มโฟลเดอร์</button>
+        </div>
+        <p class="dim">โหลดการตั้งค่าของผู้ใช้ทั้งหมดด้วย --setting-sources user,project,local (MCP, hooks, skills, CLAUDE.md, rules)</p>
+      </div>
+      <div class="stab" id="stab-perm" hidden>
+        <label>เวลารออนุญาต (วินาที) ก่อนปฏิเสธอัตโนมัติ<input id="s-approvalTimeoutSec" type="number" min="10" max="3600"></label>
+        <div class="field bypass-box">
+          <div><b>เปิด bypassPermissions</b> — Claude ทำทุกอย่างโดยไม่ถาม พิมพ์คำว่า <b>ยืนยัน</b> แล้วกดปุ่ม</div>
+          <div class="row"><input id="s-bypass-confirm" type="text" placeholder="ยืนยัน"><button id="s-bypass-on" class="btn danger">เปิด bypassPermissions</button></div>
+        </div>
+        <label class="check"><input id="s-guardEnabled" type="checkbox"> เปิดตัวกันพลาด (PreToolUse hook) — ใช้ได้แม้ใน bypassPermissions</label>
+        <label>บล็อกคำสั่ง (regex บรรทัดละรายการ)<textarea id="s-guardBlock" rows="6" class="mono"></textarea></label>
+        <label>ต้องถามบนจอทุกครั้ง (อัปโหลดลงบอร์ด / admin)<textarea id="s-guardAsk" rows="5" class="mono"></textarea></label>
+        <label>ห้ามเขียนไฟล์ใน path (regex)<textarea id="s-guardBlockPaths" rows="3" class="mono"></textarea></label>
+        <div class="row"><button id="s-guard-save" class="btn primary">บันทึกรายการ</button><button id="s-guard-reset" class="btn">คืนค่าเริ่มต้น</button></div>
+        <p class="dim">ทุก tool call ถูกบันทึกใน .jarvis/audit.log ของโปรเจกต์</p>
+      </div>
+      <div class="stab" id="stab-voice" hidden>
+        <label class="check"><input id="s-confirmVoiceBeforeSend" type="checkbox"> ยืนยันข้อความเสียงก่อนส่ง (เปิดอัตโนมัติใน acceptEdits / bypassPermissions)</label>
+        <label>ระบบถอดเสียง (STT)
+          <select id="s-sttProvider">
+            <option value="whisper">whisper.cpp (ในเครื่อง)</option>
+            <option value="azure">Azure Speech th-TH</option>
+            <option value="webspeech">Web Speech API (ทดลอง)</option>
+          </select>
+        </label>
+        <label>โมเดล whisper
+          <select id="s-whisperModel">
+            <option value="base">base (148 MB เร็ว)</option>
+            <option value="small">small (488 MB แนะนำ)</option>
+            <option value="medium">medium (1.5 GB)</option>
+            <option value="large-v3-turbo">large-v3-turbo (1.6 GB แม่นสุด)</option>
+          </select>
+        </label>
+        <div class="row"><span id="stt-status" class="dim mono"></span><button id="s-stt-install" class="btn small">ติดตั้ง/ดาวน์โหลด whisper</button></div>
+        <label>Azure region<input id="s-azureRegion" type="text" placeholder="southeastasia"></label>
+        <div class="row"><input id="s-azure-key" type="password" placeholder="Azure Speech key (เก็บแบบเข้ารหัส)"><button id="s-azure-save" class="btn small">บันทึก key</button></div>
+        <label>เงียบเกินกี่มิลลิวินาทีให้หยุดอัด (VAD)<input id="s-vadSilenceMs" type="number" min="300" max="5000" step="100"></label>
+        <label>คีย์ลัดพูด (global)<input id="s-pushToTalkKey" type="text" placeholder="Control+Space"></label>
+        <label>ไมโครโฟน<select id="s-micDeviceId"></select></label>
+        <hr>
+        <label>ความเร็วเสียงพูด<input id="s-ttsRate" type="number" min="0.5" max="2" step="0.1"></label>
+        <div class="row"><span id="tts-status" class="dim"></span></div>
+        <div class="row"><button id="s-thai-voice" class="btn small">ติดตั้งเสียงภาษาไทย (Windows, ต้องใช้ admin)</button><button id="s-speech-settings" class="btn small">เปิดหน้า Speech ของ Windows</button></div>
+      </div>
+      <div class="stab" id="stab-camera" hidden>
+        <label>กล้อง<select id="s-cameraDeviceId"></select></label>
+        <label class="check"><input id="s-visionOverlay" type="checkbox"> วาดกรอบเล็งใบหน้า/มือ (MediaPipe ในเครื่อง ไม่ส่งให้ Claude)</label>
+        <div class="row"><span id="vision-status" class="dim mono"></span><button id="s-vision-install" class="btn small">ดาวน์โหลดโมเดล MediaPipe</button></div>
+        <label>ขนาดภาพที่ส่ง (กว้าง × สูง)<span class="row"><input id="s-snapshotWidth" type="number" min="160" max="1920"><input id="s-snapshotHeight" type="number" min="120" max="1080"></span></label>
+        <label>คุณภาพ JPEG<input id="s-snapshotQuality" type="number" min="0.3" max="1" step="0.05"></label>
+        <label>คำเรียกให้ดู (บรรทัดละคำ)<textarea id="s-triggerWords" rows="5"></textarea></label>
+        <button id="s-trigger-save" class="btn small primary">บันทึกคำเรียก</button>
+      </div>
+      <div class="stab" id="stab-display" hidden>
+        <label>คุณภาพกราฟิก
+          <select id="ui-quality">
+            <option value="high">High — 60 fps, แสงนุ่มที่โลโก้</option>
+            <option value="low">Low — 30 fps, ไม่มีแสง (ประหยัดเครื่อง)</option>
+          </select>
+        </label>
+        <label>ลำดับเปิดเครื่อง (boot sequence)
+          <select id="ui-boot-mode">
+            <option value="always">เล่นทุกครั้งที่เปิดแอป</option>
+            <option value="first">เล่นเฉพาะครั้งแรก</option>
+          </select>
+        </label>
+        <label class="check"><input id="ui-boot-sound" type="checkbox"> เสียง HUD — ตอนเปิดเครื่อง ปุ่ม ไมค์ กล้อง และการ์ด (สังเคราะห์สดด้วย Web Audio)</label>
+        <label>ความดังเสียง HUD <span id="ui-hud-volume-val" class="mono dim">60%</span><input id="ui-hud-volume" type="range" min="0" max="100" step="1"></label>
+        <label class="check"><input id="ui-boot-mute" type="checkbox"> ปิดเฉพาะเสียงตอนเปิดเครื่อง (เสียงปุ่มและการ์ดยังทำงาน)</label>
+        <label class="check"><input id="ui-voice-greeting" type="checkbox"> พูดทักทายหลังเปิดเครื่อง (ใช้เสียงพูดภาษาไทยของ Windows)</label>
+        <p class="dim">คลิกหรือกด Esc ระหว่างเปิดเครื่องเพื่อข้าม</p>
+        <p class="dim">ถ้าระบบตั้ง "ลดการเคลื่อนไหว" (reduced motion) ไว้ HUD จะหยุดการหมุนและการเคลื่อนไหวอัตโนมัติ · F11 สลับเต็มจอ</p>
+      </div>
+    </div>
+  </section>
+
+  <div id="notices" class="notices"></div>
+
+  <!-- Approval dialog: click-only, above everything -->
+  <div id="approval" class="modal" hidden>
+    <div class="modal-card approval-card cut">
+      <div class="approval-head">
+        <div class="approval-title">ขออนุญาตใช้เครื่องมือ <span id="ap-tool" class="mono accent"></span></div>
+        <div id="ap-timer" class="mono dim"></div>
+      </div>
+      <div id="ap-reason" class="ap-reason" hidden></div>
+      <div id="ap-summary" class="ap-summary"></div>
+      <pre id="ap-detail" class="ap-detail mono"></pre>
+      <div id="ap-diff" class="diff mono" hidden></div>
+      <div id="ap-queue" class="dim"></div>
+      <div class="ap-deny-reason" id="ap-deny-reason-wrap" hidden>
+        <input id="ap-deny-reason" type="text" maxlength="1000" placeholder="บอกเหตุผล / สิ่งที่อยากให้ทำแทน">
+        <button id="ap-deny-reason-send" class="btn danger">ส่งการปฏิเสธ</button>
+      </div>
+      <div class="approval-actions">
+        <button id="ap-once" class="btn primary">อนุญาตครั้งนี้</button>
+        <button id="ap-always" class="btn">อนุญาตเสมอสำหรับคำสั่งนี้</button>
+        <button id="ap-deny" class="btn danger">ปฏิเสธ</button>
+        <button id="ap-deny-why" class="btn danger ghost">ปฏิเสธพร้อมบอกเหตุผล</button>
+      </div>
+      <div id="ap-rule" class="dim mono"></div>
+    </div>
+  </div>
+
+  <div id="barge" class="modal" hidden>
+    <div class="modal-card cut">
+      <div class="approval-title">Claude กำลังรันคำสั่งอยู่</div>
+      <p>จะหยุดคำสั่งที่กำลังรันด้วยหรือไม่?</p>
+      <div class="approval-actions">
+        <button id="barge-stop" class="btn danger">หยุดทั้งหมด</button>
+        <button id="barge-keep" class="btn">ให้ทำต่อ (แค่หยุดพูด)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Boot sequence layer -->
+  <div id="boot-overlay" class="boot-overlay"></div>
+
+  <script src="ui/vendor/gsap.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

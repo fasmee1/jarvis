@@ -1,0 +1,73 @@
+/* ============ CAMERA card (home HUD) ============ */
+.card-camera { cursor: default; }
+.core-cam { margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; color: var(--orange); }
+.card-camera .cam-host { margin: 12px 0 0 28px; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+.cam-ctl { display: flex; align-items: center; gap: 16px; }
+.cam-btn {
+  position: relative; height: 32px; padding: 0 16px 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: 0 0 auto;
+  border-radius: 999px; border: 1px solid var(--line); background: transparent; cursor: pointer; color: var(--text-1);
+  font-family: var(--font-ui); font-weight: 500; font-size: 11px; letter-spacing: 0.14em;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.cam-btn:hover { border-color: var(--border-hover); background: var(--surface-2); }
+.cam-btn .cam-ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.cam-btn .cam-spin { display: none; width: 14px; height: 14px; fill: none; stroke: var(--orange); stroke-width: 1.5; stroke-dasharray: 28 16; stroke-linecap: round; animation: cam-spin 1s linear infinite; }
+@keyframes cam-spin { to { transform: rotate(360deg); } }
+.cam-btn:disabled { cursor: progress; }
+
+.cam-status { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.5; color: var(--text-2); min-width: 0; flex: 1; }
+.cam-line { display: flex; align-items: center; gap: 8px; min-height: 16px; }
+.cam-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, 0.16); flex: 0 0 auto; }
+.cam-hint { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.cam-retry { background: none; border: none; padding: 0; color: var(--orange); font-family: var(--font-ui); font-weight: 500; font-size: 11px; letter-spacing: 0.14em; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ----- states ----- */
+.card-camera[data-cam="off"] .cam-btn { color: var(--text-2); }
+.card-camera[data-cam="requesting"] .cam-btn { color: var(--orange); border-color: var(--orange-soft); }
+.card-camera[data-cam="requesting"] .cam-btn .cam-spin { display: block; }
+.card-camera[data-cam="requesting"] .cam-btn .cam-ico { display: none; }
+.card-camera[data-cam="requesting"] .cam-dot { background: var(--orange); }
+.card-camera[data-cam="on"] .cam-btn { color: var(--accent); border-color: var(--accent-soft); }
+.card-camera[data-cam="on"] .cam-text { color: var(--text-1); font-weight: 500; letter-spacing: 0.14em; font-size: 11px; }
+.card-camera[data-cam="on"] .cam-dot { background: var(--orange); box-shadow: 0 0 8px rgba(255, 154, 61, 0.6); animation: live-breathe 2s var(--ease) infinite; }
+.card-camera[data-cam="error"] .cam-btn { color: var(--orange); border-color: var(--orange-soft); }
+.card-camera[data-cam="error"] .cam-text { color: var(--orange); }
+.card-camera[data-cam="error"] .cam-dot { background: var(--error); }
+.card-camera[data-cam="error"] .frame .base { stroke: var(--orange-soft); }
+.card-camera[data-cam="error"] .frame .acc path { stroke: var(--orange); }
+@keyframes live-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* ----- camera mode viewer (80vw × 90vh, positioned in stage px by JS) ----- */
+.cam-viewer { pointer-events: auto; }
+.cam-viewer[hidden] { display: none; }
+.cv-fill { position: absolute; inset: 0; background: rgba(11, 15, 20, 0.94); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.cv-frame { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); overflow: visible; pointer-events: none; }
+.cv-head { position: absolute; left: 24px; right: 16px; top: 0; height: 56px; display: flex; align-items: center; gap: 16px; }
+.cv-ico { width: 16px; height: 16px; fill: none; stroke: var(--text-2); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.cv-title { font-weight: 500; font-size: 11px; letter-spacing: 0.14em; color: var(--text-2); }
+.cv-live {
+  display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 10px 0 8px; border-radius: 999px;
+  background: rgba(255, 154, 61, 0.1); border: 1px solid var(--orange-soft);
+  font-weight: 500; font-size: 10px; letter-spacing: 0.16em; color: var(--text-1);
+}
+.cv-rec-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 8px rgba(255, 154, 61, 0.6); animation: live-breathe 2s var(--ease) infinite; }
+.cv-time { font-family: var(--font-mono); font-size: 12px; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.cv-res { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.cv-sp { flex: 1; }
+.cv-btn {
+  width: 32px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
+  background: transparent; border: 1px solid transparent; color: var(--text-2); cursor: pointer;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.cv-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.cv-btn:hover { color: var(--text-1); background: var(--surface-2); border-color: var(--line); }
+.cv-btn[hidden] { display: none; }
+.cv-feed { position: absolute; left: 16px; right: 16px; top: 56px; bottom: 16px; overflow: hidden; border-radius: 6px; background: #000; }
+.cv-media { position: absolute; inset: 0; transform: scaleX(-1); /* mirrored like a front camera */ }
+.cv-media.no-mirror { transform: none; }
+.cv-media video, .cv-media #cam-overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card-camera[data-cam="on"] .cam-dot, .cv-rec-dot { animation: none !important; }
+}

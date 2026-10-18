@@ -1,0 +1,71 @@
+'use strict';
+// Sandboxed preload: exposes only a fixed set of named IPC calls/events.
+const { contextBridge, ipcRenderer } = require('electron');
+
+const INVOKE = [
+  'app:init',
+  'settings:update',
+  'settings:reset-guard',
+  'mode:set',
+  'folder:choose',
+  'chat:send',
+  'chat:stop',
+  'session:new',
+  'session:new-from-summary',
+  'session:teach-mode',
+  'terminal:open-interactive',
+  'approval:respond',
+  'latency:report',
+  'tts:synthesize',
+  'tts:install-thai-voice',
+  'tts:list-system-voices',
+  'system:open-speech-settings',
+  'stt:transcribe',
+  'stt:status',
+  'stt:install',
+  'stt:set-azure-key',
+  'vision:status',
+  'vision:install',
+  'vision:model',
+  'snapshot:save',
+  'mcp:choose-config',
+  'dir:choose-extra',
+  'window:control',
+];
+
+const EVENTS = [
+  'state',
+  'app-state',
+  'settings',
+  'chat:item',
+  'turn:start',
+  'turn:result',
+  'activity',
+  'todos',
+  'terminal',
+  'notice',
+  'error',
+  'session',
+  'latency',
+  'approval:request',
+  'approval:close',
+  'tts:segment',
+  'tts:announce',
+  'tts:stop',
+  'ptt',
+  'install:progress',
+  'window:state',
+];
+
+contextBridge.exposeInMainWorld('jarvis', {
+  invoke(channel, payload) {
+    if (!INVOKE.includes(channel)) return Promise.reject(new Error('blocked channel ' + channel));
+    return ipcRenderer.invoke(channel, payload);
+  },
+  on(channel, fn) {
+    if (!EVENTS.includes(channel) || typeof fn !== 'function') return () => {};
+    const h = (_e, payload) => fn(payload);
+    ipcRenderer.on(channel, h);
+    return () => ipcRenderer.removeListener(channel, h);
+  },
+});
