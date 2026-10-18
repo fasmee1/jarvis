@@ -363,7 +363,7 @@ function registerIpc() {
     const verify = p.verify === undefined ? false : v.bool(p.verify, 'verify');
     if (verify && settings.get().sttProvider !== 'whisper') return { ok: false, code: 'SKIPPED' };
     try {
-      const text = await stt.transcribe(pcm, { partial });
+      const text = await stt.transcribe(pcm, { partial, fast: verify }); // the wake check only needs to hear "จาร์วิส"
       if (partial) return text == null ? { ok: false, code: 'SKIPPED' } : { ok: true, text };
       if (settings.get().saveVoiceHistory && !verify) saveVoice(pcm, text);
       return { ok: true, text };
