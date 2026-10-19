@@ -16,6 +16,7 @@ import { parseCommand, wantsScreenLook } from './handsfree/commands.js';
 import { StageViewer } from './ui/stage-viewer.js';
 import { ResultViewer } from './ui/result-viewer.js';
 import { WebViewer } from './ui/web-viewer.js';
+import { ConversationPopup } from './ui/conversation.js';
 import { OrbBridge } from './orb-bridge.js';
 
 const api = window.jarvis;
@@ -60,8 +61,10 @@ let hands = null; // hands-free controller (set up below)
 const orbBridge = new OrbBridge(api, { level: () => (S.speaking ? speaker.level() : Math.min(1, S.micLevel * 8)) });
 let resultViewer = null; // Result Viewer (set up below)
 let webViewer = null; // Web Viewer (set up below)
+let talk = null; // Conversation popup (set up below)
 
 const sections = new Sections({
+  onTalk: () => talk.open(),
   onChange: (name) => {
     home.setVisible(!name);
     if (name) { S.dotErr = false; S.dotAtt = false; updateDot(); }
@@ -120,6 +123,12 @@ function term(text, stream = 'event') {
   pre.append(line);
   while (pre.childElementCount > 1500) pre.firstChild.remove();
   if (!pre.hidden) pre.scrollTop = pre.scrollHeight;
+  // the same log in the conversation popup's Terminal panel
+  const cvLog = $('cv-term-log');
+  const stick = cvLog.scrollHeight - cvLog.scrollTop - cvLog.clientHeight < 24;
+  cvLog.append(line.cloneNode(true));
+  while (cvLog.childElementCount > 1500) cvLog.firstChild.remove();
+  if (stick) cvLog.scrollTop = cvLog.scrollHeight;
   if ((stream === 'bad' || stream === 'error' || stream === 'block') && pre.hidden) {
     const b = $('terminal-badge');
     b.hidden = false;
@@ -281,6 +290,71 @@ function appendText(t) {
   scrollChat();
 }
 
+async function copyText(text, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch {
+    // fallback for when the async clipboard is unavailable
+    const ta = el('textarea', { class: 'cv-copy-tmp' });
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove();
+  }
+  if (btn) {
+    btn.textContent = ok ? 'คัดลอกแล้ว' : 'คัดลอกไม่ได้';
+    clearTimeout(btn._t);
+    btn._t = setTimeout(() => { btn.textContent = 'คัดลอก'; }, 1500);
+  }
+}
+
+/** A code block with a copy button. */
+function codeBlock(code) {
+  const wrap = el('div', { class: 'cv-code' });
+  const btn = el('button', { class: 'cv-copy', type: 'button', text: 'คัดลอก', title: 'คัดลอกโค้ด', onclick: () => copyText(code, btn) });
+  wrap.append(btn, el('pre', { class: 'code mono', text: code }));
+  return wrap;
+}
+
+/** "result arrived while the conversation is open": a card in the chat that opens the viewer. */
+function addResultLink(title, open) {
+  const m = ensureAssistant();
+  const card = el('div', { class: 'cv-result' },
+    el('span', { class: 'cv-result-t', text: title }),
+    el('button', { class: 'cv-result-open', type: 'button', text: 'เปิดดู', onclick: () => open() }));
+  m.append(card);
+  curText = null;
+  scrollChat();
+}
+
+// tool calls inside the conversation (collapsible, dim)
+const toolRows = new Map();
+
+function addToolRow(a) {
+  if (a.name === 'TodoWrite') return;
+  const m = ensureAssistant();
+  curText = null;
+  const status = el('span', { class: 'cv-tool-st', text: '● กำลังทำงาน' });
+  const d = el('details', { class: `cv-tool running${a.parent ? ' sub' : ''}` },
+    el('summary', {}, el('span', { class: 'cv-tool-n', text: a.name }), el('span', { class: 'cv-tool-s', text: a.summary || '' }), status));
+  if (a.preview && a.preview.diff) d.append(diffDetails(a.preview));
+  else d.append(el('pre', { class: 'cv-tool-io mono', text: JSON.stringify(a.input, null, 2) }));
+  m.append(d);
+  toolRows.set(a.id, { d, status });
+  if (toolRows.size > 400) toolRows.delete(toolRows.keys().next().value);
+  scrollChat();
+}
+
+function finishToolRow(a) {
+  const r = toolRows.get(a.id);
+  if (!r) return;
+  toolRows.delete(a.id);
+  r.d.classList.remove('running');
+  r.d.classList.add(a.isError ? 'err' : 'ok');
+  r.status.textContent = a.isError ? (a.decision === 'reject' || /denied|ปฏิเสธ/i.test(a.text) ? '✕ ถูกปฏิเสธ' : '✕ ผิดพลาด') : '✓ เสร็จ';
+  if (a.text) r.d.append(el('div', { class: 'cv-tool-lbl', text: 'ผลลัพธ์' }), el('pre', { class: 'cv-tool-io mono', text: a.text.slice(0, 3000) }));
+}
+
 function onChatItem(item) {
   const m = ensureAssistant();
   if (item.type === 'text') {
@@ -292,7 +366,7 @@ function onChatItem(item) {
   }
   curText = null;
   if (item.type === 'code') {
-    m.append(el('pre', { class: 'code mono', text: item.code }));
+    m.append(codeBlock(item.code));
   } else if (item.type === 'block') {
     m.append(blockCard(item));
     if (item.kind === 'result') { resultViewer.show(item.data); orbBridge.set({ result: true }); }
@@ -331,6 +405,8 @@ const acts = new Map();
 
 function onActivity(a) {
   if (a.kind === 'tool-use' && a.name === 'WebSearch' && !a.parent) resultViewer.searchStarted(a.input && a.input.query);
+  if (a.kind === 'tool-use') addToolRow(a);
+  else if (a.kind === 'tool-result') finishToolRow(a);
   if (a.kind === 'tool-use') {
     const card = el('div', { class: `act running${a.parent ? ' sub' : ''}` });
     const head = el('div', { class: 'act-head' }, el('span', { class: 'act-name', text: a.name }), el('span', { class: 'act-status', text: '● กำลังทำงาน' }));
@@ -376,7 +452,19 @@ function onTodos(todos) {
 
 // ---------------- approvals (click only) ----------------
 
+// each request also leaves an amber line in the conversation (the click-only dialog stays the place to answer)
+const approvalRows = new Map();
+
 function onApprovalRequest(req) {
+  const row = el('div', { class: 'cv-perm', role: 'status' },
+    el('span', { class: 'cv-perm-k', text: 'ขออนุญาต' }),
+    el('span', { class: 'mono cv-perm-t', text: req.tool }),
+    el('span', { class: 'cv-perm-s', text: req.summary || '' }),
+    el('span', { class: 'cv-perm-st', text: 'รอคุณกดอนุญาตบนจอ' }));
+  ensureAssistant().append(row);
+  curText = null;
+  approvalRows.set(req.id, row);
+  scrollChat();
   S.approvals.push(req);
   updateDot();
   sfx.approval();
@@ -428,6 +516,12 @@ async function answerApproval(decision, ev) {
 }
 
 function onApprovalClose({ id }) {
+  const row = approvalRows.get(id);
+  if (row) {
+    approvalRows.delete(id);
+    row.classList.add('done');
+    row.querySelector('.cv-perm-st').textContent = 'ตอบแล้ว';
+  }
   const idx = S.approvals.findIndex((r) => r.id === id);
   if (idx >= 0) S.approvals.splice(idx, 1);
   updateDot();
@@ -545,7 +639,7 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
   const r = await api.invoke('chat:send', { text, images: image ? [image] : [], imageSource, t0 });
   if (!r.ok) {
     notice(r.error, r.code === 'NO_CWD' ? 'warn' : 'error');
-    if (r.code === 'NO_CWD') $('btn-folder').focus();
+    if (r.code === 'NO_CWD' && talk.isFront) $('btn-folder').focus();
     return false;
   }
   return true;
@@ -690,6 +784,10 @@ async function openSite(cmd, fallback) {
 function afterTranscript(text, latency) {
   if (takeVoiceAsk(text)) return;
   const cmd = parseCommand(text, resultViewer ? resultViewer.context() : {});
+  if (cmd && (cmd.action === 'talk-open' || cmd.action === 'talk-close')) {
+    talkCommand(cmd.action);
+    return;
+  }
   if (cmd && cmd.action === 'viewer' && resultViewer && resultViewer.isOpen) {
     addSystemMsg(`🎙 ${text}`);
     resultViewer.command(cmd);
@@ -701,11 +799,11 @@ function afterTranscript(text, latency) {
     return;
   }
   if (needsTranscriptConfirm()) {
-    // the confirm box lives on TALK: on the HUD it was invisible, so JARVIS looked silent
-    if (sections.current !== 'talk') sections.show('talk');
+    // the confirm box lives in the conversation popup: open it so JARVIS never looks silent
+    if (sections.current) sections.home();
     $('transcript-confirm').hidden = false;
     $('transcript-text').value = text;
-    $('transcript-text').focus();
+    talk.open({ focus: $('transcript-text') });
     S.pendingTranscriptLatency = latency;
     return;
   }
@@ -724,6 +822,24 @@ const vision = new Vision({
 
 // one large viewer for camera + results (same transition, never two at once)
 const viewer = new StageViewer({ home, openExternal: (u) => resultViewer.openExternal(u) });
+
+// the conversation: a popup over the HUD, another surface of the same viewer
+talk = new ConversationPopup({
+  viewer,
+  home,
+  canKey: () => home.visible && !home.booting && !sections.current && ['menu', 'approval', 'barge', 'hf-consent'].every((id) => $(id).hidden),
+  onOpenInteractive: () => openInteractive(),
+});
+
+/** "เปิดบทสนทนา" / "ปิดบทสนทนา" (voice, push-to-talk or hands-free). */
+function talkCommand(action) {
+  if (action === 'talk-open') {
+    if (sections.current) sections.home();
+    talk.open();
+  } else {
+    talk.close();
+  }
+}
 webViewer = new WebViewer({
   viewer,
   api,
@@ -741,6 +857,12 @@ resultViewer = new ResultViewer({
   sfx,
   web: webViewer,
   retry: () => { if (S.lastUserText) send(S.lastUserText); },
+  // the conversation is open: results wait as a card in the chat instead of taking the screen
+  defer: () => talk.isFront,
+  onDeferred: (data, open) => {
+    S.deferredResult = open;
+    addResultLink(`ผลลัพธ์: ${data.title || data.type || 'ผลลัพธ์'}`, () => { S.deferredResult = null; open(); });
+  },
 });
 window.jarvisViewer = Object.freeze({
   show: (data) => resultViewer.show(data),
@@ -851,6 +973,8 @@ function hfLocal(cmd) {
     case 'card-close': home.docking.close(cmd.card); break;
     case 'card-open': home.docking.open(cmd.card); break;
     case 'handsfree-off': addSystemMsg('ปิดโหมด Hands-free'); break;
+    case 'talk-open':
+    case 'talk-close': talkCommand(cmd.action); break;
     case 'viewer': resultViewer.command(cmd); break;
     case 'open-site': openSite(cmd, (t) => hfSend(t)); break;
     default: break;
@@ -998,6 +1122,17 @@ function onOrbCommand({ action, text }) {
     case 'open-result':
       // the main window is already restored: bring the Result / Web Viewer to the front
       if (sections.current) sections.home();
+      if (!viewer.showViewer() && S.deferredResult) {
+        // the result was held as a card in the conversation: open it now
+        const open = S.deferredResult;
+        S.deferredResult = null;
+        open();
+      }
+      break;
+    case 'open-talk':
+      // floating orb "ดูเพิ่ม": the main window is restored straight into the conversation
+      if (sections.current) sections.home();
+      talk.open();
       break;
     case 'mic-toggle':
       S.micOff = !S.micOff;
@@ -1090,11 +1225,13 @@ async function newFromSummary() {
 
 function applyAppState(snap) {
   S.app = snap;
-  $('cwd-path').textContent = snap.cwd || 'ยังไม่ได้เลือกโฟลเดอร์';
-  $('cwd-path').title = snap.cwd || '';
+  talk.setCwd(snap.cwd); // middle-ellipsized on the button, full path in its tooltip
   $('menu-project').textContent = `${snap.cwd || 'ยังไม่ได้เลือกโฟลเดอร์'} · ${snap.permissionMode}`;
   $('session-id').textContent = snap.sessionId ? `· ${snap.sessionId.slice(0, 8)}` : '';
   $('btn-teach').classList.toggle('on', !!snap.teachMode);
+  $('btn-code').classList.toggle('on', !!snap.codingMode);
+  $('btn-teach').setAttribute('aria-pressed', String(!!snap.teachMode));
+  $('btn-code').setAttribute('aria-pressed', String(!!snap.codingMode));
   applyMode(snap.permissionMode);
   applyModel(snap.model);
 }
@@ -1147,6 +1284,8 @@ function fillSettings() {
   $('s-guardAsk').value = s.guardAsk.join('\n');
   $('s-guardBlockPaths').value = s.guardBlockPaths.join('\n');
   $('s-triggerWords').value = s.triggerWords.join('\n');
+  $('s-sttVocabulary').value = s.sttVocabulary.join('\n');
+  $('s-sttCorrections').value = s.sttCorrections.join('\n');
   const list = (ul, items, key) => {
     ul.replaceChildren();
     items.forEach((p, i) => ul.append(el('li', {}, el('span', { text: p }), el('button', { class: 'btn small ghost', text: '✕', onclick: async () => {
@@ -1259,6 +1398,7 @@ function wireSettings() {
     if (r.ok) { S.settings = r.value; fillSettings(); }
   };
   $('s-trigger-save').onclick = () => saveSetting({ triggerWords: lines('s-triggerWords') });
+  $('s-stt-words-save').onclick = () => saveSetting({ sttVocabulary: lines('s-sttVocabulary'), sttCorrections: lines('s-sttCorrections') });
   $('s-bypass-on').onclick = async (ev) => {
     if (!ev.isTrusted) return;
     const r = await api.invoke('mode:set', { mode: 'bypassPermissions', confirmText: $('s-bypass-confirm').value.trim() });
@@ -1403,7 +1543,9 @@ function wireEvents() {
       m.append(el('div', { class: 'meta denials', text: `ถูกปฏิเสธรอบนี้: ${r.denials.map((d) => d.summary).join(' · ')}` }));
     }
     if (r.isError) m.append(el('div', { class: 'meta denials', text: `ผิดพลาด: ${r.resultText || r.subtype}` }));
-    if (!m.textContent.trim() && r.resultText) appendText(r.resultText);
+    // tool / permission rows are not an answer: fall back to the result text when nothing else was said
+    const said = [...m.childNodes].some((n) => (n.nodeType === 3 || !n.matches('.cv-tool, .cv-perm')) && n.textContent.trim());
+    if (!said && r.resultText) appendText(r.resultText);
     if (r.latency) Object.assign(S.lat, { t1: r.latency.t1, t2: r.latency.t2, awaitingMs: r.latency.awaitingMs });
     showLatency();
     const slow = slowestStage();
@@ -1446,7 +1588,7 @@ function wireEvents() {
 // ---------------- DOM wiring ----------------
 
 function wireDom() {
-  $('btn-send').onclick = () => { const t = $('input').value; $('input').value = ''; send(t); };
+  $('btn-send').onclick = () => { const t = $('input').value; $('input').value = ''; talk.inputChanged(); send(t); };
   $('input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
@@ -1460,34 +1602,7 @@ function wireDom() {
     if (!vision.on) return notice('เปิดกล้องก่อนใช้ "ดูนี่"', 'warn', null, 3000);
     setLook(!S.lookArmed);
   };
-  // Tab on home toggles the prompt input (only on home, never over a dialog).
-  const prompt = $('home-prompt');
-  const homeInput = $('home-input');
-  const setPrompt = (on) => {
-    prompt.hidden = !on;
-    if (on) homeInput.focus();
-    else homeInput.blur();
-  };
-  const onHomeOnly = () => !sections.current && $('menu').hidden && $('approval').hidden && $('barge').hidden;
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Tab' || e.ctrlKey || e.altKey || !onHomeOnly()) return;
-    e.preventDefault();
-    setPrompt(prompt.hidden);
-  });
-  homeInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      setPrompt(false);
-    }
-  });
-  prompt.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const t = homeInput.value.trim();
-    if (!t) return;
-    homeInput.value = '';
-    setPrompt(false);
-    send(t); // the reply appears in LAST REPLY and is spoken as usual
-  });
+  // Tab on the HUD opens the conversation popup (ui/conversation.js handles Tab / Esc / focus)
   document.addEventListener('keydown', (e) => {
     if (e.altKey && (e.key === 'l' || e.key === 'L')) { e.preventDefault(); $('btn-look').click(); }
     if (e.key === 'Escape' && S.speaking) speaker.stop();
@@ -1527,15 +1642,21 @@ function wireDom() {
     await api.invoke('session:teach-mode', on);
     addSystemMsg(on ? 'เปิดโหมดสอนประดิษฐ์ — JARVIS จะสอนทีละขั้น' : 'ปิดโหมดสอนประดิษฐ์');
   };
+  $('btn-code').onclick = async () => {
+    const on = !$('btn-code').classList.contains('on');
+    await api.invoke('session:coding-mode', on);
+    addSystemMsg(on ? 'เปิดโหมดโค้ด — JARVIS จะอ่านก่อนแก้ ตรวจผลก่อนสรุป และไม่อ่านโค้ดออกเสียง' : 'ปิดโหมดโค้ด');
+  };
   $('btn-new').onclick = () => api.invoke('session:new');
   $('btn-new-summary').onclick = newFromSummary;
-  $('btn-interactive').onclick = openInteractive;
+  // ⌨ Terminal: a panel inside the conversation popup (conversation.js); the
+  // interactive Claude Code window opens from the panel's own button
   $('btn-sfx').onclick = async () => {
     const on = !S.settings.sfx;
     await saveSetting({ sfx: on });
     setSfxEnabled(on);
     $('btn-sfx').classList.toggle('on', on);
-    $('btn-sfx').textContent = 'SFX';
+    $('btn-sfx').setAttribute('aria-pressed', String(on));
   };
   $('terminal-toggle').onclick = () => {
     const pre = $('terminal');
@@ -1575,6 +1696,7 @@ function wireDom() {
   setSfxEnabled(S.settings.sfx);
   applySpeaker();
   $('btn-sfx').classList.toggle('on', S.settings.sfx);
+  $('btn-sfx').setAttribute('aria-pressed', String(!!S.settings.sfx));
   refreshState();
   if (!init.snapshot.cwd) addSystemMsg('สวัสดีครับ เลือกโฟลเดอร์โปรเจกต์ (📁) แล้วพิมพ์หรือกด 🎙 เพื่อเริ่มคุยกับ JARVIS');
   else addSystemMsg(`โฟลเดอร์งาน: ${init.snapshot.cwd}`);

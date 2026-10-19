@@ -1,0 +1,165 @@
+/* ============ Conversation popup (ui/conversation.js) ============
+   A surface of the shared large viewer: .sv-fill / .sv-frame give the glass fill,
+   the 1px line and the top-left / bottom-right accents (viewer.css). Sizes below are
+   real window px (.sv-inner is counter-scaled). --cv-badge = room for the reactor
+   badge in the bottom-left corner. */
+.cv .cv-inner { display: flex; flex-direction: column; --cv-badge: var(--badge); }
+
+/* ----- toolbar: one 48px row ----- */
+.cv-head {
+  flex: 0 0 48px; height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 10px 0 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06); white-space: nowrap; overflow: hidden;
+}
+.cv-grp { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.cv-mid { margin: 0 auto; gap: 6px; }
+.cv-sp { flex: 1; }
+.cv-ctl {
+  height: 32px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text-2);
+  font: inherit; font-size: 13px; line-height: 1; cursor: pointer; white-space: nowrap;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.cv-ctl:hover { color: var(--text-1); background: var(--surface-2); border-color: var(--line); }
+.cv-ctl.on { color: var(--accent); border-color: var(--accent-soft); }
+.cv-ctl[hidden] { display: none; }
+.cv-icon { width: 32px; padding: 0; justify-content: center; }
+.cv-i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.cv-folder { color: var(--text-1); border-color: var(--line); }
+.cv-folder .cv-i { color: var(--text-2); }
+.cv-cwd { font-size: 12px; letter-spacing: 0; }
+.cv-select { height: 32px; padding: 0 8px; font-size: 13px; border-radius: 8px; cursor: pointer; max-width: 240px; }
+.cv-sid { font-size: 11px; color: var(--text-3); padding: 0 4px; }
+.cv-sid:empty { display: none; }
+.cv-pill {
+  height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: transparent;
+  color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
+  transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.cv-pill:hover { color: var(--text-1); border-color: var(--border-hover); }
+.cv-pill.on { color: var(--accent); border-color: var(--accent); }
+
+/* "⋯" overflow menu (controls that don't fit move here; never hidden entirely) */
+.cv-more-menu {
+  position: absolute; top: 52px; right: 10px; z-index: 6; min-width: 220px; display: flex; flex-direction: column; gap: 2px; padding: 4px;
+  background: rgba(16, 21, 28, 0.98); border: 1px solid var(--border-hover); border-radius: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.cv-more-menu[hidden] { display: none; }
+.cv-more-menu > .cv-ctl, .cv-more-menu > .cv-pill { width: 100%; justify-content: flex-start; height: 32px; border-radius: 6px; border-color: transparent; }
+.cv-more-menu > .cv-pill.on, .cv-more-menu > .cv-ctl.on { border-color: var(--accent-soft); }
+.cv-more-menu > .cv-sid { padding: 6px 10px; }
+
+/* ----- body: messages (+ optional terminal split) ----- */
+.cv-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.cv-main { flex: 1 1 auto; min-height: 0; position: relative; }
+.cv .chat {
+  position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; user-select: text;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 860px) minmax(0, 1fr); align-content: start; row-gap: 16px;
+  padding: 28px 24px 24px var(--cv-badge);
+  scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+.cv .chat > * { grid-column: 2; min-width: 0; }
+.cv .msg { font-size: 15px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
+.cv .msg.user { justify-self: end; max-width: 80%; padding: 10px 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.06); }
+.cv .msg.assistant { justify-self: stretch; color: var(--text-1); }
+.cv .msg.system { justify-self: center; text-align: center; color: var(--text-3); font-size: 12px; line-height: 1.6; }
+.cv .msg .cam-badge { color: var(--orange); font-size: 12px; margin-bottom: 4px; }
+.cv .msg img.thumb { display: block; max-width: 240px; border-radius: 6px; margin-bottom: 8px; }
+.cv .msg .meta { font-size: 11px; color: var(--text-3); margin-top: 8px; font-family: var(--font-mono); white-space: normal; }
+.cv .msg .btn.small { margin: 4px 0; }
+
+/* code blocks + copy button */
+.cv-code { position: relative; margin: 8px 0; white-space: normal; }
+.cv .msg pre.code {
+  margin: 0; background: rgba(0, 0, 0, 0.32); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+  overflow-x: auto; white-space: pre; font-size: 12.5px; line-height: 1.6; font-family: var(--font-mono);
+}
+.cv-copy {
+  position: absolute; top: 6px; right: 6px; height: 24px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line);
+  background: rgba(16, 21, 28, 0.9); color: var(--text-2); font: inherit; font-size: 11px; cursor: pointer;
+  opacity: 0; transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.cv-code:hover .cv-copy, .cv-copy:focus-visible { opacity: 1; }
+.cv-copy:hover { color: var(--text-1); }
+.cv-copy-tmp { position: fixed; left: -9999px; top: 0; opacity: 0; }
+
+/* tool use: collapsible, monospace, dim */
+.cv-tool { margin: 6px 0; white-space: normal; font-family: var(--font-mono); font-size: 12px; color: var(--text-3); border-left: 1px solid var(--line); padding-left: 10px; }
+.cv-tool.sub { margin-left: 16px; }
+.cv-tool > summary { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; list-style: none; padding: 2px 0; }
+.cv-tool > summary::-webkit-details-marker { display: none; }
+.cv-tool > summary::before { content: '›'; color: var(--text-3); transition: transform var(--fast) var(--ease); }
+.cv-tool[open] > summary::before { transform: rotate(90deg); }
+.cv-tool-n { color: var(--text-2); flex: 0 0 auto; }
+.cv-tool-s { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-tool-st { flex: 0 0 auto; font-size: 11px; }
+.cv-tool.running .cv-tool-st { color: var(--accent); }
+.cv-tool.err .cv-tool-st { color: var(--error); }
+.cv-tool-lbl { margin: 8px 0 4px; font-size: 11px; color: var(--text-3); }
+.cv-tool-io { margin: 6px 0 0; max-height: 280px; overflow: auto; padding: 8px 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.25); white-space: pre-wrap; word-break: break-all; font-size: 11.5px; color: var(--text-2); }
+.cv-tool .diff { max-height: 280px; overflow: auto; }
+
+/* permission request: amber accent */
+.cv-perm {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0; padding: 8px 12px; white-space: normal;
+  border-left: 2px solid var(--warning); border-radius: 0 6px 6px 0; background: rgba(255, 181, 71, 0.07); font-size: 13px;
+}
+.cv-perm-k { color: var(--warning); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; }
+.cv-perm-t { color: var(--text-1); font-size: 12px; }
+.cv-perm-s { color: var(--text-2); flex: 1 1 240px; min-width: 0; }
+.cv-perm-st { color: var(--warning); font-size: 11px; }
+.cv-perm.done { border-left-color: var(--line); background: rgba(255, 255, 255, 0.02); }
+.cv-perm.done .cv-perm-k, .cv-perm.done .cv-perm-st { color: var(--text-3); }
+
+/* a result held while the conversation is open */
+.cv-result {
+  display: flex; align-items: center; gap: 12px; margin: 8px 0; padding: 8px 8px 8px 14px; white-space: normal;
+  border: 1px solid var(--accent-faint); border-radius: 8px; background: var(--accent-ghost);
+}
+.cv-result-t { flex: 1; min-width: 0; font-size: 13px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-result-open { height: 32px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--accent-soft); background: transparent; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; }
+.cv-result-open:hover { background: var(--accent-faint); }
+
+/* "ข้อความใหม่" marker */
+.cv-new-mark { display: flex; align-items: center; gap: 12px; color: var(--accent); font-size: 11px; letter-spacing: 0.08em; }
+.cv-new-mark::before, .cv-new-mark::after { content: ''; flex: 1; height: 1px; background: var(--accent-faint); }
+
+/* ----- terminal: resizable bottom split ----- */
+.cv-term { flex: 0 0 auto; position: relative; display: flex; flex-direction: column; min-height: 0; border-top: 1px solid var(--line); background: rgba(0, 0, 0, 0.22); }
+.cv-term[hidden] { display: none; }
+.cv-term-grip { position: absolute; left: 0; right: 0; top: -4px; height: 8px; cursor: ns-resize; z-index: 2; }
+.cv-term-grip:hover, .cv-term-grip:focus-visible { background: linear-gradient(transparent 3px, var(--accent-soft) 3px, var(--accent-soft) 5px, transparent 5px); outline: none; }
+.cv-term-head { flex: 0 0 40px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 var(--cv-badge); }
+.cv-term-log { flex: 1 1 auto; min-height: 0; margin: 0; padding: 4px 16px 8px var(--cv-badge); user-select: text; }
+
+/* ----- input bar ----- */
+.cv-foot { flex: 0 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 20px 16px var(--cv-badge); border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.cv-composer {
+  display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--line); transition: border-color var(--fast) var(--ease);
+}
+.cv-composer:focus-within { border-color: var(--border-hover); }
+.cv #input {
+  flex: 1; min-width: 0; resize: none; border: none; background: transparent; padding: 4px 0; margin: 0;
+  font-size: 15px; line-height: 24px; height: 32px; overflow-y: hidden; caret-color: var(--accent); user-select: text;
+}
+.cv #input:focus { outline: none; }
+.cv #input::placeholder { color: var(--text-3); }
+.cv-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.cv-act {
+  min-width: 32px; height: 32px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.cv-act:hover { color: var(--text-1); background: var(--surface-2); }
+.cv-act.on { color: var(--accent); border-color: var(--accent-soft); }
+.cv-act.primary { color: var(--accent); border-color: var(--accent-soft); }
+.cv-act.primary:hover { background: var(--accent-ghost); }
+.cv-act.danger:hover { color: #FFB3BB; border-color: rgba(255, 92, 108, 0.4); background: rgba(255, 92, 108, 0.08); }
+.cv-act.mic.listening { color: var(--orange); border-color: var(--orange); background: rgba(255, 154, 61, 0.12); }
+
+/* footer hint on the HUD */
+.cap-hint { color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-ctl, .cv-pill, .cv-act, .cv-copy, .cv-tool > summary::before { transition: none; }
+}

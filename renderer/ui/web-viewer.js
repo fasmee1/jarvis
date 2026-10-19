@@ -433,7 +433,7 @@ export class WebViewer {
   _occluded() {
     const shown = (id) => { const n = document.getElementById(id); return n && !n.hidden; };
     if (!this.o.home.visible) return 'section';
-    const over = ['menu', 'approval', 'barge', 'home-prompt', 'hf-consent'].find(shown);
+    const over = ['menu', 'approval', 'barge', 'hf-consent'].find(shown);
     if (over) return over;
     if (document.querySelector('.card.floating')) return 'floating card';
     if (document.querySelector('.web-prompt-wrap .web-prompt.over')) return 'prompt';

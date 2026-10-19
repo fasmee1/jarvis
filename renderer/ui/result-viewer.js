@@ -46,6 +46,7 @@ export class ResultViewer {
   searchStarted(query) {
     if (!this.turn) this.startTurn();
     if (this.turn.skeletonId || this.turn.hadResult) return;
+    if (this._deferred()) return; // the conversation is open: no skeleton over it
     const q = String(query || '').slice(0, 120);
     this.turn.skeletonId = this.viewer.open({
       kind: 'result',
@@ -65,7 +66,18 @@ export class ResultViewer {
     this.last = data;
     const id = this.turn.skeletonId;
     this.turn.skeletonId = null;
+    if (this._deferred()) {
+      // the conversation popup is in front: the result waits as a "เปิดดู" card in the chat
+      if (id && this.viewer.tabs.has(id)) this.viewer.close(id);
+      this.o.onDeferred(data, () => this._openPayload(data, null));
+      return;
+    }
     this._openPayload(data, id);
+  }
+
+  /** Results are held back (shown as a card in the conversation) instead of opening the viewer. */
+  _deferred() {
+    return !!(this.o.defer && this.o.defer() && this.o.onDeferred);
   }
 
   /** The turn ended. */
@@ -73,6 +85,11 @@ export class ResultViewer {
     const t = this.turn;
     this.turn = null;
     if (!t || t.hadResult) return;
+    // the conversation already shows the whole answer: no text tab over it
+    if (this._deferred()) {
+      if (t.skeletonId) this.viewer.close(t.skeletonId);
+      return;
+    }
     const text = String(replyText || '').trim();
     if (text.length >= LONG_ANSWER) {
       const data = { type: 'text', title: 'คำตอบ', markdown: text };

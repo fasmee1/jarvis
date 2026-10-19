@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="ui/camera.css">
   <link rel="stylesheet" href="ui/viewer.css">
   <link rel="stylesheet" href="ui/web.css">
+  <link rel="stylesheet" href="ui/conversation.css">
 </head>
 <body>
   <!-- ============ HOME: one full-screen instrument ============ -->
@@ -33,12 +34,102 @@
       </div>
       <div id="cards" class="cards"></div>
       <div id="caption-tr" class="caption caption-tr"></div>
-      <div class="caption caption-bl">REAL TIME · AI ASSISTANT<br>HUMAN + MACHINE · BETTER TOGETHER</div>
-      <form id="home-prompt" class="home-prompt" hidden autocomplete="off">
-        <span class="hp-caret">›</span>
-        <input id="home-input" type="text" maxlength="20000" placeholder="พิมพ์ข้อความถึง JARVIS หรือ /คำสั่ง" aria-label="ข้อความถึง JARVIS">
-        <span class="hp-keys mono">ENTER ส่ง · ESC/TAB ปิด</span>
-      </form>
+      <div class="caption caption-bl"><span class="cap-hint"><span class="cap-key">TAB</span><span class="cap-key">SPACE</span>· บทสนทนา</span><br>REAL TIME · AI ASSISTANT<br>HUMAN + MACHINE · BETTER TOGETHER</div>
+
+      <!-- ============ CONVERSATION popup (ui/conversation.js; same transition as the viewer) ============ -->
+      <div id="cv" class="sv cv" role="dialog" aria-modal="true" aria-label="บทสนทนา" tabindex="-1" hidden>
+        <div class="sv-fill"></div>
+        <svg class="frame sv-frame" aria-hidden="true"></svg>
+        <div class="sv-inner cv-inner">
+          <div class="cv-head" id="cv-head">
+            <div class="cv-grp cv-left">
+              <button id="btn-folder" class="cv-ctl cv-folder" type="button" title="โฟลเดอร์งาน — คลิกเพื่อเปลี่ยน">
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                <span id="cwd-path" class="mono cv-cwd"></span>
+              </button>
+              <select id="perm-mode" class="cv-select" title="Permission mode — โหมดสิทธิ์ของ Claude (bypassPermissions เปิดได้จาก Settings เท่านั้น)" aria-label="Permission mode">
+                <option value="default">default — ถามทุกครั้ง</option>
+                <option value="acceptEdits">acceptEdits — แก้ไฟล์ได้เลย</option>
+                <option value="plan">plan — วางแผนอย่างเดียว</option>
+                <option value="bypassPermissions">bypassPermissions — ไม่ถาม</option>
+              </select>
+              <span id="session-id" class="mono cv-sid" title="Session ของ Claude Code"></span>
+            </div>
+            <div class="cv-grp cv-mid">
+              <button id="btn-teach" class="cv-pill toggle" type="button" title="โหมดสอนประดิษฐ์ — JARVIS สอนทีละขั้น">โหมดสอน</button>
+              <button id="btn-code" class="cv-pill toggle" type="button" title="โหมดโค้ด — อ่านก่อนแก้ ตรวจผลก่อนสรุป ไม่อ่านโค้ดออกเสียง (เปิดเองในโฟลเดอร์ที่มี .git / package.json)">โหมดโค้ด</button>
+            </div>
+            <div class="cv-grp cv-right">
+              <button id="btn-new" class="cv-ctl" type="button" title="เริ่ม Session ใหม่ (ล้างบทสนทนา)">
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14 M5 12h14"/></svg><span class="cv-lbl">Session ใหม่</span>
+              </button>
+              <button id="btn-new-summary" class="cv-ctl" type="button" title="เริ่ม Session ใหม่จากสรุปของ session นี้">
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8 M21 3v5h-5"/></svg><span class="cv-lbl">ใหม่จากสรุป</span>
+              </button>
+              <button id="btn-interactive" class="cv-ctl toggle" type="button" title="Terminal — log ของ Claude Code (stderr · raw events · errors) และปุ่มเปิด Claude Code แบบ interactive">
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17l6-5-6-5 M12 19h8"/></svg><span class="cv-lbl">Terminal</span>
+              </button>
+              <button id="btn-sfx" class="cv-ctl toggle" type="button" title="เสียงเอฟเฟกต์ (SFX) เปิด/ปิด">
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7"/></svg><span class="cv-lbl">SFX</span>
+              </button>
+              <button id="cv-more" class="cv-ctl cv-icon" type="button" title="ตัวเลือกเพิ่มเติม" aria-label="ตัวเลือกเพิ่มเติม" aria-haspopup="menu" aria-expanded="false" hidden>
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01 M12 12h.01 M19 12h.01"/></svg>
+              </button>
+              <button id="cv-close" class="cv-ctl cv-icon" type="button" title="ปิด (Esc · Tab เมื่อช่องพิมพ์ว่าง)" aria-label="ปิดบทสนทนา">
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18 M6 6l12 12"/></svg>
+              </button>
+            </div>
+          </div>
+          <div id="cv-more-menu" class="cv-more-menu" role="menu" aria-label="ตัวเลือกเพิ่มเติม" hidden></div>
+          <div class="cv-pane">
+            <div class="cv-main">
+              <div id="chat" class="chat cv-msgs" role="log" aria-live="polite" aria-label="ข้อความ"></div>
+            </div>
+            <div id="cv-term" class="cv-term" hidden>
+              <div id="cv-term-grip" class="cv-term-grip" role="separator" aria-orientation="horizontal" aria-label="ลากเพื่อปรับความสูง Terminal" tabindex="0" title="ลากเพื่อปรับความสูง (↑/↓)"></div>
+              <div class="cv-term-head">
+                <span class="micro">TERMINAL · stderr · raw events · errors</span>
+                <span class="cv-sp"></span>
+                <button id="cv-term-cli" class="cv-ctl" type="button" title="เปิด Claude Code แบบ interactive ในหน้าต่างใหม่ (session เดียวกัน)">
+                  <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg><span class="cv-lbl">เปิด Claude Code แบบ interactive</span>
+                </button>
+                <button id="cv-term-close" class="cv-ctl cv-icon" type="button" title="ซ่อน Terminal" aria-label="ซ่อน Terminal">
+                  <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18 M6 6l12 12"/></svg>
+                </button>
+              </div>
+              <pre id="cv-term-log" class="cv-term-log terminal-body mono"></pre>
+            </div>
+          </div>
+          <div class="cv-foot">
+            <div id="transcript-confirm" class="transcript-confirm" hidden>
+              <div class="dim">ข้อความที่ถอดเสียงได้ — ตรวจก่อนส่ง</div>
+              <textarea id="transcript-text" rows="2" aria-label="ข้อความที่ถอดเสียงได้"></textarea>
+              <div class="row">
+                <button id="btn-transcript-send" class="btn primary">ส่ง</button>
+                <button id="btn-transcript-cancel" class="btn">ยกเลิก</button>
+              </div>
+            </div>
+            <div class="cv-composer">
+              <textarea id="input" rows="1" maxlength="20000" placeholder="พิมพ์ข้อความ หรือ /คำสั่ง แล้วกด Enter (Shift+Enter ขึ้นบรรทัดใหม่)" aria-label="ข้อความถึง JARVIS"></textarea>
+              <div class="cv-actions">
+                <button id="btn-cam" class="cv-act toggle" type="button" title="เปิด/ปิดกล้อง (Ctrl+Shift+C)" aria-label="เปิด/ปิดกล้อง">
+                  <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                </button>
+                <button id="btn-look" class="cv-act toggle" type="button" title="ดูนี่ — แนบภาพกล้องกับข้อความถัดไป (Alt+L)">ดูนี่</button>
+                <button id="btn-stop" class="cv-act danger" type="button" title="หยุด Claude และเสียงพูด" aria-label="หยุด">
+                  <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/></svg>
+                </button>
+                <button id="btn-mic" class="cv-act mic" type="button" title="พูด (Ctrl+Space)" aria-label="พูด">
+                  <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v3"/></svg>
+                </button>
+                <button id="btn-send" class="cv-act primary" type="button" title="ส่ง (Enter)" aria-label="ส่ง">
+                  <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14 M13 6l6 6-6 6"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="card-tip" class="card-tip" hidden></div>
     <!-- camera elements; the camera viewer (camera mode) moves them into its feed -->
@@ -75,7 +166,7 @@
         <span class="mono dim">MEE JARVIS</span>
         <span id="menu-project" class="mono menu-project"></span>
       </div>
-      <button class="menu-item" data-section="talk"><span class="mi-k">01</span><span class="mi-t">TALK</span><span class="mi-th">บทสนทนา</span></button>
+      <button class="menu-item" data-section="talk"><span class="mi-k">01</span><span class="mi-t">TALK</span><span class="mi-th">บทสนทนา · Tab / Space</span></button>
       <button class="menu-item" data-section="maker"><span class="mi-k">02</span><span class="mi-t">MAKER</span><span class="mi-th">ขั้นตอน · แผนผัง · อุปกรณ์ · โค้ด</span></button>
       <button class="menu-item" data-section="activity"><span class="mi-k">03</span><span class="mi-t">ACTIVITY</span><span class="mi-th">เครื่องมือที่ Claude ใช้</span></button>
       <button class="menu-item" data-section="diagnostics"><span class="mi-k">04</span><span class="mi-t">DIAGNOSTICS</span><span class="mi-th">latency · tokens · terminal</span></button>
@@ -97,48 +188,6 @@
   </nav>
 
   <!-- ============ SECTIONS (one at a time, full screen) ============ -->
-  <section class="view" id="view-talk" hidden>
-    <header class="view-head">
-      <button class="btn back" data-home>◂ HOME</button>
-      <h1>TALK <span class="th">บทสนทนา</span> <span id="session-id" class="mono dim"></span></h1>
-      <div class="view-tools">
-        <button id="btn-folder" class="btn small">📁 โฟลเดอร์</button>
-        <span id="cwd-path" class="mono dim cwd"></span>
-        <select id="perm-mode" title="Permission mode">
-          <option value="default">default — ถามทุกครั้ง</option>
-          <option value="acceptEdits">acceptEdits — แก้ไฟล์ได้เลย</option>
-          <option value="plan">plan — วางแผนอย่างเดียว</option>
-          <option value="bypassPermissions">bypassPermissions — ไม่ถาม</option>
-        </select>
-        <button id="btn-teach" class="btn small toggle">โหมดสอน</button>
-        <button id="btn-new" class="btn small">＋ Session ใหม่</button>
-        <button id="btn-new-summary" class="btn small">↻ ใหม่จากสรุป</button>
-        <button id="btn-interactive" class="btn small">⌨ Terminal</button>
-        <button id="btn-sfx" class="btn small toggle" title="เสียงเอฟเฟกต์">SFX</button>
-      </div>
-    </header>
-    <div class="view-body talk-body">
-      <div id="chat" class="chat"></div>
-      <div id="transcript-confirm" class="transcript-confirm" hidden>
-        <div class="dim">ข้อความที่ถอดเสียงได้ — ตรวจก่อนส่ง</div>
-        <textarea id="transcript-text" rows="2"></textarea>
-        <div class="row">
-          <button id="btn-transcript-send" class="btn primary">ส่ง</button>
-          <button id="btn-transcript-cancel" class="btn">ยกเลิก</button>
-        </div>
-      </div>
-      <div class="composer cut">
-        <textarea id="input" rows="2" placeholder="พิมพ์ข้อความ หรือ /คำสั่ง แล้วกด Enter (Shift+Enter ขึ้นบรรทัดใหม่)"></textarea>
-        <div class="composer-actions">
-          <button id="btn-mic" class="btn mic" title="พูด (Ctrl+Space)">MIC</button>
-          <button id="btn-cam" class="btn toggle" title="เปิด/ปิดกล้อง">CAM</button>
-          <button id="btn-look" class="btn toggle" title="ดูนี่ — แนบภาพกล้องกับข้อความถัดไป (Alt+L)">ดูนี่</button>
-          <button id="btn-send" class="btn primary">ส่ง ▸</button>
-          <button id="btn-stop" class="btn danger">■ หยุด</button>
-        </div>
-      </div>
-    </div>
-  </section>
 
   <section class="view" id="view-maker" hidden>
     <header class="view-head">
@@ -254,6 +303,9 @@
             <option value="thonburian-medium">Thonburian medium — ฝึกภาษาไทย (539 MB แนะนำ)</option>
           </select>
         </label>
+        <label>คำศัพท์ที่ให้ whisper คาดว่าจะได้ยิน (บรรทัดละคำ ภาษาอังกฤษเท่านั้น — ชื่อโฟลเดอร์โปรเจกต์ถูกเพิ่มให้เอง)<textarea id="s-sttVocabulary" rows="4"></textarea></label>
+        <label>พจนานุกรมแก้คำที่ถอดผิด (บรรทัดละคู่ รูปแบบ ได้ยิน=ที่ตั้งใจ เช่น ควักโค้ด=Claude Code)<textarea id="s-sttCorrections" rows="4"></textarea></label>
+        <div class="row"><button id="s-stt-words-save" class="btn small">บันทึกคำศัพท์ / พจนานุกรม</button></div>
         <div class="row"><span id="stt-status" class="dim mono"></span><button id="s-stt-install" class="btn small">ติดตั้ง/ดาวน์โหลด whisper</button></div>
         <div class="row"><input id="s-typhoon-key" type="password" placeholder="Typhoon API key จาก opentyphoon.ai (เก็บแบบเข้ารหัส)"><button id="s-typhoon-save" class="btn small">บันทึก key</button></div>
         <label>Azure region<input id="s-azureRegion" type="text" placeholder="southeastasia"></label>

@@ -13,6 +13,7 @@ const INVOKE = [
   'session:new',
   'session:new-from-summary',
   'session:teach-mode',
+  'session:coding-mode',
   'terminal:open-interactive',
   'approval:respond',
   'latency:report',

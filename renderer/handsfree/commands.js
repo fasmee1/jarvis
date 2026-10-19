@@ -131,6 +131,9 @@ const CMD = {
   // "การ์ด" as whisper writes it: การ์ด กาด กัด คาร์ด คาด
   close: R('^(?:ปิด|บิด|เก็บ)(?:การ์ด|กาด|กัด|คาร์ด|คาด|กาจ)(.+)$'),
   open: R('^(?:เปิด|เบิด|แสดง)(?:การ์ด|กาด|กัด|คาร์ด|คาด|กาจ)(.+)$'),
+  // the conversation popup ("บทสนทนา", also as whisper tends to spell it)
+  talkOpen: R('^(?:เปิด|เบิด|ดู|แสดง)(?:หน้า)?(?:บทสนทนา|บทสนธนา|บทสนทนาหน่อย|แชท|แชต)$|^(?:openconversation|showconversation|openthechat|openchat|showchat)$'),
+  talkClose: R('^(?:ปิด|บิด|เก็บ|ซ่อน)(?:หน้า)?(?:บทสนทนา|บทสนธนา|แชท|แชต)$|^(?:closeconversation|hideconversation|closethechat|closechat|hidechat)$'),
   closeEn: /^(?:closecard|closethe|hide)(.+?)(?:card)?$/,
   openEn: /^(?:opencard|openthe|show)(.+?)(?:card)?$/,
 };
@@ -138,7 +141,7 @@ const CMD = {
 /**
  * Match a transcript against the built-in commands.
  * @returns {null | { action: string, card?: string }}
- *   actions: stop | done | camera-on | camera-off | card-close | card-open | handsfree-off
+ *   actions: stop | done | camera-on | camera-off | card-close | card-open | handsfree-off | talk-open | talk-close
  */
 // ---------- Result Viewer (only while it is open) ----------
 // numbers as said: digits, Thai words or English
@@ -222,6 +225,8 @@ export function parseCommand(transcript, ctx = {}) {
   const raw = stripWake(transcript).trim();
   const t = tight(raw);
   if (!t) return null;
+  if (CMD.talkOpen.test(t)) return { action: 'talk-open' };
+  if (CMD.talkClose.test(t)) return { action: 'talk-close' };
   if (ctx.viewer && ctx.web) {
     const wc = webCommand(t, raw);
     if (wc) return wc;

@@ -1,14 +1,17 @@
 // Hamburger menu + full-screen sections (one visible at a time) + window controls.
+// TALK is not a section: it is the Conversation popup on the HUD (ui/conversation.js),
+// opened through onTalk.
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
-const VIEWS = { talk: 'view-talk', maker: 'view-maker', activity: 'view-activity', diagnostics: 'view-diagnostics', settings: 'settings' };
+const VIEWS = { maker: 'view-maker', activity: 'view-activity', diagnostics: 'view-diagnostics', settings: 'settings' };
 const ORDER = ['talk', 'maker', 'activity', 'diagnostics', 'settings'];
 
 export class Sections {
-  constructor({ onChange, beforeShow }) {
+  constructor({ onChange, beforeShow, onTalk }) {
     this.onChange = onChange || (() => {});
     this.beforeShow = beforeShow || (() => {});
+    this.onTalk = onTalk || (() => {});
     this.current = null; // null = home
     this.menu = $('menu');
     this.hb = $('hamburger');
@@ -44,7 +47,10 @@ export class Sections {
       else if (this.current) this.home();
       return;
     }
-    if (!this.menu.hidden && /^[1-5]$/.test(e.key)) this.show(ORDER[Number(e.key) - 1]);
+    if (!this.menu.hidden && /^[1-5]$/.test(e.key)) {
+      e.preventDefault(); // "1" must not end up typed in the conversation input
+      this.show(ORDER[Number(e.key) - 1]);
+    }
   }
 
   toggleMenu() {
@@ -64,6 +70,12 @@ export class Sections {
   }
 
   show(name) {
+    if (name === 'talk') {
+      // the conversation lives on the HUD: back home, then the popup opens
+      this.home();
+      this.onTalk();
+      return;
+    }
     if (!VIEWS[name]) return;
     this.closeMenu();
     this.beforeShow(name);

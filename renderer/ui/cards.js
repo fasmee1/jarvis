@@ -42,7 +42,7 @@ export function icon(name, cls) {
 }
 
 const TIPS = {
-  reply: 'คำตอบล่าสุดของ JARVIS — คลิกเพื่อเปิดหน้า TALK · เส้นด้านล่างคือจำนวนช่วงที่พูดไปแล้ว / ทั้งหมด',
+  reply: 'คำตอบล่าสุดของ JARVIS — คลิกเพื่อเปิดบทสนทนา (Tab) · เส้นด้านล่างคือจำนวนช่วงที่พูดไปแล้ว / ทั้งหมด',
   mic: 'ระดับเสียงจากไมโครโฟนจริง (dBFS) — เป็นสีส้มขณะกำลังฟัง',
   tts: 'ระดับเสียงพูดของ JARVIS ที่กำลังเล่นอยู่จริง (%)',
   latency: 'เวลาตั้งแต่กดส่งจนเริ่มพูดประโยคแรก (t3−t0) — กราฟ 13 รอบล่าสุด · แท่งจางคือรอบที่ไม่มีเสียง จึงใช้เวลาถึงข้อความแรก (t2−t0) · คลิกเพื่อดู DIAGNOSTICS',
@@ -223,9 +223,15 @@ export class Cards {
     reopen.type = 'button';
     reopen.hidden = !this.replyReopen;
     reopen.addEventListener('click', (e) => { e.stopPropagation(); if (this.replyReopen) this.replyReopen(); });
-    foot.append(seg, cnt, reopen);
+    // "ดูเพิ่ม": the whole answer in the conversation popup
+    const more = h('button', 'reply-more', 'ดูเพิ่ม');
+    more.type = 'button';
+    more.title = 'เปิดบทสนทนา (Tab · Space)';
+    more.hidden = true; // shown once there is a reply (setReply)
+    more.addEventListener('click', (e) => { e.stopPropagation(); this.onOpen('talk'); });
+    foot.append(seg, cnt, more, reopen);
     inner.append(q, wave, foot);
-    return { q, wave, seg, cnt, reopen };
+    return { q, wave, seg, cnt, reopen, more };
   }
   _body_mic(inner) {
     return this._smallBody(inner, 'ไมค์ปิดอยู่ · Ctrl+Space', this._meter());
@@ -359,6 +365,7 @@ export class Cards {
       c.parts.q.textContent = `“${t}”`;
       this._updated(c);
     }
+    if (t && c.parts.more) c.parts.more.hidden = false;
     if (total) {
       this._seg(c.parts.seg, spoken / total);
       c.parts.cnt.textContent = `${spoken}/${total}`;

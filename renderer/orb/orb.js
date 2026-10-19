@@ -335,7 +335,7 @@ O.addEventListener('keydown', (e) => {
 
 // ---------- bubble actions ----------
 
-$('more').onclick = () => orb.invoke('orb:cmd', { action: 'open-main' }).catch(() => {});
+$('more').onclick = () => orb.invoke('orb:cmd', { action: 'open-talk' }).catch(() => {}); // restores JARVIS straight into the conversation
 $('chip').onclick = () => orb.invoke('orb:cmd', { action: 'open-result' }).catch(() => {});
 $('kb').onclick = () => (want.input ? closeInput() : openInput());
 $('kb').addEventListener('mousedown', (e) => e.preventDefault()); // keep the text box focused, so ⌨ toggles

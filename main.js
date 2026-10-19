@@ -290,7 +290,7 @@ function registerIpc() {
       core.onSettingsChanged(keys);
       if (keys.includes('pushToTalkKey') || keys.includes('orbShortcut')) registerHotkey();
       if (keys.some((k) => k.startsWith('orb'))) { orb.configure(); sendBg(); }
-      if (keys.includes('sttProvider') || keys.includes('whisperModel') || keys.includes('azureRegion')) stt.configure(settings.get());
+      if (['sttProvider', 'whisperModel', 'azureRegion', 'sttVocabulary', 'sttCorrections'].some((k) => keys.includes(k))) stt.configure(settings.get());
       send('settings', settings.get());
     }
     return r;
@@ -368,6 +368,10 @@ function registerIpc() {
   handle('session:new-from-summary', () => core.newSessionFromSummary());
   handle('session:teach-mode', (p) => {
     core.setTeachMode(v.bool(p, 'teach'));
+    return { ok: true };
+  });
+  handle('session:coding-mode', (p) => {
+    core.setCodingMode(v.bool(p, 'coding'));
     return { ok: true };
   });
   handle('terminal:open-interactive', () => {
@@ -597,7 +601,7 @@ function registerIpc() {
   handleOrb('orb:ready', () => { orb.onReady(); return { ok: true }; });
   handleOrb('orb:cmd', (p) => {
     v.obj(p);
-    const action = v.oneOf(p.action, ['toggle-listen', 'open-main', 'open-result', 'send-text'], 'action');
+    const action = v.oneOf(p.action, ['toggle-listen', 'open-main', 'open-result', 'open-talk', 'send-text'], 'action');
     orbCommand(action, action === 'send-text' ? { text: v.str(p.text, 2000, 'text') } : {});
     return { ok: true };
   });
@@ -640,13 +644,14 @@ function registerIpc() {
 
 /** A command from the orb (click / bubble / menu): window actions here, voice actions in the page. */
 function orbCommand(action, extra = {}) {
-  if (action === 'open-main') return restoreMain();
+  // "ดูเพิ่ม" (open-talk) restores the window like open-main, then opens the conversation in it
+  if (action === 'open-main' || (action === 'open-talk' && mainCrashed)) return restoreMain();
   if (mainCrashed) {
     // the page is gone: the only useful action is relaunching it (double-click)
     orb.setMainCrashed(true);
     return undefined;
   }
-  if (action === 'open-result') {
+  if (action === 'open-result' || action === 'open-talk') {
     restoreMain();
     return send('orb:cmd', { action });
   }
@@ -751,6 +756,7 @@ app.whenReady().then(async () => {
     appRoot: APP_ROOT,
     logDir: userData,
     ui: send,
+    onCwd: (dir) => stt.setProject(path.basename(dir)),
   });
   await core.init();
   registerAppProtocol();
