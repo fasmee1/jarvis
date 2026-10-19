@@ -338,6 +338,17 @@ export class Speaker {
     }
   }
 
+  /** Current output level 0..1, read on demand (the Floating Orb polls it while the window is minimized). */
+  level() {
+    const an = this.analyser;
+    if (!an || !this.speaking) return 0;
+    if (!this._lvBuf || this._lvBuf.length !== an.fftSize) this._lvBuf = new Float32Array(an.fftSize);
+    an.getFloatTimeDomainData(this._lvBuf);
+    let s = 0;
+    for (const x of this._lvBuf) s += x * x;
+    return Math.min(1, Math.sqrt(s / this._lvBuf.length) * 4);
+  }
+
   _meter() {
     const an = this.analyser;
     if (!an) return;

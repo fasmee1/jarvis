@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, session: eSession, globalShortcut, protocol, net, powerMonitor, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session: eSession, globalShortcut, protocol, net, powerMonitor, Tray, Menu, nativeImage, screen, desktopCapturer } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -24,6 +24,7 @@ const { resolveSite } = require('./lib/web/web-utils');
 const { Summarizer } = require('./lib/web/summarize');
 const { PageReader } = require('./lib/web/page-reader');
 const { PdfReader } = require('./lib/web/pdf');
+const { OrbWindow, ORB_PRELOAD } = require('./lib/orb/orb-window');
 
 const APP_ROOT = __dirname;
 const APP_ORIGIN = 'app://jarvis';
@@ -74,6 +75,8 @@ let wakeAssets = null;
 let tray = null;
 let web = null; // Web Viewer browser (WebContentsViews in the main window)
 let reader = null; // Web Viewer page reader (extraction + summaries)
+let orb = null; // Floating Orb (shown while the main window is minimized)
+let mainCrashed = false;
 // hands-free state reported by the renderer (for tray mode + background throttling)
 const hf = { on: false };
 
@@ -87,8 +90,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', (_event, argv) => {
     if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
+      restoreMain();
       if (argv.includes('--camera-on')) send('camera:cmd', { action: 'on' });
     }
   });
@@ -117,20 +119,48 @@ function createWindow() {
       webSecurity: true,
       spellcheck: false,
       autoplayPolicy: 'no-user-gesture-required', // boot sound plays without a click
+      // mic, wake word, STT and TTS keep running while minimized (the Floating Orb
+      // talks to this page); the renderer pauses its own drawing via 'window:bg'
+      backgroundThrottling: false,
     },
   });
   win.loadURL(`${APP_ORIGIN}/renderer/index.html`);
   // The renderer never navigates or opens windows.
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.on('closed', () => { win = null; });
+  win.on('closed', () => {
+    win = null;
+    if (orb) orb.destroy(); // last window gone → the app quits
+  });
   // Hands-free: in tray mode a minimized window hides to the tray and keeps
-  // listening; otherwise the renderer pauses wake listening while hidden.
+  // listening; otherwise the renderer pauses wake listening while hidden
+  // (unless the Floating Orb is on screen).
   win.on('minimize', () => {
     if (hf.on && settings.get().handsFreeBackground === 'tray') {
       win.hide();
       showTray();
     }
+    orb.show({ force: true });
+    sendBg();
+  });
+  for (const ev of ['restore', 'show', 'focus']) {
+    win.on(ev, () => {
+      if (win.isMinimized() || !win.isVisible()) return;
+      orb.hide();
+      sendBg();
+    });
+  }
+  win.on('hide', sendBg);
+  win.webContents.on('render-process-gone', (_e, d) => {
+    if (d.reason === 'clean-exit') return;
+    mainCrashed = true;
+    orb.setMainCrashed(true);
+    orb.show({ force: true });
+  });
+  win.webContents.on('did-finish-load', () => {
+    if (mainCrashed) { mainCrashed = false; orb.setMainCrashed(false); }
+    if (settings.get().orbEnabled) orb.create(); // ready before the first minimize
+    sendBg();
   });
   // F11 toggles fullscreen. Esc is left to the page and never exits the app.
   win.webContents.on('before-input-event', (e, input) => {
@@ -159,6 +189,24 @@ function createWindow() {
       // a page script can ask for extra frames: console.log('[shot] name') → <shot>-name.png
       const m = /^\[shot\] ([\w-]{1,40})$/.exec(String(e.message || ''));
       if (m) grab().then((img) => fs.writeFileSync(shot.replace(/\.png$/i, '') + `-${m[1]}.png`, img.toPNG()), () => {});
+      // '[orb-shot] name' → <shot>-orb-name.png of the Floating Orb window (+ its bounds)
+      const orbShot = (name) => {
+        if (!orb || !orb.alive()) return;
+        const b = orb.win.getBounds();
+        orb.win.webContents.capturePage().then((img) => {
+          fs.writeFileSync(shot.replace(/\.png$/i, '') + `-orb-${name}.png`, img.toPNG());
+          fs.appendFileSync(logFile, `[orb] ${name} bounds ${JSON.stringify(b)} visible ${orb.win.isVisible()} focused ${orb.win.isFocused()} crashed ${mainCrashed}\n`);
+        }, (err) => fs.appendFileSync(logFile, `[orb] capture failed ${err.message}\n`));
+      };
+      const o = /^\[orb-shot\] ([\w-]{1,40})$/.exec(String(e.message || ''));
+      if (o) orbShot(o[1]);
+      // '[crash-main]' crashes this page (tests the orb's crash state, then the relaunch)
+      if (e.message === '[crash-main]') {
+        setTimeout(() => win.webContents.forcefullyCrashRenderer(), 100);
+        setTimeout(() => orbShot('crashed'), 1500);
+        setTimeout(() => orbCommand('open-main'), 2500);
+        setTimeout(() => fs.appendFileSync(logFile, `[orb] after relaunch: main visible ${win.isVisible()} minimized ${win.isMinimized()} crashed ${mainCrashed} orb visible ${orb.visible}\n`), 6000);
+      }
       // '[crash-web]' crashes the shown web page (tests the crash notice)
       if (e.message === '[crash-web]' && web && web.tab(web.active)) web.tab(web.active).wc.forcefullyCrashRenderer();
     });
@@ -182,6 +230,30 @@ function handle(channel, fn) {
     if (!win || event.sender !== win.webContents) throw new Error('unknown sender');
     return fn(payload, event);
   });
+}
+
+/** IPC from the Floating Orb window only. */
+function handleOrb(channel, fn) {
+  ipcMain.handle(channel, async (event, payload) => {
+    if (!orb || !orb.alive() || event.sender !== orb.win.webContents) throw new Error('unknown sender');
+    return fn(payload, event);
+  });
+}
+
+/** Tell the page whether it is in the background and whether the orb is up. */
+function sendBg() {
+  if (!win || win.isDestroyed()) return;
+  send('window:bg', { background: win.isMinimized() || !win.isVisible(), orb: !!orb && orb.visible });
+}
+
+/** Restore + focus the main window (from the orb, the tray, a second launch). */
+function restoreMain() {
+  if (!win || win.isDestroyed()) return;
+  if (mainCrashed) win.webContents.reload(); // relaunch a crashed page
+  win.show();
+  if (win.isMinimized()) win.restore();
+  win.focus();
+  hideTray();
 }
 
 function registerIpc() {
@@ -216,7 +288,8 @@ function registerIpc() {
     if (r.ok) {
       const keys = Object.keys(p);
       core.onSettingsChanged(keys);
-      if (keys.includes('pushToTalkKey')) registerHotkey();
+      if (keys.includes('pushToTalkKey') || keys.includes('orbShortcut')) registerHotkey();
+      if (keys.some((k) => k.startsWith('orb'))) { orb.configure(); sendBg(); }
       if (keys.includes('sttProvider') || keys.includes('whisperModel') || keys.includes('azureRegion')) stt.configure(settings.get());
       send('settings', settings.get());
     }
@@ -266,11 +339,21 @@ function registerIpc() {
     if (!Array.isArray(images) || images.length > 4) throw new Error('แนบภาพได้ไม่เกิน 4 ภาพ');
     images.forEach((x, i) => v.str(x, 9 * 1024 * 1024, `images[${i}]`));
     const t0 = v.num(p.t0, 't0', { optional: true, min: 0 });
+    const imageSource = p.imageSource === undefined ? 'camera' : v.oneOf(p.imageSource, ['camera', 'screen'], 'imageSource');
     try {
-      const turnId = core.send({ text, images, t0 });
+      const turnId = core.send({ text, images, imageSource, t0 });
       return { ok: true, turnId };
     } catch (err) {
       return { ok: false, code: err.code || 'ERROR', error: err.message };
+    }
+  });
+
+  // "ดูนี่" with the camera off: a picture of the screen the user is looking at
+  handle('screen:capture', async () => {
+    try {
+      return { ok: true, dataUrl: await captureScreen() };
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
   });
 
@@ -351,7 +434,12 @@ function registerIpc() {
   handle('stt:install', async () => stt.install((p) => send('install:progress', { what: 'stt', ...p })));
   handle('stt:set-azure-key', (p) => {
     v.str(p, 200, 'key');
-    stt.setAzureKey(p);
+    stt.setKey('azure', p);
+    return { ok: true };
+  });
+  handle('stt:set-typhoon-key', (p) => {
+    v.str(p, 200, 'key');
+    stt.setKey('typhoon', p);
     return { ok: true };
   });
   handle('stt:transcribe', async (p) => {
@@ -383,8 +471,6 @@ function registerIpc() {
   handle('hf:active', (p) => {
     v.obj(p);
     hf.on = v.bool(p.on, 'on');
-    // tray mode keeps timers running at full rate while the window is hidden
-    win.webContents.setBackgroundThrottling(!(hf.on && settings.get().handsFreeBackground === 'tray'));
     if (tray) updateTray();
     if (!hf.on && tray && win.isVisible()) hideTray();
     return { ok: true };
@@ -478,6 +564,59 @@ function registerIpc() {
     }
   });
 
+  // ---- Floating Orb ----
+  // main window → orb: state (only what changed) and the live level
+  const ORB_STATES = ['idle', 'listening', 'thinking', 'speaking', 'muted', 'error'];
+  handle('orb:sync', (p) => {
+    v.obj(p);
+    const out = {};
+    for (const [k, x] of Object.entries(p)) {
+      if (k === 'state') out[k] = v.oneOf(x, ORB_STATES, 'state');
+      else if (['hf', 'micOff', 'voiceMuted', 'replyDone', 'result'].includes(k)) out[k] = v.bool(x, k);
+      else if (k === 'transcript') out[k] = v.str(x, 500, k);
+      else if (k === 'reply') out[k] = v.str(x, 800, k);
+      else if (k === 'attention' || k === 'error') out[k] = v.str(x, 300, k);
+      else if (k === 'errorId') out[k] = v.num(x, k, { min: 0 });
+      else throw new Error('IPC input ไม่ถูกต้อง: ' + k);
+    }
+    if (mainCrashed) return { ok: true };
+    const hadResult = !!orb.state.result;
+    orb.setState(out);
+    // "เปิดหน้าต่างอัตโนมัติเมื่อมีผลลัพธ์"
+    if (out.result && !hadResult && orb.visible && settings.get().orbAutoOpenResults) {
+      restoreMain();
+      send('orb:cmd', { action: 'open-result' });
+    }
+    return { ok: true };
+  });
+  handle('orb:level', (p) => {
+    orb.level(v.num(p, 'level', { min: 0, max: 1 }));
+    return { ok: true };
+  });
+  // orb → main
+  handleOrb('orb:ready', () => { orb.onReady(); return { ok: true }; });
+  handleOrb('orb:cmd', (p) => {
+    v.obj(p);
+    const action = v.oneOf(p.action, ['toggle-listen', 'open-main', 'open-result', 'send-text'], 'action');
+    orbCommand(action, action === 'send-text' ? { text: v.str(p.text, 2000, 'text') } : {});
+    return { ok: true };
+  });
+  handleOrb('orb:panel', (p) => {
+    if (p === null) return orb.setPanel(null);
+    v.obj(p);
+    return orb.setPanel({ w: v.num(p.w, 'w', { min: 40, max: 400 }), h: v.num(p.h, 'h', { min: 20, max: 400 }) });
+  });
+  handleOrb('orb:focusable', (p) => { orb.setFocusable(v.bool(p, 'focusable')); return { ok: true }; });
+  handleOrb('orb:hit', (p) => { orb.setHit(v.bool(p, 'hit')); return { ok: true }; });
+  handleOrb('orb:menu', () => { orb.menu(); return { ok: true }; });
+  handleOrb('orb:drag', (p) => {
+    const phase = v.oneOf(p, ['start', 'move', 'end'], 'phase');
+    if (phase === 'start') orb.dragStart();
+    else if (phase === 'move') orb.dragMove();
+    else orb.dragEnd();
+    return { ok: true };
+  });
+
   // ---- Vision (phase 3) ----
   handle('vision:status', () => vision.status());
   handle('vision:install', () => vision.install((p) => send('install:progress', { what: 'vision', ...p })));
@@ -497,6 +636,48 @@ function registerIpc() {
     fs.writeFileSync(file, Buffer.from(m[1], 'base64'));
     return { ok: true, file };
   });
+}
+
+/** A command from the orb (click / bubble / menu): window actions here, voice actions in the page. */
+function orbCommand(action, extra = {}) {
+  if (action === 'open-main') return restoreMain();
+  if (mainCrashed) {
+    // the page is gone: the only useful action is relaunching it (double-click)
+    orb.setMainCrashed(true);
+    return undefined;
+  }
+  if (action === 'open-result') {
+    restoreMain();
+    return send('orb:cmd', { action });
+  }
+  // hands-free needs the consent dialog the first time: show the window for it
+  if (action === 'hf-toggle' && !hf.on && !settings.get().handsFreeConsent) restoreMain();
+  if (action === 'toggle-listen') return send('ptt', { at: Date.now() });
+  return send('orb:cmd', { action, ...extra });
+}
+
+const SCREEN_MAX_W = 1600; // enough to read text on screen, small enough for the model
+
+/**
+ * JPEG data URL of the display under the mouse. JARVIS's own windows (main + orb)
+ * are excluded from the capture (content protection = WDA_EXCLUDEFROMCAPTURE on
+ * Windows 10 2004+), so a fullscreen JARVIS doesn't hide what the user means.
+ */
+async function captureScreen() {
+  const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const own = [win, orb && orb.alive() ? orb.win : null].filter((w) => w && !w.isDestroyed() && w.isVisible());
+  for (const w of own) w.setContentProtection(true);
+  try {
+    if (own.length) await new Promise((r) => setTimeout(r, 120)); // let the compositor drop them
+    const width = Math.min(SCREEN_MAX_W, Math.round(d.size.width * d.scaleFactor));
+    const height = Math.round((width * d.size.height) / d.size.width);
+    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width, height } });
+    const src = sources.find((s) => String(s.display_id) === String(d.id)) || sources[0];
+    if (!src || src.thumbnail.isEmpty()) throw new Error('จับภาพหน้าจอไม่ได้');
+    return 'data:image/jpeg;base64,' + src.thumbnail.toJPEG(80).toString('base64');
+  } finally {
+    for (const w of own) if (!w.isDestroyed()) w.setContentProtection(false);
+  }
 }
 
 /** Optional voice history (Settings, off by default): command audio + transcript. */
@@ -532,11 +713,7 @@ function updateTray() {
 }
 
 function restoreFromTray() {
-  if (!win) return;
-  win.show();
-  if (win.isMinimized()) win.restore();
-  win.focus();
-  hideTray();
+  restoreMain();
 }
 
 function hideTray() {
@@ -547,12 +724,16 @@ function hideTray() {
 // hotkey toggles listening; VAD ends the recording on silence.
 function registerHotkey() {
   globalShortcut.unregisterAll();
-  const key = settings.get().pushToTalkKey;
-  try {
-    const ok = globalShortcut.register(key, () => send('ptt', { at: Date.now() }));
-    if (!ok) send('notice', { level: 'warn', text: `ลงทะเบียนคีย์ลัด ${key} ไม่ได้ (อาจมีโปรแกรมอื่นใช้อยู่)` });
-  } catch (err) {
-    send('notice', { level: 'warn', text: `คีย์ลัด ${key} ไม่ถูกต้อง: ${err.message}` });
+  const s = settings.get();
+  // push-to-talk + the orb's "listen from anywhere" key (works even when the orb is hidden)
+  const keys = [...new Set([s.pushToTalkKey, s.orbShortcut].map((k) => (k || '').trim()).filter(Boolean))];
+  for (const key of keys) {
+    try {
+      const ok = globalShortcut.register(key, () => send('ptt', { at: Date.now() }));
+      if (!ok) send('notice', { level: 'warn', text: `ลงทะเบียนคีย์ลัด ${key} ไม่ได้ (อาจมีโปรแกรมอื่นใช้อยู่)` });
+    } catch (err) {
+      send('notice', { level: 'warn', text: `คีย์ลัด ${key} ไม่ถูกต้อง: ${err.message}` });
+    }
   }
 }
 
@@ -603,6 +784,19 @@ app.whenReady().then(async () => {
     log: web.o.log,
   });
 
+  orb = new OrbWindow({
+    settings,
+    preload: ORB_PRELOAD,
+    url: `${APP_ORIGIN}/renderer/orb/orb.html`,
+    command: (action) => orbCommand(action),
+    openMain: () => restoreMain(),
+    quit: () => app.quit(),
+    onVisibility: () => sendBg(),
+    log: process.env.JARVIS_SCREENSHOT ? (m) => fs.appendFileSync(process.env.JARVIS_SCREENSHOT.replace(/\.png$/i, '') + '.console.log', m + '\n') : null,
+  });
+  // monitors plugged / unplugged / rescaled: keep the orb on screen
+  for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => orb.reclamp());
+
   registerIpc();
   createWindow();
   registerHotkey();
@@ -615,6 +809,7 @@ app.whenReady().then(async () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   hideTray();
+  if (orb) orb.destroy();
   if (core) core.cleanup();
   if (tts) tts.dispose();
   if (stt) stt.dispose();

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>JARVIS</title>
+  <link rel="stylesheet" href="../ui/fonts.css">
+  <link rel="stylesheet" href="orb.css">
+</head>
+<body>
+  <div id="orb" class="orb idle" role="button" aria-label="JARVIS — คลิกเพื่อพูด · ดับเบิลคลิกเพื่อเปิด JARVIS">
+    <div class="o-in">
+      <div class="glass"></div>
+      <div class="pulse"></div>
+      <svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="41"/></svg>
+      <svg class="arc" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="100"/></svg>
+      <svg class="logo" viewBox="-44 -44 88 88" aria-hidden="true">
+        <defs>
+          <mask id="logo-cut" maskUnits="userSpaceOnUse" x="-44" y="-44" width="88" height="88">
+            <path d="M0 -42 L42 0 L0 42 L-42 0 Z" fill="#fff"/>
+            <polyline points="-25.2,-3.36 -12.6,15.96 0,0.84 12.6,15.96 25.2,-3.36" fill="none" stroke="#000" stroke-width="6.72" stroke-linejoin="miter"/>
+            <path d="M0 -25.2 L6.3 -16.8 L0 -8.4 L-6.3 -16.8 Z" fill="#000"/>
+          </mask>
+        </defs>
+        <rect x="-44" y="-44" width="88" height="88" mask="url(#logo-cut)"/>
+      </svg>
+      <svg class="badge" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z M6 11a6 6 0 0 0 12 0 M12 17v4 M4 4l16 16"/></svg>
+    </div>
+  </div>
+
+  <div id="panel" class="panel" hidden>
+    <div id="card" class="card">
+      <svg class="frame" aria-hidden="true"><path class="base"/><path class="acc"/></svg>
+      <div id="tip" class="tip" hidden></div>
+      <div id="err" class="err" hidden></div>
+      <div id="you" class="you" hidden></div>
+      <div id="reply" class="reply" hidden></div>
+      <div id="row" class="row" hidden>
+        <button id="chip" class="chip" type="button" hidden>มีผลลัพธ์ · เปิดดู</button>
+        <span class="sp"></span>
+        <button id="more" class="link" type="button">ดูเพิ่ม</button>
+        <button id="kb" class="kb" type="button" aria-label="พิมพ์แทนการพูด" title="พิมพ์แทนการพูด">⌨</button>
+      </div>
+      <form id="form" class="form" hidden autocomplete="off">
+        <input id="text" type="text" maxlength="2000" placeholder="พิมพ์ถึง JARVIS แล้วกด Enter" spellcheck="false">
+      </form>
+    </div>
+  </div>
+  <script type="module" src="orb.js"></script>
+</body>
+</html>

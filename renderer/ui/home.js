@@ -47,6 +47,11 @@ export class Home {
     this.visible = v;
   }
 
+  /** Minimized / hidden: stop drawing the reactor (the Floating Orb shows the state). */
+  setPaused(p) {
+    this.paused = !!p;
+  }
+
   resize() {
     const scale = Math.min(innerWidth / W, innerHeight / H);
     // snap the stage origin so the window grid and the stage grid coincide
@@ -196,7 +201,7 @@ export class Home {
     if (now - this._last < minDt) return;
     const dt = Math.min(0.1, (now - this._last) / 1000);
     this._last = now;
-    if (!this.visible) return;
+    if (!this.visible || this.paused) return;
 
     // feed real levels into the core
     const st = this.state;

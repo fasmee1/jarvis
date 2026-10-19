@@ -31,6 +31,14 @@ function foldMap(text) {
 }
 
 export const fold = (t) => foldMap(t).folded;
+
+// "ดูนี่" / "ดูอันนี้" / "ดูหน้าจอ" — and how whisper often writes it ("โดนี่", "ดูนี้").
+// Matched on folded text (no tone marks): นี่ / นี้ / นี all fold to นี, หน้า to หนา.
+const SCREEN_LOOK = /(?:ดู|โด)\s*(?:อัน)?\s*นี|ดู\s*(?:หนา)?\s*จอ|look at (?:this|my screen)/i;
+/** The user is pointing at something: with the camera off, JARVIS looks at the screen. */
+export function wantsScreenLook(text) {
+  return SCREEN_LOOK.test(fold(text));
+}
 const R = (src, flags = '') => new RegExp(fold(src), flags);
 
 // Wake phrase as whisper writes it, on folded text: "จาร์วิส" "จาวิส" "จ้าวบิส"

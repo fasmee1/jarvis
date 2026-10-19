@@ -24,6 +24,7 @@ const INVOKE = [
   'stt:status',
   'stt:install',
   'stt:set-azure-key',
+  'stt:set-typhoon-key',
   'vision:status',
   'vision:install',
   'vision:model',
@@ -54,6 +55,9 @@ const INVOKE = [
   'web:find',
   'web:prompt-respond',
   'web:clear-data',
+  'orb:sync',
+  'orb:level',
+  'screen:capture',
 ];
 
 const EVENTS = [
@@ -85,6 +89,8 @@ const EVENTS = [
   'web:tab',
   'web:prompt',
   'web:summary',
+  'window:bg',
+  'orb:cmd',
 ];
 
 contextBridge.exposeInMainWorld('jarvis', {

@@ -12,10 +12,11 @@ import { Mic, webSpeechOnce } from './audio/mic.js';
 import { Vision, listDevices } from './vision.js';
 import { HandsFree, ST as HF } from './handsfree/controller.js';
 import { OwwEngine } from './handsfree/engine.js';
-import { parseCommand } from './handsfree/commands.js';
+import { parseCommand, wantsScreenLook } from './handsfree/commands.js';
 import { StageViewer } from './ui/stage-viewer.js';
 import { ResultViewer } from './ui/result-viewer.js';
 import { WebViewer } from './ui/web-viewer.js';
+import { OrbBridge } from './orb-bridge.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -49,8 +50,14 @@ const S = {
   hfLat: null,
   webThinking: false, // the Web Viewer is reading / summarizing a page
   voiceAsk: null, // { cb, timer }: the next transcript answers "ถามหน้านี้" instead of going to Claude
+  // Floating Orb
+  micOff: false, // "ปิดไมค์" from the orb menu: no push-to-talk, hands-free paused
+  voiceMuted: false, // "ปิดเสียง" from the orb menu: replies are shown, not spoken
+  micLevel: 0, // last mic RMS (push-to-talk or hands-free)
 };
 let hands = null; // hands-free controller (set up below)
+// the orb only mirrors state; levels: mic while listening, the voice while speaking
+const orbBridge = new OrbBridge(api, { level: () => (S.speaking ? speaker.level() : Math.min(1, S.micLevel * 8)) });
 let resultViewer = null; // Result Viewer (set up below)
 let webViewer = null; // Web Viewer (set up below)
 
@@ -96,6 +103,7 @@ function notice(text, level = 'info', action = null, ms = 9000) {
   if (level === 'error') sfx.error(); // low double buzz
   if (level === 'error') S.dotErr = true;
   if (level === 'warn') S.dotAtt = true;
+  if (level === 'error') orbBridge.set({ error: String(text).slice(0, 300), errorId: Date.now() });
   updateDot();
 }
 
@@ -160,6 +168,24 @@ function refreshState(sub) {
   updateDot();
   if (hands) hands.assistant({ speaking: S.speaking, busy: S.busy || !!S.pendingSend });
   if (resultViewer) resultViewer.setAttention(S.speaking || S.listening || (!!hands && ['WAKE_DETECTED', 'COMMAND_LISTENING'].includes(hands.state)));
+  orbBridge.set({
+    state: orbState(),
+    hf: !!(hands && hands.active),
+    micOff: S.micOff,
+    voiceMuted: S.voiceMuted,
+    attention: S.coreState === 'AWAITING_APPROVAL' ? 'รอคุณกดอนุญาตในหน้าต่าง JARVIS' : '',
+  });
+}
+
+/** Floating Orb state: idle · listening · thinking · speaking · muted · error */
+function orbState() {
+  if (S.coreState === 'ERROR') return 'error';
+  if (S.micOff) return 'muted';
+  const hs = hands && hands.active ? hands.state : null;
+  if (S.listening || hs === HF.WAKE_DETECTED || hs === HF.COMMAND_LISTENING || hs === HF.FOLLOW_UP) return 'listening';
+  if (S.speaking) return 'speaking';
+  if (S.transcribing || S.busy || S.webThinking || hs === HF.PROCESSING) return 'thinking';
+  return 'idle';
 }
 
 function fmtMs(ms) {
@@ -210,10 +236,10 @@ function recordLatency(L) {
 let curMsg = null; // current assistant bubble
 let curText = null;
 
-function addUserMsg(text, image) {
+function addUserMsg(text, image, source = 'camera') {
   const m = el('div', { class: 'msg user' });
   if (image) {
-    m.append(el('div', { class: 'cam-badge', text: '📷 แนบภาพจากกล้อง' }));
+    m.append(el('div', { class: 'cam-badge', text: source === 'screen' ? '🖥 แนบภาพหน้าจอ' : '📷 แนบภาพจากกล้อง' }));
     const img = el('img', { class: 'thumb', src: image, alt: 'ภาพที่ส่ง' });
     m.append(img);
     m.append(el('button', { class: 'btn small', text: '💾 บันทึกขั้นตอนนี้', onclick: async (e) => {
@@ -259,6 +285,7 @@ function onChatItem(item) {
   const m = ensureAssistant();
   if (item.type === 'text') {
     S.replyText += item.text;
+    orbBridge.set({ reply: S.replyText.slice(0, 800) });
     home.delta();
     home.reply(S.replyText, { spoken: S.segSpoken, total: S.segTotal });
     return appendText(item.text);
@@ -268,7 +295,7 @@ function onChatItem(item) {
     m.append(el('pre', { class: 'code mono', text: item.code }));
   } else if (item.type === 'block') {
     m.append(blockCard(item));
-    if (item.kind === 'result') resultViewer.show(item.data);
+    if (item.kind === 'result') { resultViewer.show(item.data); orbBridge.set({ result: true }); }
     if (item.kind === 'steps') {
       const st = item.data.steps;
       const firstOpen = st.findIndex((x) => !x.done);
@@ -477,20 +504,30 @@ function hasTrigger(text) {
   return (S.settings.triggerWords || []).some((w) => w && text.includes(w));
 }
 
-async function send(text, { fromVoice = false, latency = {} } = {}) {
+async function send(text, { fromVoice = false, latency = {}, image: presetImage = null, imageSource: presetSource = 'camera' } = {}) {
   text = (text || '').trim();
-  let image = null;
-  if (vision.on && !text.startsWith('/')) {
+  let image = presetImage; // a queued message keeps the picture taken when it was said
+  let imageSource = presetSource;
+  if (!image && vision.on && !text.startsWith('/')) {
     const wantLook = S.lookArmed || hasTrigger(text);
     if (wantLook) {
       image = (fromVoice && S.frameAtListenEnd) || vision.snapshot(S.settings.snapshotWidth, S.settings.snapshotHeight, S.settings.snapshotQuality);
       if (image) sfx.shutter();
     }
+  } else if (!image && !text.startsWith('/') && wantsScreenLook(text)) {
+    // camera off + "ดูนี่": JARVIS looks at the screen instead (its own windows are left out)
+    const r = await api.invoke('screen:capture').catch((err) => ({ ok: false, error: err.message }));
+    if (r.ok) {
+      image = r.dataUrl;
+      imageSource = 'screen';
+      sfx.shutter();
+    } else notice(`จับภาพหน้าจอไม่ได้: ${r.error}`, 'warn', null, 5000);
   }
   S.frameAtListenEnd = null;
   if (!text && !image) return false;
+  orbBridge.set({ transcript: (text || '(ดูภาพนี้)').slice(0, 500), reply: '', replyDone: false, result: false });
   if (S.busy) {
-    S.pendingSend = { text, image, latency };
+    S.pendingSend = { text, image, imageSource, latency };
     addSystemMsg('จะส่งข้อความนี้ทันทีที่ Claude ทำงานรอบนี้เสร็จ');
     refreshState();
     return true;
@@ -502,10 +539,10 @@ async function send(text, { fromVoice = false, latency = {} } = {}) {
   S.muteThisTurn = false;
   speaker.muted = false;
   showLatency();
-  addUserMsg(text || '(ดูภาพนี้)', image);
+  addUserMsg(text || '(ดูภาพนี้)', image, imageSource);
   setLook(false);
   sfx.send();
-  const r = await api.invoke('chat:send', { text, images: image ? [image] : [], t0 });
+  const r = await api.invoke('chat:send', { text, images: image ? [image] : [], imageSource, t0 });
   if (!r.ok) {
     notice(r.error, r.code === 'NO_CWD' ? 'warn' : 'error');
     if (r.code === 'NO_CWD') $('btn-folder').focus();
@@ -528,7 +565,7 @@ function setLook(on) {
 // ---------------- voice input ----------------
 
 const mic = new Mic({
-  onLevel: (_v, rms) => home.mic(rms, { listening: S.listening }),
+  onLevel: (_v, rms) => { S.micLevel = rms || 0; home.mic(rms, { listening: S.listening }); },
   onSpeechStart: () => {},
   onEnd: (r) => onMicEnd(r),
   onError: (code, msg) => {
@@ -541,7 +578,13 @@ const mic = new Mic({
 });
 let webRec = null;
 
+function micOffNotice() {
+  notice('ไมค์ปิดอยู่ — เปิดได้จากเมนูคลิกขวาที่ไอคอน JARVIS', 'warn', null, 4000);
+  orbBridge.set({ error: 'ไมค์ปิดอยู่ — คลิกขวาที่ไอคอนเพื่อเปิด', errorId: Date.now() });
+}
+
 async function startListening() {
+  if (S.micOff) return micOffNotice();
   if (hands && hands.active) return hands.manual();
   // Barge-in: stop speech and the current answer first.
   if (S.speaking || S.busy) {
@@ -640,7 +683,7 @@ function takeVoiceAsk(text) {
 async function openSite(cmd, fallback) {
   let url = null;
   try { url = await api.invoke('web:resolve', cmd.name); } catch { /* not resolvable */ }
-  if (url) webViewer.open(url, { initiator: 'jarvis' });
+  if (url) { webViewer.open(url, { initiator: 'jarvis' }); orbBridge.set({ result: true }); }
   else fallback(cmd.text);
 }
 
@@ -701,7 +744,7 @@ resultViewer = new ResultViewer({
 });
 window.jarvisViewer = Object.freeze({
   show: (data) => resultViewer.show(data),
-  openWeb: (url, opts) => webViewer.open(url, { initiator: 'jarvis', ...(opts || {}) }),
+  openWeb: (url, opts) => { orbBridge.set({ result: true }); return webViewer.open(url, { initiator: 'jarvis', ...(opts || {}) }); },
   close: () => viewer.closeAll(),
   get open() { return viewer.isOpen; },
 });
@@ -743,6 +786,7 @@ function loadHfStats() {
 const hfEngine = new OwwEngine({
   onEvent: (e) => hands.onEngine(e),
   onLevel: (rms) => {
+    S.micLevel = rms || 0;
     home.signals.mic = rms; // reactor: command + follow-up
     if (S.hfRec) home.mic(rms, { listening: true }); // MIC card: live dB only while recording
   },
@@ -843,7 +887,10 @@ hands = new HandsFree({
       renderHandsFree();
       refreshState();
     },
-    transcript: (text, final) => home.hfTranscript(text, final),
+    transcript: (text, final) => {
+      home.hfTranscript(text, final);
+      if (text) orbBridge.set({ transcript: String(text).slice(0, 500), reply: '', replyDone: false, result: false });
+    },
     rec: (on) => {
       S.hfRec = on;
       home.hfRec(on);
@@ -934,8 +981,48 @@ async function toggleHandsFree(forceOn = false) {
 
 /** Mic button / reactor click / Ctrl+Space: push-to-talk, or "listen now" in hands-free. */
 function voiceButton() {
+  if (S.micOff) return micOffNotice();
   if (hands.active) return hands.manual();
   return S.listening ? stopListening() : startListening();
+}
+
+/** Commands from the Floating Orb (relayed and validated by main). */
+function onOrbCommand({ action, text }) {
+  switch (action) {
+    case 'toggle-listen':
+      voiceButton();
+      break;
+    case 'send-text':
+      send(text);
+      break;
+    case 'open-result':
+      // the main window is already restored: bring the Result / Web Viewer to the front
+      if (sections.current) sections.home();
+      break;
+    case 'mic-toggle':
+      S.micOff = !S.micOff;
+      if (S.micOff) {
+        if (S.listening) { mic.cancel(); if (webRec) { try { webRec.stop(); } catch { /* ended */ } webRec = null; } S.listening = false; $('btn-mic').classList.remove('listening'); }
+        hands.pause('mic-off');
+        notice('ปิดไมค์แล้ว — JARVIS จะไม่ฟังจนกว่าจะเปิดอีกครั้ง', 'info', null, 4000);
+      } else {
+        hands.resume('mic-off');
+        notice('เปิดไมค์แล้ว', 'info', null, 3000);
+      }
+      refreshState();
+      break;
+    case 'hf-toggle':
+      toggleHandsFree();
+      break;
+    case 'mute-toggle':
+      S.voiceMuted = !S.voiceMuted;
+      if (S.voiceMuted) speaker.stop();
+      notice(S.voiceMuted ? 'ปิดเสียงพูดของ JARVIS — คำตอบยังแสดงบนจอ' : 'เปิดเสียงพูดของ JARVIS', 'info', null, 3000);
+      refreshState();
+      break;
+    default:
+      break;
+  }
 }
 
 function wireHandsFree() {
@@ -946,11 +1033,16 @@ function wireHandsFree() {
       toggleHandsFree();
     }
   });
-  // background / sleep: pause wake listening (tray mode keeps listening while hidden)
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && S.settings.handsFreeBackground !== 'tray') hands.pause('background');
+  // background (minimized / hidden): main reports it, since the page never throttles
+  // (audio has to keep running for the Floating Orb). Wake listening keeps going while
+  // the orb is on screen or in tray mode; otherwise it pauses as before.
+  api.on('window:bg', ({ background, orb }) => {
+    home.setPaused(background);
+    orbBridge.setVisible(orb);
+    if (background && !orb && S.settings.handsFreeBackground !== 'tray') hands.pause('background');
     else hands.resume('background');
   });
+  api.on('orb:cmd', (c) => onOrbCommand(c));
   api.on('hf:power', ({ kind }) => {
     if (kind === 'suspend') hands.pause('sleep');
     if (kind === 'resume') hands.resume('sleep');
@@ -1027,11 +1119,11 @@ function applyMode(mode) {
 // ---------------- settings dialog ----------------
 
 const FIELDS = {
-  text: ['claudePath', 'model', 'azureRegion', 'pushToTalkKey'],
+  text: ['claudePath', 'model', 'azureRegion', 'pushToTalkKey', 'orbShortcut'],
   num: ['approvalTimeoutSec', 'vadSilenceMs', 'snapshotWidth', 'snapshotHeight'],
   float: ['ttsRate', 'snapshotQuality'],
-  bool: ['persistentProcess', 'guardEnabled', 'confirmVoiceBeforeSend', 'visionOverlay'],
-  select: ['sttProvider', 'whisperModel', 'micDeviceId', 'speakerDeviceId', 'cameraDeviceId'],
+  bool: ['persistentProcess', 'guardEnabled', 'confirmVoiceBeforeSend', 'visionOverlay', 'orbEnabled', 'orbOnTopFullscreen', 'orbAutoFade', 'orbAutoOpenResults'],
+  select: ['sttProvider', 'whisperModel', 'micDeviceId', 'speakerDeviceId', 'cameraDeviceId', 'orbSize'],
 };
 
 async function applySpeaker() {
@@ -1050,7 +1142,7 @@ function fillSettings() {
   const s = S.settings;
   for (const k of [...FIELDS.text, ...FIELDS.num, ...FIELDS.float]) $(`s-${k}`).value = s[k];
   for (const k of FIELDS.bool) $(`s-${k}`).checked = !!s[k];
-  for (const k of ['sttProvider', 'whisperModel']) $(`s-${k}`).value = s[k];
+  for (const k of ['sttProvider', 'whisperModel', 'orbSize']) $(`s-${k}`).value = s[k];
   $('s-guardBlock').value = s.guardBlock.join('\n');
   $('s-guardAsk').value = s.guardAsk.join('\n');
   $('s-guardBlockPaths').value = s.guardBlockPaths.join('\n');
@@ -1084,7 +1176,7 @@ async function fillDevices() {
 async function refreshInstallStatus() {
   const st = await api.invoke('stt:status');
   const w = st.whisper;
-  $('stt-status').textContent = `whisper: ${w.hasExe ? '✓' : '✕'} โปรแกรม · ${w.hasModel ? '✓' : '✕'} โมเดล ${w.modelName} · Azure key: ${st.azure.hasKey ? '✓' : '✕'}`;
+  $('stt-status').textContent = `whisper: ${w.hasExe ? '✓' : '✕'} โปรแกรม · ${w.hasModel ? '✓' : '✕'} โมเดล ${w.modelName} · Typhoon key: ${st.typhoon.hasKey ? '✓' : '✕'} · Azure key: ${st.azure.hasKey ? '✓' : '✕'}`;
   const vs = await api.invoke('vision:status');
   $('vision-status').textContent = `MediaPipe: face ${vs.models.face ? '✓' : '✕'} · hand ${vs.models.hand ? '✓' : '✕'} · gesture ${vs.models.gesture ? '✓' : '✕'}`;
   return { st, vs };
@@ -1209,6 +1301,16 @@ function wireSettings() {
     refreshInstallStatus();
     if (r.ok && vision.on) vision.initDetectors();
   };
+  $('s-typhoon-save').onclick = async () => {
+    const key = $('s-typhoon-key').value.trim();
+    await api.invoke('stt:set-typhoon-key', key).then(() => notice(key ? 'บันทึก Typhoon key (เข้ารหัส) แล้ว' : 'ลบ Typhoon key แล้ว'), (err) => notice(err.message, 'error'));
+    $('s-typhoon-key').value = '';
+    refreshInstallStatus();
+  };
+  $('s-orb-reset').onclick = async () => {
+    const r = await saveSetting({ orbPos: null });
+    if (r.ok) notice('รีเซ็ตตำแหน่งไอคอนแล้ว (มุมขวาล่างของจอหลัก)', 'info', null, 3000);
+  };
   $('s-azure-save').onclick = async () => {
     const key = $('s-azure-key').value.trim();
     await api.invoke('stt:set-azure-key', key).then(() => notice(key ? 'บันทึก Azure key (เข้ารหัส) แล้ว' : 'ลบ Azure key แล้ว'), (err) => notice(err.message, 'error'));
@@ -1313,24 +1415,25 @@ function wireEvents() {
     }, 1500);
     if (r.isError) resultViewer.fail(r.resultText || 'โหลดไม่สำเร็จ');
     resultViewer.endTurn(S.replyText);
+    orbBridge.set({ reply: (S.replyText || r.resultText || '').slice(0, 800), replyDone: true });
     curMsg = null;
     curText = null;
     sfx.done();
     if (S.pendingSend) {
       const p = S.pendingSend;
       S.pendingSend = null;
-      setTimeout(() => send(p.text, { latency: p.latency }), 50);
+      setTimeout(() => send(p.text, { latency: p.latency, image: p.image, imageSource: p.imageSource }), 50);
     }
   });
   api.on('tts:segment', ({ text }) => {
-    if (S.muteThisTurn) return;
+    if (S.muteThisTurn || S.voiceMuted) return;
     // results are on screen: say the short summary, not everything
     if (resultViewer.turn && resultViewer.turn.hadResult && S.turnSpokenChars > 320) return;
     S.turnSpokenChars = (S.turnSpokenChars || 0) + text.length;
     if (speaker.engine !== 'none') S.segTotal++;
     speaker.enqueue(text);
   });
-  api.on('tts:announce', ({ text }) => { speaker.enqueue(text); speaker.flush(); });
+  api.on('tts:announce', ({ text }) => { if (S.voiceMuted) return; speaker.enqueue(text); speaker.flush(); });
   api.on('tts:stop', () => speaker.stop());
   api.on('tts:flush', () => speaker.flush());
   api.on('approval:request', onApprovalRequest);

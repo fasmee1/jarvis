@@ -240,6 +240,7 @@
         <label>ระบบถอดเสียง (STT)
           <select id="s-sttProvider">
             <option value="whisper">whisper.cpp (ในเครื่อง)</option>
+            <option value="typhoon">Typhoon ASR — ภาษาไทย (ฟรี, ออนไลน์)</option>
             <option value="azure">Azure Speech th-TH</option>
             <option value="webspeech">Web Speech API (ทดลอง)</option>
           </select>
@@ -254,6 +255,7 @@
           </select>
         </label>
         <div class="row"><span id="stt-status" class="dim mono"></span><button id="s-stt-install" class="btn small">ติดตั้ง/ดาวน์โหลด whisper</button></div>
+        <div class="row"><input id="s-typhoon-key" type="password" placeholder="Typhoon API key จาก opentyphoon.ai (เก็บแบบเข้ารหัส)"><button id="s-typhoon-save" class="btn small">บันทึก key</button></div>
         <label>Azure region<input id="s-azureRegion" type="text" placeholder="southeastasia"></label>
         <div class="row"><input id="s-azure-key" type="password" placeholder="Azure Speech key (เก็บแบบเข้ารหัส)"><button id="s-azure-save" class="btn small">บันทึก key</button></div>
         <label>เงียบเกินกี่มิลลิวินาทีให้หยุดอัด (VAD)<input id="s-vadSilenceMs" type="number" min="300" max="5000" step="100"></label>
@@ -318,6 +320,20 @@
         <label class="check"><input id="ui-voice-greeting" type="checkbox"> พูดทักทายหลังเปิดเครื่อง (ใช้เสียงพูดภาษาไทยของ Windows)</label>
         <p class="dim">คลิกหรือกด Esc ระหว่างเปิดเครื่องเพื่อข้าม</p>
         <p class="dim">ถ้าระบบตั้ง "ลดการเคลื่อนไหว" (reduced motion) ไว้ HUD จะหยุดการหมุนและการเคลื่อนไหวอัตโนมัติ · F11 สลับเต็มจอ</p>
+        <h3>ไอคอนลอย (Floating Orb)</h3>
+        <label class="check"><input id="s-orbEnabled" type="checkbox"> แสดงไอคอน JARVIS ลอยบนจอเมื่อย่อหน้าต่าง — คลิกเพื่อพูด · ดับเบิลคลิกเพื่อเปิด · ลากไปวางตรงไหนก็ได้</label>
+        <label class="check"><input id="s-orbOnTopFullscreen" type="checkbox"> ให้อยู่บนสุดเสมอ แม้มีแอปเต็มจอหรือทับ taskbar</label>
+        <label>ขนาดไอคอน
+          <select id="s-orbSize">
+            <option value="S">S — 48 px</option>
+            <option value="M">M — 64 px</option>
+            <option value="L">L — 80 px</option>
+          </select>
+        </label>
+        <label class="check"><input id="s-orbAutoFade" type="checkbox"> จางลงเมื่อไม่ได้ใช้งาน 10 วินาที</label>
+        <label class="check"><input id="s-orbAutoOpenResults" type="checkbox"> เปิดหน้าต่างอัตโนมัติเมื่อมีผลลัพธ์ (ค้นหา ข่าว YouTube เว็บ)</label>
+        <label>คีย์ลัดเริ่มฟังจากทุกที่ (แม้ซ่อนไอคอน)<input id="s-orbShortcut" type="text" placeholder="Control+Shift+Space"></label>
+        <div class="row"><button id="s-orb-reset" class="btn small">รีเซ็ตตำแหน่งไอคอน</button></div>
       </div>
       <div class="stab" id="stab-web" hidden>
         <p>หน้าเว็บที่ JARVIS เปิดใช้ข้อมูลแยกจากแอป (คุกกี้ การล็อกอิน แคช) และเก็บไว้ระหว่างการเปิดแอปแต่ละครั้ง</p>
@@ -373,7 +389,7 @@
       <div class="approval-title" id="hf-consent-title">เปิดโหมด Hands-free?</div>
       <ul class="hf-points">
         <li>JARVIS จะเปิดไมโครโฟนค้างไว้เพื่อรอคำว่า <b>“จาร์วิส”</b> หรือ <b>“Hey Jarvis”</b> — การฟังคำเรียกทำในเครื่องนี้ทั้งหมด ไม่ส่งเสียงออกไปไหน</li>
-        <li>หลังได้ยินคำเรียก จะอัดเฉพาะคำสั่งของคุณ โดยมีไฟ <span class="hf-rec-inline">● REC</span> สีส้มแสดงตลอดเวลาที่อัด แล้วถอดเป็นข้อความ (whisper ในเครื่อง · ถ้าเลือก Azure เสียงคำสั่งจะถูกส่งไป Microsoft)</li>
+        <li>หลังได้ยินคำเรียก จะอัดเฉพาะคำสั่งของคุณ โดยมีไฟ <span class="hf-rec-inline">● REC</span> สีส้มแสดงตลอดเวลาที่อัด แล้วถอดเป็นข้อความ (whisper ในเครื่อง · ถ้าเลือก Typhoon / Azure เสียงคำสั่งจะถูกส่งไป SCB 10X / Microsoft)</li>
         <li>ไม่เก็บไฟล์เสียงไว้ เว้นแต่เปิด “บันทึกประวัติเสียง” ใน Settings</li>
         <li>ปิดได้ทุกเมื่อ: ปุ่มคลื่นเสียงมุมซ้ายบน · Ctrl+Shift+H · หรือพูดว่า “ปิดโหมดแฮนด์ฟรี”</li>
       </ul>

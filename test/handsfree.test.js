@@ -332,3 +332,13 @@ test('a confirmed Thai-head detection goes ahead', async () => {
   assert.deepStrictEqual(r2, ['เปิดไฟ']);
 });
 const r2 = [];
+
+test('"ดูนี่" (and how STT writes it) asks JARVIS to look at the screen', async () => {
+  const { cmd } = await load();
+  for (const t of ['ดูนี่', 'โดนี่', 'ดูนี้หน่อย', 'จาร์วิส ดูนี่สิ ผิดตรงไหน', 'ช่วยดูอันนี้ให้หน่อย', 'ดูหน้าจอให้หน่อย', 'ดู จอ', 'look at this']) {
+    assert.ok(cmd.wantsScreenLook(t), t);
+  }
+  for (const t of ['เปิดเพลง', 'ดูหนังเรื่องอะไรดี', 'อันนี้ราคาเท่าไหร่', 'โดนัท', 'ตรงนี้']) {
+    assert.ok(!cmd.wantsScreenLook(t), t);
+  }
+});
