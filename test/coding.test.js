@@ -9,7 +9,7 @@ const path = require('path');
 const { buildWhisperPrompt, parseCorrections, applyCorrections, DEFAULT_CORRECTIONS } = require('../lib/stt/vocab');
 const { SttService } = require('../lib/stt');
 const { SettingsStore } = require('../lib/settings');
-const { JarvisCore, parseCodingModeCommand, isCodeProject } = require('../lib/jarvis-core');
+const { JarvisCore, parseCodingModeCommand, isCodeProject, fmtDuration } = require('../lib/jarvis-core');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-coding-'));
 
@@ -93,4 +93,55 @@ test('coding mode: auto-on in a code project, prompt sent once with the next mes
 
   core.setCwd(plain);
   assert.strictEqual(core.codingMode, false);
+});
+
+test('fmtDuration reads naturally in Thai', () => {
+  assert.strictEqual(fmtDuration(4000), '4 วินาที');
+  assert.strictEqual(fmtDuration(65000), '1 นาที 5 วินาที');
+  assert.strictEqual(fmtDuration(3600000), '1 ชั่วโมง 0 นาที 0 วินาที');
+  assert.strictEqual(fmtDuration(3725400), '1 ชั่วโมง 2 นาที 5 วินาที');
+});
+
+test('build time: coding-mode turns are timed, summed, saved per project and reloaded', () => {
+  const proj = tmp();
+  fs.mkdirSync(path.join(proj, '.git'));
+  const events = [];
+  const mk = () => {
+    const c = new JarvisCore({ settings: new SettingsStore(tmp()), tempDir: tmp(), ui: (k, d) => events.push([k, d]), appRoot: tmp(), logDir: tmp() });
+    c.warm = () => {};
+    return c;
+  };
+  const core = mk();
+  core.setCwd(proj);
+  assert.strictEqual(core.codingMode, true);
+  core.session = { send: () => 't1', busy: false };
+  core._makePipeline = () => null;
+
+  core._startTurn([], { t0: Date.now() - 125000 }); // started 2 min 5 s ago
+  assert.ok(events.find(([k, d]) => k === 'turn:start' && d.buildStartedAt));
+  core._endBuildTurn({});
+  const b = events.filter(([k]) => k === 'build:time').at(-1)[1];
+  assert.strictEqual(b.tasks, 1);
+  assert.ok(b.turnMs >= 125000 && b.turnMs < 130000);
+  assert.match(b.text, /งานนี้ใช้เวลา 2 นาที \d+ วินาที · รวมเวลาสร้างระบบทั้งหมด 2 นาที \d+ วินาที \(1 งาน\)/);
+
+  core._startTurn([], { t0: Date.now() - 30000 });
+  core._endBuildTurn({ cancelled: true });
+  assert.match(events.filter(([k]) => k === 'build:time').at(-1)[1].text, /หยุดกลางคัน.*\(2 งาน\)/);
+
+  // saved in the project: a new app start picks the total back up
+  const again = mk();
+  again.setCwd(proj);
+  assert.strictEqual(again.build.tasks, 2);
+  assert.ok(again.build.totalMs >= 155000);
+
+  // not timed outside coding mode
+  again.setCodingMode(false);
+  again.session = { send: () => 't', busy: false };
+  again._makePipeline = () => null;
+  again._startTurn([], {});
+  assert.strictEqual(again.buildTurnStart, null);
+
+  again.resetBuildTime();
+  assert.deepStrictEqual(mk().loadBuildTime.call(again), { totalMs: 0, tasks: 0 });
 });

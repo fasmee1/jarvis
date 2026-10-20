@@ -35,6 +35,9 @@ export const TIMING = {
   fadeMs: 150,
 };
 
+// waits between tries when the mic is busy after sleep / unlock (≈ 30 s in all)
+const MIC_RETRY_MS = [1000, 2000, 4000, 8000, 15000];
+
 const noop = () => {};
 
 export class HandsFree {
@@ -166,12 +169,42 @@ export class HandsFree {
   async resume(reason) {
     this.pauses.delete(reason);
     if (this.state !== ST.PAUSED || this.pauses.size) return;
-    try {
-      await this.engine.start(this.d.settings().deviceId);
-      this._listen();
-    } catch (err) {
+    return this._restart();
+  }
+
+  /**
+   * Reopen the mic after a pause. Wake / unlock send several resumes at once
+   * (power, screen, window shown): only one start runs, and a pause or switch-off
+   * that lands while the mic is opening closes it again. Right after sleep
+   * Windows often reports the mic busy for a few seconds, so that is retried.
+   */
+  _restart(attempt = 0) {
+    if (this.starting) return this.starting;
+    this.starting = (async () => {
+      let err = null;
+      try {
+        await this.engine.start(this.d.settings().deviceId);
+      } catch (e) {
+        err = e;
+      }
+      this.starting = null;
+      if (this.state !== ST.PAUSED || this.pauses.size) {
+        // paused again / switched off while the mic was opening
+        if (!err) this.engine.stop();
+        return;
+      }
+      if (!err) return this._listen();
+      if (err.code === 'MIC_ERROR' && attempt < MIC_RETRY_MS.length) {
+        this.ui.log(`เปิดไมโครโฟนไม่ได้ (${err.message}) · ลองใหม่ใน ${MIC_RETRY_MS[attempt] / 1000} วินาที`);
+        this.retryTimer = this.t.setTimeout(() => {
+          this.retryTimer = null;
+          if (this.state === ST.PAUSED && !this.pauses.size) this._restart(attempt + 1);
+        }, MIC_RETRY_MS[attempt]);
+        return;
+      }
       this._micFailed(err);
-    }
+    })();
+    return this.starting;
   }
 
   _micFailed(err) {
@@ -235,6 +268,9 @@ export class HandsFree {
         this.pauses.delete('no-mic');
         this.ui.log('ไมโครโฟนกลับมาแล้ว');
         if (!this.pauses.size) this._listen();
+        return undefined;
+      case 'mic-restart':
+        this.ui.log('ไมโครโฟนเงียบไปนาน · เปิดใหม่แล้ว');
         return undefined;
       case 'score':
         this.ui.log(`score base ${e.base.toFixed(3)} custom ${e.custom.toFixed(3)} · ${e.mode} · t=${e.sec.toFixed(2)}s`);
@@ -543,6 +579,8 @@ export class HandsFree {
   _clearTimers() {
     if (this.timer) this.t.clearTimeout(this.timer);
     if (this.partialTimer) this.t.clearInterval(this.partialTimer);
+    if (this.retryTimer) this.t.clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     this.timer = null;
     this.partialTimer = null;
     this.partialBusy = false;

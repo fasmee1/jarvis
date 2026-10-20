@@ -183,6 +183,12 @@ export class ConversationPopup {
         this._closeMore(true);
         return;
       }
+      // a panel over the messages (history) closes first
+      if (this.o.onEscape && this.o.onEscape()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
       e.preventDefault();
       this.close(); // Esc keeps propagating, so a reply being spoken stops too (as before)
     }
@@ -273,7 +279,7 @@ export class ConversationPopup {
   // ---------- toolbar overflow ("⋯") ----------
   _wireOverflow() {
     // least-used first; the folder, the mode and × never collapse
-    this.slots = ['btn-sfx', 'btn-interactive', 'btn-new-summary', 'btn-new', 'session-id', 'btn-code', 'btn-teach'].map((id) => {
+    this.slots = ['btn-sfx', 'btn-interactive', 'btn-new-summary', 'btn-new', 'btn-history', 'session-id', 'btn-code', 'btn-teach'].map((id) => {
       const el = $(id);
       const mark = document.createComment(id);
       el.before(mark);

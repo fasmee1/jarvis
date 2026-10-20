@@ -6,6 +6,9 @@ const { pathToFileURL } = require('url');
 
 const { SettingsStore, defaults: settingDefaults } = require('./lib/settings');
 const { JarvisCore } = require('./lib/jarvis-core');
+const { listSessions, readSession } = require('./lib/history');
+const { UsageService } = require('./lib/usage/service');
+const { resolveClaudeCommand } = require('./lib/claude/resolve');
 const { v } = require('./lib/ipc-validate');
 const { WinRtTts } = require('./lib/tts/winrt');
 const { EdgeTts } = require('./lib/tts/edge');
@@ -76,6 +79,7 @@ let tray = null;
 let web = null; // Web Viewer browser (WebContentsViews in the main window)
 let reader = null; // Web Viewer page reader (extraction + summaries)
 let orb = null; // Floating Orb (shown while the main window is minimized)
+let usage = null; // real Claude Code usage: limits + token counts (lib/usage)
 let mainCrashed = false;
 // hands-free state reported by the renderer (for tray mode + background throttling)
 const hf = { on: false };
@@ -313,6 +317,38 @@ function registerIpc() {
     return r;
   });
 
+  // ---- attachments: drag & drop and the ＋ button ----
+  const attachResult = (r) => {
+    if (r.rejected.length) {
+      const why = r.rejected.map((x) => `${path.basename(x.path) || x.path} (${x.reason})`).join(', ');
+      send('notice', { level: 'warn', text: `ไม่แนบ: ${why}` });
+    }
+    return r;
+  };
+  handle('attach:add', (p) => {
+    v.strArray(p, 20, 4096, 'paths');
+    return attachResult(core.attach(p));
+  });
+  handle('attach:choose', async (p) => {
+    const kind = v.oneOf(p, ['file', 'folder'], 'kind');
+    const r = await dialog.showOpenDialog(win, {
+      title: kind === 'folder' ? 'เพิ่มโฟลเดอร์ให้ JARVIS' : 'แนบไฟล์ให้ JARVIS',
+      properties: kind === 'folder' ? ['openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'],
+    });
+    if (r.canceled || !r.filePaths.length) return { ok: false, added: [], rejected: [] };
+    return attachResult(core.attach(r.filePaths.slice(0, 20)));
+  });
+  handle('attach:remove', (p) => {
+    core.detach(v.str(p, 4096, 'path'));
+    return { ok: true };
+  });
+  handle('attach:make-project', (p) => {
+    const dir = v.str(p, 4096, 'path');
+    if (!core.attachedDirs.includes(dir) && !core.pendingAttach.some((a) => a.path === dir && a.kind === 'folder')) throw new Error('ใช้ได้เฉพาะโฟลเดอร์ที่แนบมา');
+    core.setCwd(dir);
+    return { ok: true, cwd: core.cwd };
+  });
+
   handle('folder:choose', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'เลือกโฟลเดอร์โปรเจกต์ให้ JARVIS ทำงาน', properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return { ok: false };
@@ -368,6 +404,45 @@ function registerIpc() {
   handle('session:new-from-summary', () => core.newSessionFromSummary());
   handle('session:teach-mode', (p) => {
     core.setTeachMode(v.bool(p, 'teach'));
+    return { ok: true };
+  });
+  // ---- usage: limits (% used, reset time) and token counts ----
+  handle('usage:get', async () => (usage ? usage.refresh() : null));
+  handle('usage:ping', async () => {
+    if (!usage) return { ok: false, error: 'ยังไม่พร้อม' };
+    const r = await usage.ping();
+    if (r.ok) await usage.refresh();
+    return { ...r, snapshot: usage.snapshot() };
+  });
+
+  // ---- conversation history (Claude Code's own transcripts, read-only) ----
+  const sessionId = (x) => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(x))) throw new Error('session id ไม่ถูกต้อง');
+    return x;
+  };
+  handle('skills:list', () => ({ ok: true, items: core.listCommands() }));
+  handle('history:list', () => {
+    const snap = core.snapshot();
+    return { ok: true, cwd: core.cwd, current: snap.sessionId || null, sessions: core.cwd ? listSessions(core.cwd) : [] };
+  });
+  handle('history:read', (p) => {
+    const messages = readSession(core.cwd, sessionId(p));
+    return messages ? { ok: true, messages } : { ok: false, error: 'ไม่พบบทสนทนานี้' };
+  });
+  handle('history:resume', (p) => {
+    const id = sessionId(p);
+    const messages = readSession(core.cwd, id);
+    if (!messages) return { ok: false, error: 'ไม่พบบทสนทนานี้' };
+    try {
+      core.resumeSession(id);
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+    return { ok: true, messages };
+  });
+
+  handle('build:reset', () => {
+    core.resetBuildTime();
     return { ok: true };
   });
   handle('session:coding-mode', (p) => {
@@ -757,8 +832,17 @@ app.whenReady().then(async () => {
     logDir: userData,
     ui: send,
     onCwd: (dir) => stt.setProject(path.basename(dir)),
+    onRateLimit: (info) => usage && usage.onRateLimit(info),
+    onTurnEnd: () => usage && setTimeout(() => usage.refresh(), 1500), // the transcript line lands just after the result
   });
   await core.init();
+  usage = new UsageService({
+    dataDir: userData,
+    onChange: (snap) => send('usage', snap),
+    resolveCommand: () => resolveClaudeCommand({ customPath: settings.get().claudePath }),
+    env: () => core.claudeEnv(),
+  });
+  usage.refresh();
   registerAppProtocol();
 
   // Only the microphone/camera may be requested, and only by our own page.

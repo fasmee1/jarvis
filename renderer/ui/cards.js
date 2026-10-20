@@ -47,7 +47,7 @@ const TIPS = {
   tts: 'ระดับเสียงพูดของ JARVIS ที่กำลังเล่นอยู่จริง (%)',
   latency: 'เวลาตั้งแต่กดส่งจนเริ่มพูดประโยคแรก (t3−t0) — กราฟ 13 รอบล่าสุด · แท่งจางคือรอบที่ไม่มีเสียง จึงใช้เวลาถึงข้อความแรก (t2−t0) · คลิกเพื่อดู DIAGNOSTICS',
   step: 'ขั้นตอนปัจจุบันจากโหมดสอนประดิษฐ์ (บล็อก jarvis-steps ล่าสุด) — คลิกเพื่อเปิด MAKER',
-  tokens: 'tokens รวมของ session นี้ (input + cache + output จากทุกรอบ) — คลิกเพื่อดู DIAGNOSTICS',
+  tokens: 'การใช้งาน Claude Code จริง: ลิมิตรายสัปดาห์ (%) และรอบ 5 ชั่วโมง พร้อมเวลารีเซ็ต — คลิกเพื่อดูรายละเอียด token ใน DIAGNOSTICS',
   elapsed: 'เวลาที่อยู่ในสถานะปัจจุบัน วงแหวนครบรอบทุก 60 วินาที',
   camera: 'กล้อง — เปิดเองด้วยปุ่มหรือ Ctrl+Shift+C เท่านั้น ไม่เปิดอัตโนมัติ · ภาพจะส่งให้ Claude เฉพาะตอนกด "ดูนี่" หรือพูดคำเรียกให้ดู',
 };
@@ -478,6 +478,29 @@ export class Cards {
     this._setVal('tokens', c.parts.val, txt, '');
     c.parts.hint.textContent = 'tokens ใน session นี้';
     this._seg(c.parts.seg, Math.min(1, Math.log10(Math.max(1, n)) / 6));
+  }
+
+  /** Weekly limit % as the value, 5-hour % and the weekly reset as the hint (real data from Anthropic). */
+  setUsage(snap) {
+    const c = this.cards.get('tokens');
+    const l = snap && snap.limits;
+    if (!c || !l) return;
+    const now = Date.now();
+    const live = (w) => (w && w.resetsAt > now ? w : null);
+    const week = live(l.sevenDay);
+    const five = live(l.fiveHour);
+    if (!week && !five) return;
+    const main = week || five;
+    this._setVal('tokens', c.parts.val, String(Math.round(main.utilization * 100)), '%');
+    const left = (ms) => {
+      const m = Math.ceil(ms / 60000);
+      return m >= 1440 ? `${Math.floor(m / 1440)}ว ${Math.floor((m % 1440) / 60)}ชม` : m >= 60 ? `${Math.floor(m / 60)}ชม ${m % 60}น` : `${m}น`;
+    };
+    const bits = [];
+    if (week) bits.push(`สัปดาห์ · รีเซ็ต ${left(week.resetsAt - now)}`);
+    if (five) bits.push(`5ชม ${Math.round(five.utilization * 100)}% · ${left(five.resetsAt - now)}`);
+    c.parts.hint.textContent = bits.join(' · ');
+    this._seg(c.parts.seg, Math.min(1, main.utilization));
   }
 
   setElapsed(ms) {

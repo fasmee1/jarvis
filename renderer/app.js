@@ -17,6 +17,9 @@ import { StageViewer } from './ui/stage-viewer.js';
 import { ResultViewer } from './ui/result-viewer.js';
 import { WebViewer } from './ui/web-viewer.js';
 import { ConversationPopup } from './ui/conversation.js';
+import { SlashMenu } from './ui/slash-menu.js';
+import { HistoryPanel } from './ui/history.js';
+import { UsagePanel } from './ui/usage.js';
 import { OrbBridge } from './orb-bridge.js';
 
 const api = window.jarvis;
@@ -70,6 +73,7 @@ const sections = new Sections({
     if (name) { S.dotErr = false; S.dotAtt = false; updateDot(); }
   },
   beforeShow: (name) => {
+    if (name === 'diagnostics') usagePanel.load();
     if (name === 'settings') {
       fillSettings();
       fillDevices();
@@ -618,7 +622,9 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
     } else notice(`จับภาพหน้าจอไม่ได้: ${r.error}`, 'warn', null, 5000);
   }
   S.frameAtListenEnd = null;
-  if (!text && !image) return false;
+  const attached = (S.app && S.app.attachments) || [];
+  if (!text && !image && !attached.length) return false;
+  if (!text && !image) text = 'ดูไฟล์ที่แนบมาให้หน่อย';
   orbBridge.set({ transcript: (text || '(ดูภาพนี้)').slice(0, 500), reply: '', replyDone: false, result: false });
   if (S.busy) {
     S.pendingSend = { text, image, imageSource, latency };
@@ -823,12 +829,46 @@ const vision = new Vision({
 // one large viewer for camera + results (same transition, never two at once)
 const viewer = new StageViewer({ home, openExternal: (u) => resultViewer.openExternal(u) });
 
+// "/" menu of Claude Code skills — made before the popup so it sees Tab / Esc / Enter first
+const slashMenu = new SlashMenu({
+  input: $('input'),
+  load: async () => {
+    const r = await api.invoke('skills:list');
+    return r && r.ok ? r.items : [];
+  },
+  onChange: () => talk.inputChanged(),
+});
+
 // the conversation: a popup over the HUD, another surface of the same viewer
 talk = new ConversationPopup({
   viewer,
   home,
   canKey: () => home.visible && !home.booting && !sections.current && ['menu', 'approval', 'barge', 'hf-consent'].every((id) => $(id).hidden),
   onOpenInteractive: () => openInteractive(),
+  onEscape: () => historyPanel.escape(),
+});
+
+const usagePanel = new UsagePanel({
+  api,
+  notice: (text, level) => notice(text, level || 'info', null, 6000),
+  onSnapshot: (s) => home.usage(s),
+});
+usagePanel.load();
+setInterval(() => { if (usagePanel.snap) home.usage(usagePanel.snap); }, 60000); // keep the card's countdown fresh
+
+const historyPanel = new HistoryPanel({
+  api,
+  notice: (text, level) => notice(text, level || 'info', null, 5000),
+  onResumed: (messages, item) => {
+    curMsg = null;
+    curText = null;
+    $('chat').replaceChildren();
+    for (const m of messages) {
+      if (m.role === 'user') addUserMsg(m.text);
+      else $('chat').append(el('div', { class: 'msg assistant', text: m.text }));
+    }
+    addSystemMsg(`ทำต่อจากบทสนทนา "${item.title}" — JARVIS จำเนื้อหาเดิมได้ พิมพ์หรือพูดต่อได้เลย`);
+  },
 });
 
 /** "เปิดบทสนทนา" / "ปิดบทสนทนา" (voice, push-to-talk or hands-free). */
@@ -1230,6 +1270,8 @@ function applyAppState(snap) {
   $('session-id').textContent = snap.sessionId ? `· ${snap.sessionId.slice(0, 8)}` : '';
   $('btn-teach').classList.toggle('on', !!snap.teachMode);
   $('btn-code').classList.toggle('on', !!snap.codingMode);
+  renderAttachments(snap.attachments);
+  applyBuildState(snap);
   $('btn-teach').setAttribute('aria-pressed', String(!!snap.teachMode));
   $('btn-code').setAttribute('aria-pressed', String(!!snap.codingMode));
   applyMode(snap.permissionMode);
@@ -1259,7 +1301,7 @@ const FIELDS = {
   text: ['claudePath', 'model', 'azureRegion', 'pushToTalkKey', 'orbShortcut'],
   num: ['approvalTimeoutSec', 'vadSilenceMs', 'snapshotWidth', 'snapshotHeight'],
   float: ['ttsRate', 'snapshotQuality'],
-  bool: ['persistentProcess', 'guardEnabled', 'confirmVoiceBeforeSend', 'visionOverlay', 'orbEnabled', 'orbOnTopFullscreen', 'orbAutoFade', 'orbAutoOpenResults'],
+  bool: ['persistentProcess', 'guardEnabled', 'confirmVoiceBeforeSend', 'autoApproveSafe', 'visionOverlay', 'orbEnabled', 'orbOnTopFullscreen', 'orbAutoFade', 'orbAutoOpenResults'],
   select: ['sttProvider', 'whisperModel', 'micDeviceId', 'speakerDeviceId', 'cameraDeviceId', 'orbSize'],
 };
 
@@ -1486,6 +1528,120 @@ function onInstallProgress(p) {
 
 // ---------------- events from main ----------------
 
+// ---------------- build timer (coding mode) ----------------
+
+const buildClock = { since: null, totalMs: 0, timer: null };
+
+/** 125000 → "2:05", 3725000 → "1:02:05" */
+function clock(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor((s % 3600) / 60));
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${mm.padStart(2, '0')}:${ss}` : `${mm}:${ss}`;
+}
+
+function renderBuildClock() {
+  const running = buildClock.since != null;
+  $('build-now').textContent = running ? clock(Date.now() - buildClock.since) : '';
+  $('build-total').textContent = `${running ? ' · ' : ''}รวม ${clock(buildClock.totalMs + (running ? Date.now() - buildClock.since : 0))}`;
+}
+
+function setBuildRunning(since) {
+  buildClock.since = since || null;
+  clearInterval(buildClock.timer);
+  buildClock.timer = since ? setInterval(renderBuildClock, 1000) : null;
+  renderBuildClock();
+}
+
+function applyBuildState(snap) {
+  const b = snap.build || {};
+  buildClock.totalMs = b.totalMs || 0;
+  $('build-timer').hidden = !snap.codingMode && !b.runningSince;
+  if ((b.runningSince || null) !== buildClock.since) setBuildRunning(b.runningSince);
+  else renderBuildClock();
+}
+
+// ---------------- attachments (drag & drop, ＋ button) ----------------
+
+function showAttachResult(r) {
+  if (!r || !r.added) return;
+  for (const a of r.added) {
+    if (a.kind === 'project') addSystemMsg(`ตั้ง ${a.path} เป็นโฟลเดอร์โปรเจกต์แล้ว`);
+  }
+  if (r.added.some((a) => a.kind !== 'project') && sections.current !== 'talk') sections.show('talk');
+  if (r.added.length) $('input').focus();
+}
+
+function renderAttachments(list) {
+  const box = $('attach-chips');
+  box.replaceChildren();
+  for (const a of list || []) {
+    const name = a.path.split(/[\\/]/).filter(Boolean).pop() || a.path;
+    const chip = el('span', { class: 'attach-chip', title: a.path },
+      el('span', { text: a.kind === 'folder' ? '📁' : '📄' }),
+      el('span', { class: 'name', text: name }));
+    if (a.kind === 'folder') {
+      chip.append(el('button', { type: 'button', text: 'ใช้เป็นโปรเจกต์', title: 'ตั้งโฟลเดอร์นี้เป็นโฟลเดอร์โปรเจกต์ (เริ่ม session ใหม่)', onclick: async () => {
+        const r = await api.invoke('attach:make-project', a.path).catch((err) => ({ ok: false, error: err.message }));
+        if (r.ok) addSystemMsg(`ตั้ง ${r.cwd} เป็นโฟลเดอร์โปรเจกต์แล้ว`);
+        else notice(r.error, 'error');
+      } }));
+    }
+    chip.append(el('button', { type: 'button', text: '✕', 'aria-label': `เอา ${name} ออก`, onclick: () => api.invoke('attach:remove', a.path) }));
+    box.append(chip);
+  }
+  box.hidden = !box.childElementCount;
+}
+
+function wireAttachments() {
+  const menu = $('attach-menu');
+  const closeMenu = () => { menu.hidden = true; };
+  $('btn-attach').onclick = (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    if (!menu.hidden) menu.querySelector('button').focus();
+  };
+  for (const b of menu.querySelectorAll('button')) {
+    b.onclick = async () => {
+      closeMenu();
+      showAttachResult(await api.invoke('attach:choose', b.dataset.kind).catch((err) => notice(err.message, 'error')));
+    };
+  }
+  document.addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) closeMenu(); });
+  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); $('btn-attach').focus(); } });
+
+  // drag & drop anywhere on the window
+  const overlay = $('drop-overlay');
+  let depth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  window.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    overlay.hidden = false;
+  });
+  window.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) overlay.hidden = true;
+  });
+  window.addEventListener('drop', async (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0;
+    overlay.hidden = true;
+    const paths = [...e.dataTransfer.files].map((f) => api.pathForFile(f)).filter(Boolean).slice(0, 20);
+    if (!paths.length) return notice('ลากได้เฉพาะไฟล์หรือโฟลเดอร์ในเครื่อง', 'warn', null, 4000);
+    showAttachResult(await api.invoke('attach:add', paths).catch((err) => notice(err.message, 'error')));
+  });
+}
+
 function wireEvents() {
   api.on('state', ({ state, tool }) => {
     S.coreState = state;
@@ -1495,7 +1651,11 @@ function wireEvents() {
   });
   api.on('app-state', applyAppState);
   api.on('settings', (s) => { S.settings = s; applyMode(s.permissionMode); applyModel(s.model); });
-  api.on('turn:start', () => {
+  api.on('turn:start', (t) => {
+    if (t && t.buildStartedAt) {
+      $('build-timer').hidden = false;
+      setBuildRunning(t.buildStartedAt);
+    }
     resultViewer.startTurn();
     S.turnSpokenChars = 0;
     curMsg = null;
@@ -1515,7 +1675,7 @@ function wireEvents() {
     term(`${code}: ${message}${stderr ? '\n' + stderr : ''}`, 'error');
   });
   api.on('session', (e) => {
-    if (e.kind === 'new' || e.kind === 'new-from-summary') {
+    if (e.kind === 'new' || e.kind === 'new-from-summary' || e.kind === 'resumed') {
       S.sessionTokens = 0;
       home.tokens(null);
       home.step(null);
@@ -1531,6 +1691,11 @@ function wireEvents() {
   api.on('latency', (l) => {
     Object.assign(S.lat, Object.fromEntries(Object.entries(l).filter(([k, v]) => v != null && k !== 't0')));
     showLatency();
+  });
+  api.on('build:time', (b) => {
+    buildClock.totalMs = b.totalMs;
+    setBuildRunning(null);
+    addSystemMsg(b.text);
   });
   api.on('turn:result', (r) => {
     const m = ensureAssistant();
@@ -1588,7 +1753,7 @@ function wireEvents() {
 // ---------------- DOM wiring ----------------
 
 function wireDom() {
-  $('btn-send').onclick = () => { const t = $('input').value; $('input').value = ''; talk.inputChanged(); send(t); };
+  $('btn-send').onclick = () => { const t = $('input').value; $('input').value = ''; talk.inputChanged(); slashMenu.paint(); send(t); };
   $('input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
@@ -1646,6 +1811,12 @@ function wireDom() {
     const on = !$('btn-code').classList.contains('on');
     await api.invoke('session:coding-mode', on);
     addSystemMsg(on ? 'เปิดโหมดโค้ด — JARVIS จะอ่านก่อนแก้ ตรวจผลก่อนสรุป และไม่อ่านโค้ดออกเสียง' : 'ปิดโหมดโค้ด');
+  };
+  wireAttachments();
+  $('build-reset').onclick = async () => {
+    if (buildClock.since) return notice('รอให้งานรอบนี้เสร็จก่อนเริ่มนับใหม่', 'warn', null, 3000);
+    await api.invoke('build:reset');
+    addSystemMsg('เริ่มนับเวลาสร้างระบบใหม่แล้ว');
   };
   $('btn-new').onclick = () => api.invoke('session:new');
   $('btn-new-summary').onclick = newFromSummary;

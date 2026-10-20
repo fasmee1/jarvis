@@ -58,8 +58,12 @@
             <div class="cv-grp cv-mid">
               <button id="btn-teach" class="cv-pill toggle" type="button" title="โหมดสอนประดิษฐ์ — JARVIS สอนทีละขั้น">โหมดสอน</button>
               <button id="btn-code" class="cv-pill toggle" type="button" title="โหมดโค้ด — อ่านก่อนแก้ ตรวจผลก่อนสรุป ไม่อ่านโค้ดออกเสียง (เปิดเองในโฟลเดอร์ที่มี .git / package.json)">โหมดโค้ด</button>
+        <span id="build-timer" class="build-timer mono" hidden title="เวลาสร้างระบบในโปรเจกต์นี้ (นับเฉพาะตอนอยู่ในโหมดโค้ด)">⏱ <b id="build-now"></b><span id="build-total"></span><button id="build-reset" class="btn small ghost" type="button" title="เริ่มนับเวลาสร้างระบบใหม่" aria-label="เริ่มนับเวลาใหม่">↺</button></span>
             </div>
             <div class="cv-grp cv-right">
+              <button id="btn-history" class="cv-ctl toggle" type="button" title="ประวัติการสนทนาในโปรเจกต์นี้ — ดูย้อนหลังและทำต่อจากบทสนทนาเดิม" aria-pressed="false">
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5 M12 7v5l3 2"/></svg><span class="cv-lbl">ประวัติ</span>
+              </button>
               <button id="btn-new" class="cv-ctl" type="button" title="เริ่ม Session ใหม่ (ล้างบทสนทนา)">
                 <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14 M5 12h14"/></svg><span class="cv-lbl">Session ใหม่</span>
               </button>
@@ -84,6 +88,19 @@
           <div class="cv-pane">
             <div class="cv-main">
               <div id="chat" class="chat cv-msgs" role="log" aria-live="polite" aria-label="ข้อความ"></div>
+              <section id="cv-hist" class="cv-hist" aria-label="ประวัติการสนทนา" hidden>
+                <div class="cv-hist-head">
+                  <button id="cv-hist-back" class="cv-ctl" type="button" hidden>‹ กลับ</button>
+                  <b id="cv-hist-title">ประวัติการสนทนา</b>
+                  <input id="cv-hist-search" type="search" placeholder="ค้นหาจากคำถามแรก…" aria-label="ค้นหาประวัติ">
+                  <span class="cv-sp"></span>
+                  <button id="cv-hist-resume" class="cv-ctl primary" type="button" hidden>ทำต่อจากบทสนทนานี้</button>
+                  <button id="cv-hist-close" class="cv-ctl cv-icon" type="button" aria-label="ปิดประวัติ" title="ปิด (Esc)">
+                    <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18 M6 6l12 12"/></svg>
+                  </button>
+                </div>
+                <div id="cv-hist-body" class="cv-hist-body"></div>
+              </section>
             </div>
             <div id="cv-term" class="cv-term" hidden>
               <div id="cv-term-grip" class="cv-term-grip" role="separator" aria-orientation="horizontal" aria-label="ลากเพื่อปรับความสูง Terminal" tabindex="0" title="ลากเพื่อปรับความสูง (↑/↓)"></div>
@@ -109,7 +126,15 @@
                 <button id="btn-transcript-cancel" class="btn">ยกเลิก</button>
               </div>
             </div>
+            <div id="attach-chips" class="attach-chips" hidden></div>
             <div class="cv-composer">
+              <div class="cv-attach">
+                <button id="btn-attach" class="cv-act cv-attach-btn" type="button" title="แนบไฟล์หรือเพิ่มโฟลเดอร์ (หรือลากมาวางที่หน้าต่างนี้)" aria-label="แนบไฟล์หรือโฟลเดอร์" aria-haspopup="menu">＋</button>
+                <div id="attach-menu" class="attach-menu" role="menu" hidden>
+                  <button type="button" role="menuitem" data-kind="folder">📁 เพิ่มโฟลเดอร์</button>
+                  <button type="button" role="menuitem" data-kind="file">📄 แนบไฟล์</button>
+                </div>
+              </div>
               <textarea id="input" rows="1" maxlength="20000" placeholder="พิมพ์ข้อความ หรือ /คำสั่ง แล้วกด Enter (Shift+Enter ขึ้นบรรทัดใหม่)" aria-label="ข้อความถึง JARVIS"></textarea>
               <div class="cv-actions">
                 <button id="btn-cam" class="cv-act toggle" type="button" title="เปิด/ปิดกล้อง (Ctrl+Shift+C)" aria-label="เปิด/ปิดกล้อง">
@@ -227,6 +252,20 @@
       <h1>DIAGNOSTICS <span class="th">วินิจฉัยระบบ</span></h1>
     </header>
     <div class="view-body diag-body">
+      <section class="usage cut" id="usage-panel" aria-label="การใช้งาน Claude Code">
+        <div class="usage-head">
+          <div class="micro">USAGE · CLAUDE CODE · ข้อมูลจริงจากบัญชีของคุณ</div>
+          <span class="cv-sp"></span>
+          <span id="usage-updated" class="dim mono"></span>
+          <button id="usage-ping" class="btn small" type="button" title="ถาม Claude Code ตอนนี้ (ส่งคำขอเล็กมาก 1 ครั้งด้วย Haiku — ใช้โควตาเล็กน้อย)">↻ อัปเดตเปอร์เซ็นต์ตอนนี้</button>
+        </div>
+        <div class="usage-limits">
+          <div class="usage-limit" id="usage-5h"></div>
+          <div class="usage-limit" id="usage-7d"></div>
+        </div>
+        <div class="usage-table-wrap"><table class="usage-table mono" id="usage-table"></table></div>
+        <p class="dim usage-note">เปอร์เซ็นต์และเวลารีเซ็ตมาจาก Anthropic โดยตรง (อัปเดตทุกครั้งที่ JARVIS ตอบ) · จำนวน token นับจากไฟล์บันทึกของ Claude Code ในเครื่องนี้ รวมทุกโปรเจกต์ ทั้ง JARVIS, terminal และ subagent · cache read คิดโควตาน้อยกว่า token ปกติมาก</p>
+      </section>
       <div class="diag-metrics">
         <div class="diag-cell cut"><div class="micro">LATENCY</div><div id="lat" class="mono">t2−t0: — · t3−t0: —</div></div>
         <div class="diag-cell cut"><div class="micro">TOKENS / COST</div><div id="cost" class="mono">tokens: — · $—</div></div>
@@ -272,6 +311,7 @@
         <p class="dim">โหลดการตั้งค่าของผู้ใช้ทั้งหมดด้วย --setting-sources user,project,local (MCP, hooks, skills, CLAUDE.md, rules)</p>
       </div>
       <div class="stab" id="stab-perm" hidden>
+        <label class="check"><input id="s-autoApproveSafe" type="checkbox"> ไม่ต้องถามเมื่อปลอดภัย — ติดตั้งแพ็กเกจในโปรเจกต์ (npm install, npx create-next-app, pip install), build/test, git add/commit, อ่านและแก้ไฟล์ในโปรเจกต์หรือโฟลเดอร์ที่แนบ ส่วนการลบ, git push, ติดตั้งแบบ global/admin และไฟล์ลับ (.env, กุญแจ SSH) ยังถามเสมอ</label>
         <label>เวลารออนุญาต (วินาที) ก่อนปฏิเสธอัตโนมัติ<input id="s-approvalTimeoutSec" type="number" min="10" max="3600"></label>
         <div class="field bypass-box">
           <div><b>เปิด bypassPermissions</b> — Claude ทำทุกอย่างโดยไม่ถาม พิมพ์คำว่า <b>ยืนยัน</b> แล้วกดปุ่ม</div>
@@ -455,6 +495,7 @@
   <!-- Boot sequence layer -->
   <div id="boot-overlay" class="boot-overlay"></div>
 
+  <div id="drop-overlay" class="drop-overlay" hidden>วางไฟล์หรือโฟลเดอร์ให้ JARVIS</div>
   <script src="ui/vendor/gsap.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>

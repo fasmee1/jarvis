@@ -284,6 +284,57 @@ test('mic unplugged pauses, and listening resumes when it returns; background pa
   assert.strictEqual(r.hf.state, r.ST.WAKE_LISTENING);
 });
 
+test('wake / unlock: overlapping resumes open the mic once; a pause during the start wins', async () => {
+  const r = await started();
+  let starts = 0;
+  const pending = [];
+  const release = () => pending.splice(0).forEach((res) => res());
+  r.engine.start = () => { starts++; r.log.push('start'); return new Promise((res) => pending.push(res)); };
+  await r.hf.pause('sleep');
+  const a = r.hf.resume('sleep');
+  const b = r.hf.resume('background'); // window shown while the mic is still opening
+  release();
+  await a; await b;
+  assert.strictEqual(starts, 1);
+  assert.strictEqual(r.hf.state, r.ST.WAKE_LISTENING);
+
+  // screen locks while the mic is opening: stay paused, mic closed
+  await r.hf.pause('lock');
+  const c = r.hf.resume('lock');
+  await tick();
+  r.hf.pause('lock');
+  release();
+  await c;
+  assert.strictEqual(r.hf.state, r.ST.PAUSED);
+  assert.strictEqual(r.log[r.log.length - 1], 'stop');
+  r.engine.start = async () => { r.log.push('start'); };
+  await r.hf.resume('lock');
+  assert.strictEqual(r.hf.state, r.ST.WAKE_LISTENING);
+});
+
+test('after sleep a busy mic is retried instead of switching hands-free off', async () => {
+  const r = await started();
+  await r.hf.pause('sleep');
+  let fails = 2;
+  r.engine.start = async () => {
+    r.log.push('start');
+    if (fails-- > 0) throw Object.assign(new Error('Could not start audio source'), { code: 'MIC_ERROR' });
+  };
+  await r.hf.resume('sleep');
+  assert.strictEqual(r.hf.state, r.ST.PAUSED); // waiting to retry, still on
+  assert.ok(r.hf.active);
+  for (let i = 0; i < 10 && r.hf.state !== r.ST.WAKE_LISTENING; i++) { r.timers.advance(3000); await tick(); }
+  assert.strictEqual(r.hf.state, r.ST.WAKE_LISTENING);
+
+  // a mic that never comes back gives up with the error, as before
+  await r.hf.pause('sleep');
+  r.engine.start = async () => { throw Object.assign(new Error('busy'), { code: 'MIC_ERROR' }); };
+  await r.hf.resume('sleep');
+  for (let i = 0; i < 30 && r.hf.active; i++) { r.timers.advance(5000); await tick(); }
+  assert.strictEqual(r.hf.state, r.ST.IDLE);
+  assert.ok(r.log.includes('error:MIC_ERROR'));
+});
+
 test('wake engine failure leaves hands-free off with an error (push-to-talk still works)', async () => {
   const { ctl } = await load();
   const r = rig();

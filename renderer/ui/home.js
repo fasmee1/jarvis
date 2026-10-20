@@ -84,6 +84,7 @@ export class Home {
     this.cards.setLatency(c.latency || []);
     this.cards.setStep(c.step || null);
     this.cards.setTokens(c.tokens ?? null);
+    if (c.usage) this.cards.setUsage(c.usage);
     this.cards.setMic(null, {});
     this.cards.setTts(null, { engine: c.engine || 'none' });
   }
@@ -149,7 +150,14 @@ export class Home {
 
   tokens(n) {
     (this.cache ||= {}).tokens = n;
-    this.cards.setTokens(n);
+    if (!this.cache.usage) this.cards.setTokens(n); // real limits, once known, take the card
+  }
+
+  /** Real Claude Code usage (lib/usage): weekly % + reset on the Tokens card. */
+  usage(snap) {
+    if (!snap || !snap.limits) return;
+    (this.cache ||= {}).usage = snap;
+    this.cards.setUsage(snap);
   }
 
   // ---------- hands-free ----------

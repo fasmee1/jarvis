@@ -11,10 +11,14 @@
 //   snapshot()             → Promise<ArrayBuffer|null> int16 PCM recorded so far
 //   bands(n)               → Float32Array | null (live mic spectrum for the reactor)
 //   onEvent(evt)           'wake' 'suppressed' 'speech-start' 'end' 'follow-timeout'
-//                          'barge-voice' 'stats' 'mic-lost' 'mic-back' 'error'
+//                          'barge-voice' 'stats' 'mic-lost' 'mic-back' 'mic-restart' 'error'
 //   onLevel(rms)           one mic level per 80 ms frame
 const api = window.jarvis;
 const ORT_DIR = new URL('../../node_modules/onnxruntime-web/dist/', import.meta.url).href;
+// The worklet sends one level per 80 ms frame. No frame for this long while the
+// mic is open means the stream died without an 'ended' event (device asleep,
+// driver reset after a long idle): the mic is reopened.
+const STALL_MS = 5000;
 
 export class OwwEngine {
   constructor({ onEvent, onLevel }) {
@@ -26,6 +30,7 @@ export class OwwEngine {
     this.ctx = null;
     this.wantDevice = '';
     this.lost = false;
+    this.openGen = 0; // bumped by every close: an open that was overtaken drops its stream
     this.snapId = 0;
     this.snaps = new Map();
     this._devChange = () => this._onDeviceChange();
@@ -102,6 +107,7 @@ export class OwwEngine {
 
   async _open() {
     this._close();
+    const gen = this.openGen;
     const audio = {
       channelCount: 1,
       // keeps the assistant's own voice (and room noise) out of the wake word detector
@@ -110,32 +116,51 @@ export class OwwEngine {
       autoGainControl: true,
     };
     if (this.wantDevice) audio.deviceId = { exact: this.wantDevice };
+    let stream;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio });
+      stream = await navigator.mediaDevices.getUserMedia({ audio });
     } catch (err) {
       if (this.wantDevice && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) {
         // chosen device is gone: use the system default instead
         delete audio.deviceId;
         try {
-          this.stream = await navigator.mediaDevices.getUserMedia({ audio });
+          stream = await navigator.mediaDevices.getUserMedia({ audio });
         } catch (err2) {
           throw micError(err2);
         }
       } else throw micError(err);
     }
+    // stop() or another open ran while the mic was opening: drop this one
+    // (a second live stream would leak, and its 'ended' would close the good one)
+    const stale = () => gen !== this.openGen;
+    if (stale()) { stream.getTracks().forEach((t) => t.stop()); return; }
+    let ctx;
     try {
-      this.ctx = new AudioContext({ sampleRate: 16000, latencyHint: 'playback' });
+      ctx = new AudioContext({ sampleRate: 16000, latencyHint: 'playback' });
     } catch {
-      this.ctx = new AudioContext({ latencyHint: 'playback' });
+      ctx = new AudioContext({ latencyHint: 'playback' });
     }
-    await this.ctx.audioWorklet.addModule(new URL('./capture-worklet.js', import.meta.url));
+    try {
+      await ctx.audioWorklet.addModule(new URL('./capture-worklet.js', import.meta.url));
+    } catch (err) {
+      stream.getTracks().forEach((t) => t.stop());
+      ctx.close().catch(() => {});
+      throw Object.assign(new Error(err.message || 'audio worklet failed'), { code: 'MIC_ERROR' });
+    }
+    if (stale()) { stream.getTracks().forEach((t) => t.stop()); ctx.close().catch(() => {}); return; }
+    this.stream = stream;
+    this.ctx = ctx;
     this.src = this.ctx.createMediaStreamSource(this.stream);
     this.node = new AudioWorkletNode(this.ctx, 'hf-capture', { numberOfOutputs: 1, outputChannelCount: [1] });
     // Direct line worklet → worker: the page never sees the audio frames.
     const line = new MessageChannel();
     this.node.port.postMessage({ port: line.port1 }, [line.port1]);
     this.worker.postMessage({ type: 'port', port: line.port2 }, [line.port2]);
-    this.node.port.onmessage = (e) => this.onLevel(e.data);
+    this.lastFrame = performance.now();
+    this.node.port.onmessage = (e) => {
+      this.lastFrame = performance.now();
+      this.onLevel(e.data);
+    };
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 256;
     this.analyser.smoothingTimeConstant = 0.6;
@@ -153,9 +178,50 @@ export class OwwEngine {
         this.lost = true;
         this._close();
         this.onEvent({ type: 'mic-lost' });
+        this._recover();
       };
     }
     this.lost = false;
+    this._watch();
+  }
+
+  /** Reopen the mic when frames stop arriving (see STALL_MS). */
+  _watch() {
+    clearInterval(this._stallTimer);
+    this._stallTimer = setInterval(async () => {
+      if (!this.stream || this.lost || this._reopening) return;
+      if (performance.now() - this.lastFrame < STALL_MS) return;
+      this._reopening = true;
+      try {
+        await this._open();
+        if (this.stream) this.onEvent({ type: 'mic-restart' });
+      } catch {
+        // no mic right now: same path as an unplugged mic
+        this.lost = true;
+        this._close();
+        this.onEvent({ type: 'mic-lost' });
+        this._recover();
+      } finally {
+        this._reopening = false;
+      }
+    }, 1000);
+  }
+
+  /**
+   * A lost mic is also retried on a timer (every 3 s for about a minute), not
+   * only on 'devicechange': a device that wakes up again doesn't always send one.
+   */
+  _recover(tries = 20) {
+    clearTimeout(this._recoverTimer);
+    this._recoverTimer = setTimeout(async () => {
+      if (!this.lost) return;
+      try {
+        await this._open();
+        if (this.stream) this.onEvent({ type: 'mic-back' });
+      } catch {
+        if (tries > 1) this._recover(tries - 1);
+      }
+    }, 3000);
   }
 
   async _onDeviceChange() {
@@ -170,6 +236,8 @@ export class OwwEngine {
   }
 
   _close() {
+    this.openGen++;
+    clearInterval(this._stallTimer);
     try { this.src && this.src.disconnect(); } catch { /* gone */ }
     try { this.node && this.node.disconnect(); } catch { /* gone */ }
     if (this.stream) this.stream.getTracks().forEach((t) => { t.onended = null; t.stop(); });
@@ -180,6 +248,7 @@ export class OwwEngine {
   stop() {
     navigator.mediaDevices.removeEventListener('devicechange', this._devChange);
     clearTimeout(this._retry);
+    clearTimeout(this._recoverTimer);
     this.lost = false;
     this.setMode('paused');
     this._close();

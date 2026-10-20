@@ -1,6 +1,6 @@
 'use strict';
 // Sandboxed preload: exposes only a fixed set of named IPC calls/events.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const INVOKE = [
   'app:init',
@@ -14,6 +14,17 @@ const INVOKE = [
   'session:new-from-summary',
   'session:teach-mode',
   'session:coding-mode',
+  'build:reset',
+  'usage:get',
+  'usage:ping',
+  'history:list',
+  'skills:list',
+  'history:read',
+  'history:resume',
+  'attach:add',
+  'attach:choose',
+  'attach:remove',
+  'attach:make-project',
   'terminal:open-interactive',
   'approval:respond',
   'latency:report',
@@ -68,6 +79,8 @@ const EVENTS = [
   'chat:item',
   'turn:start',
   'turn:result',
+  'build:time',
+  'usage',
   'activity',
   'todos',
   'terminal',
@@ -104,5 +117,13 @@ contextBridge.exposeInMainWorld('jarvis', {
     const h = (_e, payload) => fn(payload);
     ipcRenderer.on(channel, h);
     return () => ipcRenderer.removeListener(channel, h);
+  },
+  /** Disk path of a dropped File ('' for things that aren't files on disk). */
+  pathForFile(file) {
+    try {
+      return webUtils.getPathForFile(file) || '';
+    } catch {
+      return '';
+    }
   },
 });
