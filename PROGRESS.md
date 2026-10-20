@@ -244,3 +244,19 @@ Dev: `JARVIS_SCREENSHOT=<file.png>` (+ `JARVIS_SCREENSHOT_QUIT=1`, `JARVIS_SCREE
 - Terminal: ⌨ now toggles a resizable bottom split in the popup with the same log as DIAGNOSTICS › TERMINAL; "เปิด Claude Code แบบ interactive" in that panel opens the separate CLI window (what ⌨ used to do directly)
 - Removed: the Tab quick-prompt on the HUD (`#home-prompt`) — Tab now opens the conversation, whose input does the same job
 - Verified: `npm run check`, `npm test` (96, incl. `test/conversation.test.js`), real-app runs with `JARVIS_USER_DATA` (separate profile, so it runs beside an open JARVIS): open via Tab / menu, toolbar, terminal split, ⋯ overflow, Esc order, draft + marker on reopen, held result → เปิดดู → viewer → back, focus trap, Tab-close, viewer ⇄ conversation swaps, 5 rapid Tabs converge
+
+## Coding by voice — local commands, undo, project context (2026-10-20)
+
+- Local voice commands (no Claude turn, no quota), in `renderer/handsfree/commands.js` → `lib/coding/project-tools.js`:
+  “รันเทสต์” (`npm test` / pytest / cargo test / go test) · “รันเช็ก” (`npm run check|lint|typecheck|build`, cargo check, go vet, pio run) ·
+  “ดู diff ล่าสุด” · “ยกเลิกการแก้ล่าสุด”. Results open as a text tab in the Result Viewer and are spoken in one line; “หยุด” stops a run.
+  Bare “ทดสอบ” (mic check) and longer requests (“รันเทสต์แล้วแก้ให้ผ่าน”) still go to Claude.
+- The result of a local run / undo is passed to Claude with the next message, so “แก้ให้ผ่าน” works right after a failing run.
+- Undo: before every turn in a git project, `git stash create` saves the working tree (a commit object only — nothing in the tree, index or stash list changes).
+  Undo restores the files changed since the newest snapshot that differs from now (working tree + staging), moves new files to the Recycle Bin,
+  and needs a click on screen. The state before undo is saved too (`git restore --source=<hash> -- .` brings it back).
+  Limits: git projects only; untracked files that existed before the turn can't be restored.
+- Project context: a one-time hint to run `/init` in code projects without CLAUDE.md; Settings > Claude “เกี่ยวกับคุณ” (`userProfile`) goes into the system prompt
+  and, when changed, into the next message of the open conversation. Added CLAUDE.md for this repo.
+- Permission clicks (D in the plan) were already covered by `autoApproveSafe` (edits in the project, `npm test`, `npm run check`, builds run without asking).
+- Verified: `npm run check` 119/119, `npm test` 131/131 (new: test/project-tools.test.js, test/coding-voice.test.js). Not yet tried in the running app.

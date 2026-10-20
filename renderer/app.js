@@ -21,6 +21,7 @@ import { SlashMenu } from './ui/slash-menu.js';
 import { HistoryPanel } from './ui/history.js';
 import { UsagePanel } from './ui/usage.js';
 import { OrbBridge } from './orb-bridge.js';
+import { checkReport, diffReport, undoLines } from './ui/code-report.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -100,7 +101,7 @@ function notice(text, level = 'info', action = null, ms = 9000) {
   const n = el('div', { class: `notice ${level}` }, el('div', { text }));
   if (action) {
     const row = el('div', { class: 'row' });
-    const label = { 'open-interactive': 'เปิด Claude Code แบบ interactive', 'new-from-summary': 'เริ่ม session ใหม่จากสรุป', 'install-thai-voice': 'ติดตั้งเสียงภาษาไทย', 'open-settings-voice': 'เปิด Settings เสียง' }[action] || action;
+    const label = { 'open-interactive': 'เปิด Claude Code แบบ interactive', 'new-from-summary': 'เริ่ม session ใหม่จากสรุป', 'install-thai-voice': 'ติดตั้งเสียงภาษาไทย', 'open-settings-voice': 'เปิด Settings เสียง', 'init-claude-md': 'สร้าง CLAUDE.md (/init)' }[action] || action;
     row.append(el('button', { class: 'btn small', text: label, onclick: () => { runAction(action); n.remove(); } }));
     n.append(row);
   }
@@ -119,6 +120,106 @@ function runAction(a) {
   if (a === 'new-from-summary') newFromSummary();
   if (a === 'install-thai-voice') installThaiVoice();
   if (a === 'open-settings-voice') openSettings('voice');
+  if (a === 'init-claude-md') send('/init');
+}
+
+// ---------------- local coding commands (voice) ----------------
+// "รันเทสต์" / "รันเช็ก" / "ดู diff ล่าสุด" / "ยกเลิกการแก้ล่าสุด": handled in the app, no Claude turn.
+
+function say(text) {
+  if (!text || S.voiceMuted) return;
+  speaker.enqueue(text);
+  speaker.flush();
+}
+
+const failed = (err) => ({ ok: false, error: err.message });
+
+async function codeCommand(cmd, heard) {
+  if (heard) addSystemMsg(`🎙 ${heard}`);
+  if (cmd.op === 'test' || cmd.op === 'check') return runProjectCheck(cmd.op);
+  if (cmd.op === 'diff') return showProjectDiff();
+  if (cmd.op === 'undo') return askUndo();
+  return null;
+}
+
+async function runProjectCheck(kind) {
+  const label = kind === 'test' ? 'เทสต์' : 'เช็ก';
+  const found = S.app && S.app.checks && S.app.checks[kind];
+  addSystemMsg(`▶ กำลังรัน${label}${found ? `: ${found.command}` : ''}…`);
+  const r = await api.invoke('code:run', { kind }).catch(failed);
+  if (!r.done) {
+    notice(r.error || `รัน${label}ไม่ได้`, 'warn');
+    say(r.error);
+    return;
+  }
+  const rep = checkReport(r);
+  addSystemMsg(rep.line);
+  if (!r.cancelled) resultViewer.display({ type: 'text', title: rep.title, spokenSummary: rep.speak, markdown: rep.markdown });
+  if (!r.ok && !r.cancelled) sfx.error();
+  say(rep.speak);
+}
+
+async function showProjectDiff() {
+  const d = await api.invoke('code:diff').catch(failed);
+  if (!d.ok) {
+    notice(d.error, 'warn');
+    say(d.error);
+    return;
+  }
+  const rep = diffReport(d);
+  if (!rep.empty) resultViewer.display({ type: 'text', title: rep.title, spokenSummary: rep.speak, markdown: rep.markdown });
+  else addSystemMsg(rep.speak);
+  say(rep.speak);
+}
+
+/** Undo is destructive: the file list is shown and only a click confirms it. */
+async function askUndo() {
+  const p = await api.invoke('code:undo-preview').catch(failed);
+  if (!p.ok) {
+    const why = p.reason || p.error;
+    notice(why, 'info');
+    say(why);
+    return;
+  }
+  document.querySelector('.notice.undo-confirm')?.remove();
+  const n = el('div', { class: 'notice warn undo-confirm', role: 'alertdialog', 'aria-label': 'ยืนยันการย้อนการแก้' });
+  n.append(el('div', {}, el('b', { text: 'ย้อนการแก้ของงานล่าสุด?' })));
+  for (const line of undoLines(p)) n.append(el('div', { class: 'mono', text: line }));
+  const cancel = el('button', { class: 'btn small ghost', text: 'ยกเลิก', onclick: () => n.remove() });
+  const ok = el('button', {
+    class: 'btn small danger',
+    text: 'ย้อนกลับ',
+    onclick: async () => {
+      ok.disabled = cancel.disabled = true;
+      const r = await api.invoke('code:undo', { token: p.token }).catch(failed);
+      n.remove();
+      if (!r.ok) {
+        notice(r.reason || r.error, 'error');
+        return;
+      }
+      const msg = `↩ ย้อนแล้ว: คืนค่า ${r.restored.length} ไฟล์ · ย้ายไปถังขยะ ${r.removed.length} ไฟล์`;
+      addSystemMsg(r.safety ? `${msg} — ถ้าต้องการกลับไปแบบก่อนย้อน: git restore --source=${r.safety} -- .` : msg);
+      if (r.failed.length) notice(`ลบบางไฟล์ไม่ได้: ${r.failed.join(' · ')}`, 'warn');
+      say('ย้อนการแก้เรียบร้อยครับ');
+    },
+  });
+  n.append(el('div', { class: 'row' }, ok, cancel));
+  $('notices').append(n);
+  cancel.focus();
+  const count = p.restore.length + p.remove.length;
+  say(`จะย้อน ${count} ไฟล์ กดยืนยันบนจอครับ`);
+}
+
+/** Once per project: offer /init when a code project has no CLAUDE.md. */
+function hintClaudeMd(snap) {
+  if (!snap.cwd || snap.cwd === S.claudeMdChecked) return;
+  S.claudeMdChecked = snap.cwd;
+  if (!snap.isCodeProject || snap.hasClaudeMd) return;
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem('jarvis.claudeMdHinted') || '[]'); } catch { /* storage unavailable */ }
+  if (seen.includes(snap.cwd)) return;
+  try { localStorage.setItem('jarvis.claudeMdHinted', JSON.stringify([...seen, snap.cwd].slice(-200))); } catch { /* storage unavailable */ }
+  notice('โปรเจกต์นี้ยังไม่มี CLAUDE.md — ไฟล์นี้บอก Claude ว่าโปรเจกต์ทำอะไร รัน build/test อย่างไร จะได้ไม่ต้องอธิบายซ้ำทุกครั้ง', 'info', 'init-claude-md', 30000);
 }
 
 function term(text, stream = 'event') {
@@ -804,6 +905,10 @@ function afterTranscript(text, latency) {
     openSite(cmd, (t) => send(t, { fromVoice: true, latency }));
     return;
   }
+  if (cmd && cmd.action === 'code') {
+    codeCommand(cmd, text);
+    return;
+  }
   if (needsTranscriptConfirm()) {
     // the confirm box lives in the conversation popup: open it so JARVIS never looks silent
     if (sections.current) sections.home();
@@ -1017,6 +1122,8 @@ function hfLocal(cmd) {
     case 'talk-close': talkCommand(cmd.action); break;
     case 'viewer': resultViewer.command(cmd); break;
     case 'open-site': openSite(cmd, (t) => hfSend(t)); break;
+    case 'code': codeCommand(cmd); break;
+    case 'stop': api.invoke('code:cancel').catch(() => {}); break; // also stops a running test/check
     default: break;
   }
 }
@@ -1276,6 +1383,7 @@ function applyAppState(snap) {
   $('btn-code').setAttribute('aria-pressed', String(!!snap.codingMode));
   applyMode(snap.permissionMode);
   applyModel(snap.model);
+  hintClaudeMd(snap);
 }
 
 function applyModel(model = '') {
@@ -1298,7 +1406,7 @@ function applyMode(mode) {
 // ---------------- settings dialog ----------------
 
 const FIELDS = {
-  text: ['claudePath', 'model', 'azureRegion', 'pushToTalkKey', 'orbShortcut'],
+  text: ['claudePath', 'model', 'userProfile', 'azureRegion', 'pushToTalkKey', 'orbShortcut'],
   num: ['approvalTimeoutSec', 'vadSilenceMs', 'snapshotWidth', 'snapshotHeight'],
   float: ['ttsRate', 'snapshotQuality'],
   bool: ['persistentProcess', 'guardEnabled', 'confirmVoiceBeforeSend', 'autoApproveSafe', 'visionOverlay', 'orbEnabled', 'orbOnTopFullscreen', 'orbAutoFade', 'orbAutoOpenResults'],

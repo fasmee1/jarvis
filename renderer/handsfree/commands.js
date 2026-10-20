@@ -142,6 +142,7 @@ const CMD = {
  * Match a transcript against the built-in commands.
  * @returns {null | { action: string, card?: string }}
  *   actions: stop | done | camera-on | camera-off | card-close | card-open | handsfree-off | talk-open | talk-close
+ *            | code (op: test | check | diff | undo)
  */
 // ---------- Result Viewer (only while it is open) ----------
 // numbers as said: digits, Thai words or English
@@ -168,6 +169,23 @@ const VIEW = {
   louder: R('^(?:เสียงดังขึ้น|ดังขึ้น|ดังขึ้นอีก|เพิ่มเสียง|เร่งเสียง|volumeup|louder|turnitup)$'),
   softer: R('^(?:เสียงเบาลง|เบาลง|เบาลงอีก|ลดเสียง|volumedown|quieter|softer|turnitdown)$'),
 };
+
+// ---------- coding (local: run tests / checks, show the diff, undo the last edit) ----------
+// "ช่วย…ให้" around them is fine; a bare "ทดสอบ" (mic check) is not a command.
+const PRE = '(?:ช่วย|ลอง|ขอ)?';
+const POST = '(?:ให้|ให้ที|ด้วย)?';
+const CODE = {
+  test: R(`^${PRE}(?:รัน|ลัน|รันการ|run)(?:the)?(?:เทสต์|เทสท์|เทส|เทสต์ทั้งหมด|test|tests|unittests?|การทดสอบ|ทดสอบ)(?:ทั้งหมด|ใหม่|อีกครั้ง|อีกรอบ|again)?${POST}$`),
+  check: R(`^${PRE}(?:(?:รัน|ลัน|run)(?:the)?(?:เช็ก|เช็ค|เชค|เช็กโค้ด|เช็คโค้ด|check|checks|lint|ลินต์|ลินท์|ตรวจ|ตรวจโค้ด)|ตรวจโค้ด|เช็กโค้ด|เช็คโค้ด)(?:ทั้งหมด|ใหม่|อีกครั้ง|อีกรอบ|again)?${POST}$`),
+  diff: R(`^${PRE}(?:(?:ดู|แสดง|เปิด|โชว์)(?:ดิฟ|ดิฟฟ์|ดีฟ|ดิ๊ฟ|diff|การแก้|การแก้ไข|สิ่งที่แก้|ที่แก้|ไฟล์ที่แก้|การเปลี่ยนแปลง)(?:ล่าสุด|เมื่อกี้|เมื่อกี๊|ไป)?|แก้อะไรไปบ้าง|แก้ไฟล์ไหนบ้าง|show(?:the)?(?:diff|changes)|whatchanged)${POST}$`),
+  undo: R(`^${PRE}(?:(?:ยกเลิก|ย้อน|ย้อนกลับ|เลิกทำ|undo)(?:การ)?(?:แก้|แก้ไข|แก้ไฟล์|แก้โค้ด|เปลี่ยนแปลง|ที่แก้)(?:ล่าสุด|เมื่อกี้|เมื่อกี๊|อันล่าสุด)?|undo(?:the)?(?:last)?(?:change|changes|edit|edits)?)${POST}$`),
+};
+
+/** @returns {null | 'test' | 'check' | 'diff' | 'undo'} */
+function codeCommand(t) {
+  for (const op of ['test', 'check', 'diff', 'undo']) if (CODE[op].test(t)) return op;
+  return null;
+}
 
 // ---------- Web Viewer (a live web page is the current tab) ----------
 const WEB = {
@@ -235,6 +253,8 @@ export function parseCommand(transcript, ctx = {}) {
     const vc = viewerCommand(t, ctx);
     if (vc) return vc;
   }
+  const op = codeCommand(t);
+  if (op) return { action: 'code', op };
   if (CMD.stop.test(t)) return { action: 'stop' };
   if (CMD.done.test(t)) return { action: 'done' };
   if (CMD.off.test(t) || CMD.offEn.test(t)) return { action: 'handsfree-off' };

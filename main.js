@@ -445,6 +445,27 @@ function registerIpc() {
     core.resetBuildTime();
     return { ok: true };
   });
+  // local coding voice commands: errors come back as {ok:false, error} so the HUD can say them
+  const local = async (fn) => {
+    try {
+      return await fn();
+    } catch (err) {
+      return { ok: false, error: err.message, code: err.code };
+    }
+  };
+  handle('code:run', (p) => local(async () => {
+    v.obj(p);
+    v.oneOf(p.kind, ['test', 'check'], 'kind');
+    return { ...(await core.runCheck(p.kind)), done: true };
+  }));
+  handle('code:cancel', () => ({ ok: core.tools.cancel() }));
+  handle('code:diff', () => local(() => core.projectDiff()));
+  handle('code:undo-preview', () => local(() => core.undoPreview()));
+  handle('code:undo', (p) => local(() => {
+    v.obj(p);
+    v.str(p.token, 200, 'token');
+    return core.undoApply(p.token);
+  }));
   handle('session:coding-mode', (p) => {
     core.setCodingMode(v.bool(p, 'coding'));
     return { ok: true };
@@ -834,6 +855,7 @@ app.whenReady().then(async () => {
     onCwd: (dir) => stt.setProject(path.basename(dir)),
     onRateLimit: (info) => usage && usage.onRateLimit(info),
     onTurnEnd: () => usage && setTimeout(() => usage.refresh(), 1500), // the transcript line lands just after the result
+    trash: (p) => shell.trashItem(p), // undo moves files Claude created to the Recycle Bin
   });
   await core.init();
   usage = new UsageService({

@@ -297,6 +297,7 @@
       <div class="stab" id="stab-claude">
         <label>Path ของ claude (เว้นว่าง = หาอัตโนมัติ)<input id="s-claudePath" type="text" placeholder="C:\Users\...\claude.exe"></label>
         <label>Model (--model) เว้นว่าง = ตามค่าของ Claude Code<input id="s-model" type="text" placeholder="เช่น opus, sonnet, haiku"></label>
+        <label>เกี่ยวกับคุณ — JARVIS จำไว้ทุก session (เช่น ภาษาที่ใช้เขียนโค้ด ความละเอียดที่ชอบ เครื่องมือ/บอร์ดที่ใช้)<textarea id="s-userProfile" rows="3" maxlength="2000" placeholder="เช่น เขียน JavaScript/Node เป็นหลัก อธิบายสั้น ๆ ใช้ ESP32 กับ Arduino IDE"></textarea></label>
         <label class="check"><input id="s-persistentProcess" type="checkbox"> เปิด process ค้างไว้ (เร็วกว่า) — ปิด = เปิดใหม่ทุกรอบด้วย --resume</label>
         <div class="field">
           <div>MCP config เพิ่มเติม (--mcp-config)</div>
@@ -390,7 +391,7 @@
         <label class="check"><input id="s-saveVoiceHistory" type="checkbox"> บันทึกประวัติเสียง (ไฟล์เสียงคำสั่ง + ข้อความ) — ปิดไว้ = ไม่เก็บเสียงเลย</label>
         <div class="row"><button id="s-hf-history" class="btn small">เปิดโฟลเดอร์ประวัติเสียง</button></div>
         <div class="row"><span id="hf-status" class="dim mono"></span></div>
-        <p class="dim">คำสั่งในเครื่อง (ไม่ส่งให้ AI): “หยุด” · “พอแล้ว” · “เปิดกล้อง” / “ปิดกล้อง” · “เปิดการ์ด …” / “ปิดการ์ด …” · “ปิดโหมดแฮนด์ฟรี”</p>
+        <p class="dim">คำสั่งในเครื่อง (ไม่ส่งให้ AI): “หยุด” · “พอแล้ว” · “เปิดกล้อง” / “ปิดกล้อง” · “เปิดการ์ด …” / “ปิดการ์ด …” · “ปิดโหมดแฮนด์ฟรี” · งานโค้ด: “รันเทสต์” · “รันเช็ก” · “ดู diff ล่าสุด” · “ยกเลิกการแก้ล่าสุด” (ต้องกดยืนยันบนจอ)</p>
         <p class="dim">ตรวจจับคำเรียกด้วย openWakeWord (โมเดล hey_jarvis + โมเดล “จาร์วิส” ที่ฝึกเพิ่ม) และ Silero VAD ทำงานในเครื่องทั้งหมด</p>
       </div>
       <div class="stab" id="stab-display" hidden>

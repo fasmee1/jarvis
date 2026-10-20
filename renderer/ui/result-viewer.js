@@ -100,6 +100,16 @@ export class ResultViewer {
     }
   }
 
+  /** Show a payload made by the app itself (test output, diff), outside any Claude turn. */
+  display(data) {
+    this.last = data;
+    if (this._deferred()) {
+      this.o.onDeferred(data, () => this._openPayload(data, null));
+      return;
+    }
+    this._openPayload(data, null);
+  }
+
   reopenLast() {
     if (this.last) this._openPayload(this.last, null);
   }
