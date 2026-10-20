@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>JARVIS — ขออนุญาตใช้เครื่องมือ</title>
+  <link rel="stylesheet" href="../ui/fonts.css">
+  <link rel="stylesheet" href="approval.css">
+</head>
+<body>
+  <main id="ap" hidden data-kind="other">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+
+    <header>
+      <div class="badge" aria-hidden="true">
+        <svg class="ic ic-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>
+        <svg class="ic ic-shell" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>
+        <svg class="ic ic-read" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        <svg class="ic ic-web" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>
+        <svg class="ic ic-other" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6l8-3z"/><path d="M12 8v5M12 16v.5"/></svg>
+      </div>
+      <div class="title">
+        <span class="k">ขออนุญาตใช้เครื่องมือ</span>
+        <span id="tool" class="tool"></span>
+      </div>
+      <span id="queue" class="queue" hidden></span>
+    </header>
+
+    <div class="body">
+      <p id="summary" class="summary"></p>
+      <p id="reason" class="reason" hidden></p>
+
+      <section id="file-sec" hidden>
+        <h2 id="file-h">ไฟล์</h2>
+        <div class="box file">
+          <svg class="doc" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>
+          <div class="path mono"><span id="file-dir" class="dir"></span><span id="file-name" class="name"></span></div>
+          <span id="file-new" class="chip new" hidden>ไฟล์ใหม่</span>
+        </div>
+      </section>
+
+      <section id="detail-sec" hidden>
+        <h2 id="detail-h">รายละเอียดคำสั่ง</h2>
+        <pre id="detail" class="mono box"></pre>
+      </section>
+
+      <section id="diff-sec" hidden>
+        <h2><span id="diff-h">สิ่งที่จะเปลี่ยน</span><span class="stats"><span id="stat-add" class="s-add"></span><span id="stat-del" class="s-del"></span></span></h2>
+        <div id="diff" class="mono box diff"></div>
+      </section>
+
+      <p id="rule" class="rule" hidden></p>
+    </div>
+
+    <footer>
+      <div class="timer-row">
+        <span id="timer" class="timer"></span>
+        <div class="bar" aria-hidden="true"><i id="bar-fill"></i></div>
+      </div>
+      <div id="deny-wrap" class="deny-wrap" hidden>
+        <input id="deny-reason" type="text" maxlength="1000" placeholder="บอกเหตุผลที่ปฏิเสธ (Claude จะเห็นข้อความนี้)" spellcheck="false" autocomplete="off">
+        <button id="deny-send" class="btn no" type="button">ส่งเหตุผลและปฏิเสธ</button>
+      </div>
+      <div class="btns">
+        <button id="allow" class="btn ok" type="button">อนุญาต</button>
+        <button id="always" class="btn" type="button" hidden>อนุญาตเสมอ</button>
+        <button id="deny" class="btn no" type="button">ปฏิเสธ</button>
+        <button id="deny-why" class="btn ghost" type="button">ปฏิเสธพร้อมเหตุผล…</button>
+      </div>
+    </footer>
+  </main>
+  <script type="module" src="approval.js"></script>
+</body>
+</html>

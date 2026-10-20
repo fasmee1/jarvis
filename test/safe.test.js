@@ -65,6 +65,27 @@ test('risky shell commands still ask', () => {
   ]) assert.ok(!isSafeCommand(c, ctx), c);
 });
 
+test('read-only git runs in the project, including git -C <dir> inside it, but not in other repos', () => {
+  const sub = path.join(cwd, 'sub');
+  for (const c of [
+    'git status --short',
+    `git -C "${sub}" diff`,
+    'git -C sub log --oneline -5',
+    'cd sub && git status --short | head',
+  ]) assert.ok(isSafeCommand(c, ctx), c);
+  for (const c of [
+    'git -C D:/other/repo status --short',
+    'git -C "D:\\other\\repo" diff',
+    'cd D:/other/repo && git status --short | head',
+    'git -C ../elsewhere log',
+    'git -C D:/other/repo push',
+    'git -C D:/other/repo add .',
+    'git -C D:/other/repo diff --output=x.txt',
+    'git -c core.pager=calc log',
+    'git -C D:/other/repo reset --hard',
+  ]) assert.ok(!isSafeCommand(c, ctx), c);
+});
+
 test('quotes protect separators; unbalanced quotes refuse', () => {
   assert.deepStrictEqual(splitCommand('git commit -m "a && b; c | d"'), ['git commit -m "a && b; c | d"']);
   assert.strictEqual(splitCommand('echo "oops'), null);

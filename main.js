@@ -28,6 +28,7 @@ const { Summarizer } = require('./lib/web/summarize');
 const { PageReader } = require('./lib/web/page-reader');
 const { PdfReader } = require('./lib/web/pdf');
 const { OrbWindow, ORB_PRELOAD } = require('./lib/orb/orb-window');
+const { ApprovalWindow, APPROVAL_PRELOAD } = require('./lib/approval-window');
 
 const APP_ROOT = __dirname;
 const APP_ORIGIN = 'app://jarvis';
@@ -79,6 +80,7 @@ let tray = null;
 let web = null; // Web Viewer browser (WebContentsViews in the main window)
 let reader = null; // Web Viewer page reader (extraction + summaries)
 let orb = null; // Floating Orb (shown while the main window is minimized)
+let approvalWin = null; // permission popup in the middle of the desktop (while the main window is minimized)
 let usage = null; // real Claude Code usage: limits + token counts (lib/usage)
 let mainCrashed = false;
 // hands-free state reported by the renderer (for tray mode + background throttling)
@@ -134,6 +136,10 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.on('closed', () => {
     win = null;
+    if (approvalWin) approvalWin.destroy();
+    // nobody can answer any more: deny what is open so the CLI doesn't wait for the timeout
+    if (core) core._dropPendingApprovals('ปิดหน้าต่างหลักแล้ว');
+    openApprovals.length = 0;
     if (orb) orb.destroy(); // last window gone → the app quits
   });
   // Hands-free: in tray mode a minimized window hides to the tray and keeps
@@ -145,11 +151,14 @@ function createWindow() {
       showTray();
     }
     orb.show({ force: true });
+    // a request that was waiting in the window now needs the desktop popup
+    if (approvalWin && openApprovals.length) approvalWin.update(approvalPayload(openApprovals[0], openApprovals.length - 1), true);
     sendBg();
   });
   for (const ev of ['restore', 'show', 'focus']) {
     win.on(ev, () => {
       if (win.isMinimized() || !win.isVisible()) return;
+      if (approvalWin) approvalWin.hide(); // the window shows its own dialog
       orb.hide();
       sendBg();
     });
@@ -352,7 +361,17 @@ function registerIpc() {
   handle('folder:choose', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'เลือกโฟลเดอร์โปรเจกต์ให้ JARVIS ทำงาน', properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return { ok: false };
-    core.setCwd(r.filePaths[0]);
+    core.chooseFolder(r.filePaths[0]);
+    return { ok: true, cwd: core.cwd };
+  });
+
+  handle('folder:options', () => core.folderOptions());
+  handle('folder:needs', (p) => core.needsFolderPick(v.str(p, 20000, 'text')));
+
+  handle('folder:select', (p) => {
+    const dir = v.str(p, 4096, 'path');
+    if (!core.folderOptions().some((o) => o.path === dir)) throw new Error('ใช้ได้เฉพาะโฟลเดอร์ในรายการ');
+    core.chooseFolder(dir);
     return { ok: true, cwd: core.cwd };
   });
 
@@ -676,7 +695,7 @@ function registerIpc() {
       else if (k === 'transcript') out[k] = v.str(x, 500, k);
       else if (k === 'reply') out[k] = v.str(x, 800, k);
       else if (k === 'attention' || k === 'error') out[k] = v.str(x, 300, k);
-      else if (k === 'errorId') out[k] = v.num(x, k, { min: 0 });
+      else if (k === 'errorId' || k === 'typeId') out[k] = v.num(x, k, { min: 0 });
       else throw new Error('IPC input ไม่ถูกต้อง: ' + k);
     }
     if (mainCrashed) return { ok: true };
@@ -700,6 +719,15 @@ function registerIpc() {
     const action = v.oneOf(p.action, ['toggle-listen', 'open-main', 'open-result', 'open-talk', 'send-text'], 'action');
     orbCommand(action, action === 'send-text' ? { text: v.str(p.text, 2000, 'text') } : {});
     return { ok: true };
+  });
+  // desktop permission popup → main (genuine clicks in that window are the answer)
+  ipcMain.handle('approval-win:respond', async (event, p) => {
+    if (!approvalWin || !approvalWin.alive() || event.sender !== approvalWin.win.webContents) throw new Error('unknown sender');
+    v.obj(p);
+    v.str(p.id, 100, 'id');
+    v.oneOf(p.decision, ['once', 'always', 'deny', 'deny-reason'], 'decision');
+    v.str(p.reason ?? '', 1000, 'reason');
+    return core.respondApproval(p);
   });
   handleOrb('orb:panel', (p) => {
     if (p === null) return orb.setPanel(null);
@@ -755,6 +783,61 @@ function orbCommand(action, extra = {}) {
   if (action === 'hf-toggle' && !hf.on && !settings.get().handsFreeConsent) restoreMain();
   if (action === 'toggle-listen') return send('ptt', { at: Date.now() });
   return send('orb:cmd', { action, ...extra });
+}
+
+/**
+ * Permission requests also open a popup in the middle of the desktop while the main
+ * window is minimized or hidden (lib/approval-window.js), so they can be answered without
+ * opening JARVIS. The popup shows the oldest open request in full; answers come back
+ * through 'approval-win:respond'. With the main window up, its own dialog is used.
+ */
+const openApprovals = [];
+const APPROVAL_DIFF_MAX = 400;
+const APPROVAL_TEXT_MAX = 20000;
+const mainHidden = () => !win || win.isDestroyed() || win.isMinimized() || !win.isVisible();
+
+function approvalPayload(r, queue) {
+  const input = r.input || {};
+  // long strings are cut while serializing, so a multi-MB Write doesn't stall the main process
+  const text = (x) => {
+    if (typeof x === 'string') return x.slice(0, APPROVAL_TEXT_MAX + 1);
+    try {
+      return JSON.stringify(x, (_k, v) => (typeof v === 'string' && v.length > APPROVAL_TEXT_MAX ? v.slice(0, APPROVAL_TEXT_MAX + 1) : v), 2) ?? '';
+    } catch { return '[ไม่สามารถแสดงข้อมูลนี้ได้]'; }
+  };
+  const kind = typeof input.command === 'string' ? 'command' : typeof input.url === 'string' ? 'url' : 'input';
+  const raw = text(input.command ?? input.url ?? input);
+  const diff = r.preview && Array.isArray(r.preview.diff) ? r.preview.diff : [];
+  const hasDiff = diff.length > 0;
+  return {
+    id: r.id,
+    tool: String(r.tool || ''),
+    summary: String(r.summary || ''),
+    reason: r.reason || '',
+    rule: r.rule || '',
+    timeoutSec: r.timeoutSec,
+    createdAt: r.createdAt,
+    queue,
+    file: String((r.preview && r.preview.file) || input.file_path || input.notebook_path || ''),
+    isNew: !!(r.preview && r.preview.isNew),
+    // the raw input is only repeated when the diff doesn't already say it all
+    detail: hasDiff && kind === 'input' ? '' : raw.slice(0, APPROVAL_TEXT_MAX),
+    detailKind: kind,
+    detailCut: raw.length > APPROVAL_TEXT_MAX,
+    diff: diff.slice(0, APPROVAL_DIFF_MAX).map((d) => ({ op: d.op, line: String(d.line ?? '').slice(0, 500) })),
+    diffCut: diff.length > APPROVAL_DIFF_MAX,
+  };
+}
+
+function approvalFeed(channel, p) {
+  if (channel === 'approval:request') openApprovals.push(p);
+  else if (channel === 'approval:close') {
+    const i = openApprovals.findIndex((r) => r.id === p.id);
+    if (i >= 0) openApprovals.splice(i, 1);
+  } else return;
+  if (!approvalWin || approvalWin.quitting) return; // main window is gone: don't re-create the popup
+  const r = openApprovals[0];
+  approvalWin.update(r ? approvalPayload(r, openApprovals.length - 1) : null, mainHidden());
 }
 
 const SCREEN_MAX_W = 1600; // enough to read text on screen, small enough for the model
@@ -851,7 +934,10 @@ app.whenReady().then(async () => {
     tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
     appRoot: APP_ROOT,
     logDir: userData,
-    ui: send,
+    ui: (channel, payload) => {
+      send(channel, payload);
+      approvalFeed(channel, payload);
+    },
     onCwd: (dir) => stt.setProject(path.basename(dir)),
     onRateLimit: (info) => usage && usage.onRateLimit(info),
     onTurnEnd: () => usage && setTimeout(() => usage.refresh(), 1500), // the transcript line lands just after the result
@@ -906,6 +992,11 @@ app.whenReady().then(async () => {
     onVisibility: () => sendBg(),
     log: process.env.JARVIS_SCREENSHOT ? (m) => fs.appendFileSync(process.env.JARVIS_SCREENSHOT.replace(/\.png$/i, '') + '.console.log', m + '\n') : null,
   });
+  approvalWin = new ApprovalWindow({
+    preload: APPROVAL_PRELOAD,
+    url: `${APP_ORIGIN}/renderer/approval/approval.html`,
+    log: process.env.JARVIS_SCREENSHOT ? (m) => fs.appendFileSync(process.env.JARVIS_SCREENSHOT.replace(/\.png$/i, '') + '.console.log', m + '\n') : null,
+  });
   // monitors plugged / unplugged / rescaled: keep the orb on screen
   for (const ev of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(ev, () => orb.reclamp());
 
@@ -918,6 +1009,8 @@ app.whenReady().then(async () => {
   }
 });
 
+// the popup's close button only hides it: let a real quit through
+app.on('before-quit', () => { if (approvalWin) approvalWin.quitting = true; });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   hideTray();

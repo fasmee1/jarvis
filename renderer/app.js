@@ -39,7 +39,6 @@ const S = {
   lat: {},
   turnSpoke: false,
   approvals: [],
-  pendingSend: null, // queued user message while Claude finishes a turn
   muteThisTurn: false,
   ttsWarned: false,
   frameAtListenEnd: null,
@@ -101,7 +100,7 @@ function notice(text, level = 'info', action = null, ms = 9000) {
   const n = el('div', { class: `notice ${level}` }, el('div', { text }));
   if (action) {
     const row = el('div', { class: 'row' });
-    const label = { 'open-interactive': 'เปิด Claude Code แบบ interactive', 'new-from-summary': 'เริ่ม session ใหม่จากสรุป', 'install-thai-voice': 'ติดตั้งเสียงภาษาไทย', 'open-settings-voice': 'เปิด Settings เสียง', 'init-claude-md': 'สร้าง CLAUDE.md (/init)' }[action] || action;
+    const label = { 'open-interactive': 'เปิด Claude Code แบบ interactive', 'new-from-summary': 'เริ่ม session ใหม่จากสรุป', 'install-thai-voice': 'ติดตั้งเสียงภาษาไทย', 'open-settings-voice': 'เปิด Settings เสียง', 'init-claude-md': 'สร้าง CLAUDE.md (/init)', 'choose-folder': 'เลือกโฟลเดอร์โปรเจกต์' }[action] || action;
     row.append(el('button', { class: 'btn small', text: label, onclick: () => { runAction(action); n.remove(); } }));
     n.append(row);
   }
@@ -121,6 +120,7 @@ function runAction(a) {
   if (a === 'install-thai-voice') installThaiVoice();
   if (a === 'open-settings-voice') openSettings('voice');
   if (a === 'init-claude-md') send('/init');
+  if (a === 'choose-folder') $('btn-folder').click();
 }
 
 // ---------------- local coding commands (voice) ----------------
@@ -280,7 +280,7 @@ function refreshState(sub) {
   if (v) home.setState(v.core, '', { label: v.label, tone: v.tone });
   else home.setState(st, sub || STATE_TH[st] || '');
   updateDot();
-  if (hands) hands.assistant({ speaking: S.speaking, busy: S.busy || !!S.pendingSend });
+  if (hands) hands.assistant({ speaking: S.speaking, busy: S.busy });
   if (resultViewer) resultViewer.setAttention(S.speaking || S.listening || (!!hands && ['WAKE_DETECTED', 'COMMAND_LISTENING'].includes(hands.state)));
   orbBridge.set({
     state: orbState(),
@@ -727,11 +727,22 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
   if (!text && !image && !attached.length) return false;
   if (!text && !image) text = 'ดูไฟล์ที่แนบมาให้หน่อย';
   orbBridge.set({ transcript: (text || '(ดูภาพนี้)').slice(0, 500), reply: '', replyDone: false, result: false });
-  if (S.busy) {
-    S.pendingSend = { text, image, imageSource, latency };
-    addSystemMsg('จะส่งข้อความนี้ทันทีที่ Claude ทำงานรอบนี้เสร็จ');
-    refreshState();
-    return true;
+  // ask for the folder first, so cancelling the popup leaves the running answer alone
+  if (text.startsWith('/') && !image && await api.invoke('folder:needs', text).catch(() => false)) {
+    if (!(await pickFolder(text))) {
+      notice('ยกเลิกแล้ว — ยังไม่ได้เลือกโฟลเดอร์', 'info', null, 4000);
+      return false;
+    }
+  }
+  // a new command replaces the old one: stop reading the previous answer and cancel the running turn
+  speaker.stop();
+  if (S.busy && S.toolRunning) {
+    // a tool is running: don't kill it on a stray message, ask first
+    if (await askBarge()) await waitIdle();
+    else if (S.busy) await api.invoke('chat:stop');
+  } else if (S.busy) {
+    // busy is cleared by the old turn's own end event, not forced here, so a late event can't clobber the new turn
+    await api.invoke('chat:stop');
   }
   if (text) S.lastUserText = text;
   const t0 = Date.now();
@@ -743,7 +754,16 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
   addUserMsg(text || '(ดูภาพนี้)', image, imageSource);
   setLook(false);
   sfx.send();
-  const r = await api.invoke('chat:send', { text, images: image ? [image] : [], imageSource, t0 });
+  const payload = { text, images: image ? [image] : [], imageSource, t0 };
+  let r = await api.invoke('chat:send', payload);
+  if (!r.ok && (r.code === 'PICK_FOLDER' || r.code === 'NO_CWD')) {
+    // no folder picked in this conversation yet: ask in a popup, then send the same message
+    if (await pickFolder(text)) r = await api.invoke('chat:send', payload);
+    else {
+      notice('ยกเลิกแล้ว — ยังไม่ได้เลือกโฟลเดอร์', 'info', null, 4000);
+      return false;
+    }
+  }
   if (!r.ok) {
     notice(r.error, r.code === 'NO_CWD' ? 'warn' : 'error');
     if (r.code === 'NO_CWD' && talk.isFront) $('btn-folder').focus();
@@ -752,9 +772,78 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
   return true;
 }
 
+/** Centre popup: folders already added to JARVIS + "choose a new folder". Resolves true once a folder is set. */
+let cancelPick = null; // settles the popup that is open, if any
+function pickFolder(text) {
+  if (cancelPick) cancelPick(); // a second call replaces the first instead of leaving it hanging
+  return new Promise(async (resolve) => {
+    const box = $('folder-pick');
+    const list = $('folder-pick-list');
+    $('folder-pick-why').textContent = `คำสั่ง ${String(text).split(/\s+/)[0]} ต้องรู้ว่าจะทำงานกับโฟลเดอร์ไหน เลือกครั้งเดียว ใช้ต่อได้ตลอดบทสนทนานี้`;
+    list.textContent = '';
+    const opts = await api.invoke('folder:options').catch(() => []);
+    const done = (ok) => {
+      box.hidden = true;
+      if (cancelPick === cancel) cancelPick = null;
+      resolve(ok);
+    };
+    const cancel = () => resolve(false); // popup stays up for the new call
+    cancelPick = cancel;
+    const fail = (err) => notice(err.message, 'error');
+    for (const o of opts) {
+      list.append(el('button', {
+        class: 'btn',
+        onclick: async (ev) => {
+          if (!ev.isTrusted) return; // a real click only
+          const r = await api.invoke('folder:select', o.path).catch(fail);
+          if (r && r.ok) {
+            addSystemMsg(`โฟลเดอร์งาน: ${r.cwd}`);
+            done(true);
+          }
+        },
+      }, el('span', { text: o.path }), el('span', { class: 'tag', text: [o.current ? 'ปัจจุบัน' : '', o.git ? 'git' : 'ไม่ใช่ git'].filter(Boolean).join(' · ') })));
+    }
+    $('folder-pick-new').onclick = async (ev) => {
+      if (!ev.isTrusted) return;
+      const r = await api.invoke('folder:choose').catch(fail);
+      if (r && r.ok) {
+        addSystemMsg(`โฟลเดอร์งาน: ${r.cwd}`);
+        done(true);
+      }
+    };
+    $('folder-pick-cancel').onclick = (ev) => { if (ev.isTrusted) done(false); };
+    box.hidden = false;
+    (list.firstElementChild || $('folder-pick-new')).focus();
+    say('เลือกโฟลเดอร์ที่จะให้ทำงานบนจอครับ');
+  });
+}
+
+// true = let the running tool finish and send afterwards, false = stop everything
+function askBarge() {
+  return new Promise((resolve) => {
+    const box = $('barge');
+    box.hidden = false;
+    $('barge-keep').focus();
+    const done = (keep) => (ev) => {
+      if (!ev.isTrusted) return; // a real click only
+      box.hidden = true;
+      resolve(keep);
+    };
+    $('barge-stop').onclick = done(false);
+    $('barge-keep').onclick = done(true);
+  });
+}
+
+function waitIdle(maxMs = 600000) {
+  return new Promise((resolve) => {
+    const t0 = Date.now();
+    const tick = () => (!S.busy || Date.now() - t0 > maxMs ? resolve() : setTimeout(tick, 300));
+    tick();
+  });
+}
+
 async function stopAll() {
   speaker.stop();
-  S.pendingSend = null;
   await api.invoke('chat:stop');
 }
 
@@ -775,6 +864,7 @@ const mic = new Mic({
     refreshState();
     const th = { MIC_DENIED: 'ไม่ได้รับสิทธิ์ใช้ไมโครโฟน — อนุญาตใน Windows Settings › Privacy › Microphone', MIC_NOT_FOUND: 'ไม่พบไมโครโฟน' }[code] || `ไมโครโฟนผิดพลาด: ${msg}`;
     notice(th, 'error');
+    if (code === 'MIC_DENIED' || code === 'MIC_NOT_FOUND') typeInstead();
   },
 });
 let webRec = null;
@@ -782,22 +872,33 @@ let webRec = null;
 function micOffNotice() {
   notice('ไมค์ปิดอยู่ — เปิดได้จากเมนูคลิกขวาที่ไอคอน JARVIS', 'warn', null, 4000);
   orbBridge.set({ error: 'ไมค์ปิดอยู่ — คลิกขวาที่ไอคอนเพื่อเปิด', errorId: Date.now() });
+  typeInstead();
+}
+
+/** The mic can't be used: open the Floating Orb's text box so the user can type instead. */
+function typeInstead() {
+  orbBridge.set({ typeId: Date.now() });
+}
+
+async function hasMicDevice() {
+  try {
+    return (await navigator.mediaDevices.enumerateDevices()).some((d) => d.kind === 'audioinput');
+  } catch {
+    return true; // can't tell: let getUserMedia decide
+  }
 }
 
 async function startListening() {
   if (S.micOff) return micOffNotice();
   if (hands && hands.active) return hands.manual();
-  // Barge-in: stop speech and the current answer first.
-  if (S.speaking || S.busy) {
-    speaker.stop();
-    if (S.busy && S.toolRunning) {
-      const stopTools = await askBarge();
-      if (stopTools) await api.invoke('chat:stop');
-      else S.muteThisTurn = speaker.muted = true; // let it finish silently; next message is queued
-    } else if (S.busy) {
-      await api.invoke('chat:stop');
-    }
+  if (!(await hasMicDevice())) {
+    notice('ไม่พบไมโครโฟน — พิมพ์ข้อความแทนได้เลย', 'warn', null, 4000);
+    typeInstead();
+    return;
   }
+  // Barge-in: stop reading the answer so the mic doesn't hear it. The running turn is cancelled
+  // only when the new command is actually sent (see send()).
+  if (S.speaking) speaker.stop();
   if (S.settings.sttProvider === 'webspeech') {
     S.listening = true;
     refreshState();
@@ -820,20 +921,6 @@ async function startListening() {
 function stopListening() {
   if (webRec) { try { webRec.stop(); } catch { /* ignore */ } webRec = null; }
   mic.stop('manual');
-}
-
-function askBarge() {
-  return new Promise((resolve) => {
-    const box = $('barge');
-    box.hidden = false;
-    const done = (v) => (ev) => {
-      if (!ev.isTrusted) return;
-      box.hidden = true;
-      resolve(v);
-    };
-    $('barge-stop').onclick = done(true);
-    $('barge-keep').onclick = done(false);
-  });
 }
 
 async function onMicEnd({ pcm, hadSpeech, tListenEnd }) {
@@ -1136,7 +1223,6 @@ hands = new HandsFree({
   context: () => resultViewer.context(),
   stopSpeaking: (ms) => speaker.stop(ms),
   abortTurn: () => {
-    S.pendingSend = null;
     // running tools are never killed by voice: they finish silently instead
     if (S.toolRunning) S.muteThisTurn = speaker.muted = true;
     else if (S.busy) api.invoke('chat:stop');
@@ -1834,11 +1920,6 @@ function wireEvents() {
     curMsg = null;
     curText = null;
     sfx.done();
-    if (S.pendingSend) {
-      const p = S.pendingSend;
-      S.pendingSend = null;
-      setTimeout(() => send(p.text, { latency: p.latency, image: p.image, imageSource: p.imageSource }), 50);
-    }
   });
   api.on('tts:segment', ({ text }) => {
     if (S.muteThisTurn || S.voiceMuted) return;

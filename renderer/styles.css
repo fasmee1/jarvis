@@ -394,6 +394,10 @@ hr { border: none; border-top: 1px solid var(--line); width: 100%; }
 .diff .add { background: rgba(91, 225, 240, 0.08); color: #BDF3F9; }
 .diff .del { background: rgba(255, 92, 108, 0.1); color: #FFB3BB; }
 .diff .hdr { color: var(--text-2); }
+#folder-pick .modal-card { width: min(560px, 92vw); }
+.folder-pick-list { display: flex; flex-direction: column; gap: 6px; }
+.folder-pick-list .btn { text-align: left; display: flex; justify-content: space-between; gap: 12px; }
+.folder-pick-list .tag { opacity: 0.7; font-size: 12px; white-space: nowrap; }
 .approval-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .ap-deny-reason { display: flex; gap: 8px; }
 .ap-deny-reason input { flex: 1; }

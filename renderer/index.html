@@ -465,13 +465,27 @@
     </div>
   </div>
 
+
+  <!-- Folder picker: shown once per conversation before a command that needs a project folder -->
+  <div id="folder-pick" class="modal" hidden>
+    <div class="modal-card cut" role="dialog" aria-modal="true" aria-label="เลือกโฟลเดอร์ทำงาน">
+      <div class="approval-title">เลือกโฟลเดอร์ที่จะให้ JARVIS ทำงาน</div>
+      <p id="folder-pick-why"></p>
+      <div id="folder-pick-list" class="folder-pick-list"></div>
+      <div class="approval-actions">
+        <button id="folder-pick-new" class="btn">เลือกโฟลเดอร์ใหม่…</button>
+        <button id="folder-pick-cancel" class="btn ghost">ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+
   <div id="barge" class="modal" hidden>
     <div class="modal-card cut">
       <div class="approval-title">Claude กำลังรันคำสั่งอยู่</div>
       <p>จะหยุดคำสั่งที่กำลังรันด้วยหรือไม่?</p>
       <div class="approval-actions">
         <button id="barge-stop" class="btn danger">หยุดทั้งหมด</button>
-        <button id="barge-keep" class="btn">ให้ทำต่อ (แค่หยุดพูด)</button>
+        <button id="barge-keep" class="btn">ให้ทำต่อ (ส่งข้อความหลังเสร็จ)</button>
       </div>
     </div>
   </div>

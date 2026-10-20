@@ -17,7 +17,7 @@ const CLICK_MS = 240; // single click waits this long for a double click
 const DRAG_PX = 5;
 const TIP_TEXT = 'คลิกเพื่อพูด · ดับเบิลคลิกเพื่อเปิด JARVIS';
 
-const st = { state: 'idle', hf: false, micOff: false, voiceMuted: false, transcript: '', reply: '', replyDone: false, result: false, error: '', errorId: 0, attention: '' };
+const st = { state: 'idle', hf: false, micOff: false, voiceMuted: false, transcript: '', reply: '', replyDone: false, result: false, error: '', errorId: 0, typeId: 0, attention: '' };
 let autoFade = false;
 let shown = false;
 
@@ -27,6 +27,7 @@ let mode = null; // the bubble currently on screen: null | 'tip' | 'error' | 're
 let dragging = false;
 let hover = null; // 'orb' | 'card' | null
 let lastErrorId = 0;
+let lastTypeId = 0;
 const timers = {};
 const later = (name, ms, fn) => { clearTimeout(timers[name]); timers[name] = setTimeout(fn, ms); };
 const cancel = (name) => { clearTimeout(timers[name]); timers[name] = null; };
@@ -193,7 +194,17 @@ orb.on('orb:state', (p) => {
     }
   }
   applyState();
+  // the mic can't be used (none plugged in / denied / off): open the text box so the user can type right away
+  checkTypeSignal();
 });
+
+// typeId is a timestamp: it is only consumed while the orb is on screen, and a stale one
+// (replayed state after a reload) is ignored instead of re-opening the box
+function checkTypeSignal() {
+  if (!st.typeId || st.typeId === lastTypeId || !shown) return;
+  lastTypeId = st.typeId;
+  if (Date.now() - st.typeId < 5000 && !want.input) openInput();
+}
 
 orb.on('orb:level', (v) => {
   if (st.state === 'listening' || st.state === 'speaking') O.style.setProperty('--lv', String(Math.max(0, Math.min(1, Number(v) || 0)).toFixed(3)));
@@ -216,6 +227,7 @@ orb.on('orb:visible', ({ on }) => {
   }
   refreshFade();
   syncPanel();
+  if (on) checkTypeSignal(); // a "type instead" signal that arrived while the orb was hidden
 });
 
 // ---------- idle fade (animations pause while faded) ----------
