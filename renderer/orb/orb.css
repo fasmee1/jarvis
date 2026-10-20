@@ -11,7 +11,7 @@
   --amber: #FF9A3D;
   --warning: #FFB547;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --s: 64px; /* orb diameter (S 48 · M 64 · L 80) */
+  --s: 88px; /* orb diameter (S 64 · M 88 · L 120) */
   --lv: 0; /* live level 0..1 (mic or voice) */
   --font-ui: 'IBM Plex Sans Thai', 'Segoe UI', system-ui, sans-serif;
 }
@@ -22,25 +22,79 @@ body.grabbing, body.grabbing * { cursor: grabbing !important; }
 [hidden] { display: none !important; }
 
 /* ---------- orb ---------- */
-.orb { position: absolute; left: 16px; top: 16px; width: var(--s); height: var(--s); border-radius: 50%; cursor: pointer; opacity: 0.7; transition: opacity 240ms var(--ease); outline: none; }
+.orb { --c: var(--accent); --c-rgb: 91, 225, 240; position: absolute; left: 28px; top: 28px; width: var(--s); height: var(--s); border-radius: 50%; cursor: pointer; opacity: 0.88; transition: opacity 240ms var(--ease); outline: none; }
 .orb:hover, .orb.active { opacity: 1; }
-.orb.faded { opacity: 0.4; }
+.orb.faded { opacity: 0.45; }
+.orb.listening, .orb.error { --c: var(--amber); --c-rgb: 255, 154, 61; }
+.orb.muted { --c: var(--text-3); --c-rgb: 122, 133, 144; }
 .orb.faded * { animation-play-state: paused !important; }
 .o-in { position: absolute; inset: 0; border-radius: 50%; opacity: 0; transform: scale(0.6); transition: opacity 220ms var(--ease), transform 220ms var(--ease); }
 body.shown .o-in { opacity: 1; transform: scale(1); }
 .orb.dragging .o-in { transform: scale(1.08); }
 
-.glass { position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03)), rgba(7, 11, 16, 0.85); border: 1px solid var(--border); transition: border-color 180ms var(--ease), box-shadow 180ms var(--ease); }
-.orb:hover .glass { border-color: var(--border-hover); }
+.glass {
+  position: absolute; inset: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(var(--c-rgb), 0.16) 0%, rgba(var(--c-rgb), 0.05) 34%, transparent 62%),
+    radial-gradient(circle at 50% 120%, rgba(var(--c-rgb), 0.10), transparent 60%),
+    radial-gradient(circle at 50% 50%, #0B1219 0%, #060A0F 72%, #04070A 100%);
+  border: 1px solid rgba(var(--c-rgb), 0.28);
+  box-shadow: inset 0 0 0 3px rgba(4, 7, 10, 0.9), inset 0 0 0 4px rgba(255, 255, 255, 0.05), inset 0 0 calc(var(--s) * 0.22) rgba(var(--c-rgb), 0.14), 0 4px 14px rgba(0, 0, 0, 0.55);
+  transition: border-color 240ms var(--ease), box-shadow 240ms var(--ease);
+}
+/* soft glow around the orb (lives in the window's margin) */
+.halo { position: absolute; inset: -22%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, rgba(var(--c-rgb), 0.22) 0%, rgba(var(--c-rgb), 0.08) 45%, transparent 70%); opacity: 0.55; transition: opacity 300ms var(--ease); }
+.orb:hover .halo, .orb.active .halo { opacity: 0.9; }
+.orb.thinking .halo { animation: halo 1.6s ease-in-out infinite; }
+@keyframes halo { 0%, 100% { opacity: 0.55; transform: scale(0.96); } 50% { opacity: 1; transform: scale(1.04); } }
+/* reactor core behind the logo: swells with the live level */
+.core { position: absolute; left: 50%; top: 50%; width: 46%; height: 46%; margin: -23% 0 0 -23%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(var(--c-rgb), 0.55) 0%, rgba(var(--c-rgb), 0.18) 40%, transparent 70%);
+  transform: scale(calc(0.9 + var(--lv) * 0.35)); opacity: calc(0.55 + var(--lv) * 0.45); }
+.orb.idle .core { animation: core 4s ease-in-out infinite; }
+@keyframes core { 0%, 100% { opacity: 0.45; transform: scale(0.9); } 50% { opacity: 0.75; transform: scale(1); } }
+/* glass reflection, top-left */
+.shine { position: absolute; inset: 4%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(ellipse 55% 35% at 32% 18%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03) 60%, transparent 72%); }
+/* bezel scale */
+.ticks { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ticks path { fill: none; stroke: rgba(var(--c-rgb), 0.55); stroke-width: 0.7; }
+.orb.idle .ticks, .orb.speaking .ticks { animation: spin-back 60s linear infinite; }
+.orb.thinking .ticks { animation: spin-back 12s linear infinite; }
+@keyframes spin-back { to { transform: rotate(-360deg); } }
+/* static rails, notches and hex marks */
+.hud { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; }
+.hud .rail { stroke: rgba(var(--c-rgb), 0.22); stroke-width: 0.6; }
+.hud .rail.faint { stroke: rgba(var(--c-rgb), 0.12); stroke-dasharray: 0.8 2.2; }
+.hud .notch { stroke: var(--c); stroke-width: 1.2; stroke-linecap: square; opacity: 0.85; }
+.hud .hex { fill: rgba(var(--c-rgb), 0.7); }
+/* three segments on an inner ring, turning the opposite way to the arc */
+.segs { position: absolute; inset: 0; width: 100%; height: 100%; }
+.segs circle { fill: none; stroke: var(--c); stroke-width: 1.6; stroke-dasharray: 26 14; opacity: 0.38; transition: opacity 240ms var(--ease); }
+.orb.idle .segs { animation: spin-back 18s linear infinite; }
+.orb.listening .segs { animation: spin-back 6s linear infinite; }
+.orb.thinking .segs { animation: spin-back 2.2s linear infinite; }
+.orb.thinking .segs circle { opacity: 0.7; }
+.orb.speaking .segs { animation: spin-back 8s linear infinite; }
+.orb.speaking .segs circle { opacity: calc(0.35 + var(--lv) * 0.6); }
+/* second, thinner arc */
+.arc2 { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(90deg); }
+.arc2 circle { fill: none; stroke: var(--c); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-dasharray: 6 44; opacity: 0.45; }
+.orb.idle .arc2 { animation: spin2 14s linear infinite; }
+.orb.listening .arc2, .orb.speaking .arc2 { animation: spin2 4s linear infinite; }
+.orb.thinking .arc2 { animation: spin2 1.8s linear infinite; }
+.orb.muted .arc2, .orb.muted .segs { display: none; }
+@keyframes spin2 { from { transform: rotate(90deg); } to { transform: rotate(450deg); } }
+.orb:hover .glass { border-color: rgba(var(--c-rgb), 0.5); }
 .orb.dragging .glass { box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); }
 
-.logo { position: absolute; left: 50%; top: 50%; width: calc(var(--s) * 0.375); height: calc(var(--s) * 0.375); margin: calc(var(--s) * -0.1875) 0 0 calc(var(--s) * -0.1875); fill: var(--accent); transition: fill 240ms var(--ease); }
+.logo { position: absolute; left: 50%; top: 50%; width: calc(var(--s) * 0.36); height: calc(var(--s) * 0.36); margin: calc(var(--s) * -0.18) 0 0 calc(var(--s) * -0.18); fill: var(--accent); filter: drop-shadow(0 0 calc(var(--s) * 0.05) rgba(var(--c-rgb), 0.75)); transition: fill 240ms var(--ease); }
 .orb.idle .logo { animation: breathe 4s ease-in-out infinite; }
 @keyframes breathe { 0%, 100% { transform: scale(0.96); opacity: 0.82; } 50% { transform: scale(1); opacity: 1; } }
 
 /* live arc (2px, on the edge) */
 .arc { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.arc circle { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0.4; transition: stroke 240ms var(--ease), opacity 240ms var(--ease), stroke-dasharray 300ms var(--ease); }
+.arc circle { fill: none; stroke: var(--accent); stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0.4; transition: stroke 240ms var(--ease), opacity 240ms var(--ease), stroke-dasharray 300ms var(--ease); }
 .orb.idle .arc { animation: spin 9s linear infinite; }
 .orb.listening .arc { animation: spin 3.2s linear infinite; }
 .orb.listening .arc circle { stroke: var(--amber); stroke-dasharray: 8 92; opacity: 0.9; }
@@ -60,7 +114,7 @@ body.shown .o-in { opacity: 1; transform: scale(1); }
 
 /* muted / mic off */
 .orb.muted .logo { fill: var(--text-3); }
-.badge { position: absolute; right: -2px; bottom: -2px; width: 20px; height: 20px; padding: 3px; border-radius: 50%; background: #10151C; border: 1px solid var(--border); fill: none; stroke: var(--text-2); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: none; }
+.badge { position: absolute; right: 0; bottom: 0; width: calc(var(--s) * 0.28); height: calc(var(--s) * 0.28); padding: 3px; border-radius: 50%; background: #10151C; border: 1px solid var(--border); fill: none; stroke: var(--text-2); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: none; }
 .orb.muted .badge { display: block; }
 
 /* error: a brief amber pulse */
@@ -108,8 +162,8 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
 /* reduced motion: no orbiting arc, just static state colours */
 @media (prefers-reduced-motion: reduce) {
   .o-in, .card, .glass, .ring { transition: none !important; }
-  .arc, .orb .logo, .orb.pulsing .pulse { animation: none !important; }
-  .arc { display: none; }
+  .arc, .arc2, .ticks, .segs, .core, .halo, .orb .logo, .orb.pulsing .pulse { animation: none !important; }
+  .arc, .arc2 { display: none; }
   .ring { transform: none; }
   .orb.listening .glass { border-color: var(--amber); }
   .orb.thinking .glass, .orb.speaking .glass { border-color: rgba(91, 225, 240, 0.6); }

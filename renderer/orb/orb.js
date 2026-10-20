@@ -33,6 +33,21 @@ const cancel = (name) => { clearTimeout(timers[name]); timers[name] = null; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
+// bezel scale: 72 ticks, every 6th one long
+{
+  const NS = 'http://www.w3.org/2000/svg';
+  const g = document.createElementNS(NS, 'path');
+  let d = '';
+  for (let i = 0; i < 72; i++) {
+    const a = (i / 72) * Math.PI * 2;
+    const r0 = i % 6 === 0 ? 43.2 : 44.6;
+    const c = Math.cos(a), s = Math.sin(a);
+    d += `M${(50 + r0 * c).toFixed(2)} ${(50 + r0 * s).toFixed(2)}L${(50 + 46.6 * c).toFixed(2)} ${(50 + 46.6 * s).toFixed(2)}`;
+  }
+  g.setAttribute('d', d);
+  $('ticks').append(g);
+}
+
 // ---------- layout from main ----------
 
 function applyLayout(l) {

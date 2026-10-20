@@ -14,9 +14,9 @@ const S = 64;
 
 test('default: bottom-right of the work area, 24 px from both edges', () => {
   assert.deepStrictEqual(G.defaultPos(WA, S), { x: 1920 - 24 - 64, y: 1040 - 24 - 64 });
-  // the window is the circle plus its glow margin (96×96 for M)
-  assert.deepStrictEqual(G.orbBounds({ x: 100, y: 200 }, S), { x: 84, y: 184, width: 96, height: 96 });
-  assert.deepStrictEqual([G.orbSize('S'), G.orbSize('M'), G.orbSize('L'), G.orbSize('?')], [48, 64, 80, 64]);
+  // the window is the circle plus its glow margin (28 px each side)
+  assert.deepStrictEqual(G.orbBounds({ x: 100, y: 200 }, S), { x: 72, y: 172, width: 120, height: 120 });
+  assert.deepStrictEqual([G.orbSize('S'), G.orbSize('M'), G.orbSize('L'), G.orbSize('?')], [64, 88, 120, 88]);
 });
 
 test('clamp: never off-screen (or under the taskbar)', () => {
