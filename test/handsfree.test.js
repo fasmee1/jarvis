@@ -393,3 +393,23 @@ test('"ดูนี่" (and how STT writes it) asks JARVIS to look at the scree
     assert.ok(!cmd.wantsScreenLook(t), t);
   }
 });
+
+test('screen watching voice commands and window targets', async () => {
+  const { cmd } = await load();
+  const watch = (t) => cmd.parseCommand(t);
+  assert.deepStrictEqual(watch('ดูหน้าจอต่อเนื่อง'), { action: 'screen-watch', op: 'start' });
+  assert.deepStrictEqual(watch('จาร์วิส เฝ้าดูหน้าจอ'), { action: 'screen-watch', op: 'start' });
+  assert.deepStrictEqual(watch('หยุดดูหน้าจอ'), { action: 'screen-watch', op: 'stop' });
+  assert.deepStrictEqual(watch('เฝ้าดูหน้าต่าง เทอร์มินัล'), { action: 'screen-watch', op: 'start', windowHint: 'terminal' });
+  assert.deepStrictEqual(watch('ดูหน้าต่าง chrome ต่อเนื่อง'), { action: 'screen-watch', op: 'start', windowHint: 'browser' });
+  // a bare "ดูหน้าจอ" / "ดูนี่" is the one-shot look, not a watch
+  assert.strictEqual(watch('ดูหน้าจอ'), null);
+  assert.strictEqual(watch('ดูนี่'), null);
+  assert.strictEqual(watch('ปิดหน้าจอ'), null);
+  // a request that names a window
+  assert.strictEqual(cmd.screenTarget('ช่วยดู error ในหน้าต่าง terminal นี้'), 'terminal');
+  assert.strictEqual(cmd.screenTarget('ดู error ในหน้าต่าง เทอร์มินัล หน่อย'), 'terminal');
+  assert.strictEqual(cmd.screenTarget('ช่วยดูหน้าต่าง Visual Studio Code หน่อย'), 'editor');
+  assert.strictEqual(cmd.screenTarget('เปิดหน้าต่างใหม่'), null);
+  assert.strictEqual(cmd.screenTarget('ดูหน้าต่างนี้'), null);
+});

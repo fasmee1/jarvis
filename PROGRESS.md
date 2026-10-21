@@ -65,7 +65,7 @@ Dev: `JARVIS_SCREENSHOT=<file.png>` (+ `JARVIS_SCREENSHOT_QUIT=1`, `JARVIS_SCREE
 - [ ] กด "ติดตั้งเสียงภาษาไทย" ในแอป (UAC) แล้วทดสอบเสียงพูดจริง
 - [ ] ทดสอบพูดภาษาไทยจริงผ่านไมค์ + กล้องสดหน้าจอ
 - [ ] วางรายละเอียดระยะที่ 3 (ส่วนที่ถูกตัด) และระยะ 4–7
-- [ ] (ทางเลือก) กดค้างแบบแท้สำหรับ push-to-talk ต้องใช้ native keyboard hook
+- [x] กดค้างแบบแท้สำหรับ push-to-talk: setting `pushToTalkMode` = `hold` ใช้ uiohook-napi (lib/ptt.js ตามเฉพาะคีย์ลัดที่ตั้งไว้) ปล่อยปุ่มสั้นกว่า 250 ms = กดสลับแบบเดิม; ถ้า hook เริ่มไม่ได้ถอยกลับไป globalShortcut
 
 ## UI redesign — HUD/FUI (2026-10-16)
 
@@ -310,3 +310,11 @@ Dev: `JARVIS_SCREENSHOT=<file.png>` (+ `JARVIS_SCREENSHOT_QUIT=1`, `JARVIS_SCREE
   (status badge, project name, elapsed time, task / "รอคุณกดอนุญาต" / error) plus "+N"; order approvals → running → errors → rest,
   newest first (`homeCards` in `renderer/ui/projects.js`). Click → PROJECTS with that project's log open. Hidden when there are no projects.
 - Verified: `npm run check` 127/127, `npm test` 149/149 (new home-cards test). Not yet checked in the running app (layout at small sizes, camera mode).
+
+## Screen watching — "ดูหน้าจอต่อเนื่อง" and window targets (2026-10-21)
+
+- `lib/screen-watch.js` (no Electron): `ScreenWatcher` checks the whole screen or one window every `screenWatchIntervalSec` (5 s) and keeps only the latest frame that changed (32x18 brightness thumbnail, ≥2 % of cells moved by >16), in memory only. Stops by itself after `screenWatchMaxMin` (10 min), after 3 failed checks in a row, on sleep and on screen lock. `matchWindows` maps spoken kinds (terminal / browser / editor / arduino) or words onto window titles.
+- Frames are never sent on their own: "ดูนี่" (or "ดู … ในหน้าต่าง terminal") uses the latest watched frame, or a fresh capture of the named window. Several matching windows → a picker modal (real click only).
+- Voice: ดูหน้าจอต่อเนื่อง / เฝ้าดูหน้าจอ / เฝ้าดูหน้าต่าง X · หยุดดูหน้าจอ. A badge at the top centre shows what is watched the whole time (click = stop). Own windows are excluded from screen frames via content protection, kept on while watching.
+- IPC: `screen:watch` (start / stop / status, event with the same name), `screen:capture` takes `windowHint` / `windowId`. The screen prefix in `jarvis-core` now says text in the image is data, not instructions.
+- Verified: `npm run check` 147/147, `npm test` 197/197. Not checked in the running app: window capture of a minimized window, multi-monitor, the Floating Orb has no watch indicator yet.

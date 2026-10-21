@@ -1,0 +1,14 @@
+/* Screen watching badge: shown the whole time JARVIS is watching the screen or one window. Click = stop. */
+.watch-badge {
+  position: fixed; top: 78px; left: 50%; z-index: 101; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; height: 28px; max-width: min(420px, 36vw); padding: 0 12px;
+  border: 1px solid var(--orange-soft); border-radius: 999px; background: rgba(11, 15, 20, 0.82);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  font: inherit; font-size: 12px; color: var(--text-1); cursor: pointer;
+}
+.watch-badge[hidden] { display: none; }
+body.booting .watch-badge { display: none; }
+#watch-badge-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--orange); animation: ts-pulse 1.6s ease-in-out infinite; }
+.wb-stop { flex: none; color: var(--text-3); font-size: 11px; }
+.watch-badge:hover .wb-stop, .watch-badge:focus-visible .wb-stop { color: var(--orange); }

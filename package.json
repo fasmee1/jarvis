@@ -31,6 +31,7 @@
     "@mozilla/readability": "0.6.0",
     "maplibre-gl": "6.15.0",
     "onnxruntime-web": "1.29.0",
-    "pdfjs-dist": "6.4.299"
+    "pdfjs-dist": "6.4.299",
+    "uiohook-napi": "^1.5.5"
   }
 }

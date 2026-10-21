@@ -8,6 +8,8 @@ const { SettingsStore, defaults: settingDefaults } = require('./lib/settings');
 const { JarvisCore } = require('./lib/jarvis-core');
 const { MemoryStore } = require('./lib/memory');
 const { ReminderStore } = require('./lib/reminders');
+const { PttTracker } = require('./lib/ptt');
+const { ScreenWatcher, matchWindows, grayThumb, THUMB_W, THUMB_H } = require('./lib/screen-watch');
 const { SerialMonitor, listPorts } = require('./lib/serial/monitor');
 const { ProjectManager } = require('./lib/projects');
 const { listSessions, readSession } = require('./lib/history');
@@ -82,6 +84,13 @@ let settings = null;
 let memory = null; // long-term voice memory shared by every project's core (lib/memory.js)
 let reminders = null; // reminders shared by every project's core (lib/reminders.js)
 let remindersStarted = false;
+const screenWatch = new ScreenWatcher({
+  grab: (t) => grabTarget(t),
+  onState: (st) => {
+    if (!st.on) protectOwnWindows(false);
+    send('screen:watch', st);
+  },
+});
 const serial = new SerialMonitor({ onState: (s) => send('serial:state', s) }); // one open COM port at a time
 let tts = null;
 let stt = null;
@@ -318,7 +327,7 @@ function registerIpc() {
     if (r.ok) {
       const keys = Object.keys(p);
       projects.onSettingsChanged(keys);
-      if (keys.includes('pushToTalkKey') || keys.includes('orbShortcut')) registerHotkey();
+      if (['pushToTalkKey', 'pushToTalkMode', 'orbShortcut'].some((k) => keys.includes(k))) registerHotkey();
       if (keys.some((k) => k.startsWith('orb'))) { orb.configure(); sendBg(); }
       if (['sttProvider', 'whisperModel', 'azureRegion', 'sttVocabulary', 'sttCorrections'].some((k) => keys.includes(k))) stt.configure(settings.get());
       send('settings', settings.get());
@@ -420,11 +429,51 @@ function registerIpc() {
     }
   });
 
-  // "ดูนี่" with the camera off: a picture of the screen the user is looking at
-  handle('screen:capture', async () => {
+  // "ดูนี่" with the camera off: a picture of the screen (or of one window) the user is looking at.
+  // While watching, the latest changed frame is used instead of a new capture.
+  handle('screen:capture', async (p) => {
     try {
-      return { ok: true, dataUrl: await captureScreen() };
+      const q = p === undefined ? {} : v.obj(p);
+      const hint = v.str(q.windowHint === undefined ? '' : q.windowHint, 80, 'windowHint');
+      const id = v.str(q.windowId === undefined ? '' : q.windowId, 300, 'windowId');
+      if (!hint && !id) {
+        const f = screenWatch.latest();
+        if (f) return { ok: true, dataUrl: f.dataUrl, watched: true, target: screenWatch.state.target.name };
+        return { ok: true, dataUrl: await captureScreen() };
+      }
+      const r = await resolveWindow(hint, id);
+      if (!r.target) return r;
+      return { ok: true, dataUrl: (await grabTarget(r.target)).dataUrl, target: r.target.name };
     } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  handle('screen:watch', async (p) => {
+    const q = v.obj(p);
+    v.oneOf(q.op, ['start', 'stop', 'status'], 'op');
+    if (q.op === 'status') return { ok: true, ...screenWatch.state };
+    if (q.op === 'stop') {
+      screenWatch.stop('manual');
+      return { ok: true, ...screenWatch.state };
+    }
+    try {
+      const hint = v.str(q.windowHint === undefined ? '' : q.windowHint, 80, 'windowHint');
+      const id = v.str(q.windowId === undefined ? '' : q.windowId, 300, 'windowId');
+      let target = { kind: 'screen', displayId: screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id, name: 'ทั้งหน้าจอ' };
+      if (hint || id) {
+        const r = await resolveWindow(hint, id);
+        if (!r.target) return r;
+        target = r.target;
+      } else {
+        protectOwnWindows(true);
+        await new Promise((done) => setTimeout(done, 120)); // let the compositor drop JARVIS's windows
+      }
+      const st = settings.get();
+      await screenWatch.start(target, { intervalMs: st.screenWatchIntervalSec * 1000, maxMs: st.screenWatchMaxMin * 60000 });
+      return { ok: true, ...screenWatch.state };
+    } catch (err) {
+      protectOwnWindows(false);
       return { ok: false, error: err.message };
     }
   });
@@ -934,25 +983,73 @@ function approvalFeed(channel, p) {
 
 const SCREEN_MAX_W = 1600; // enough to read text on screen, small enough for the model
 
+function ownWindows() {
+  return [win, orb && orb.alive() ? orb.win : null].filter((w) => w && !w.isDestroyed() && w.isVisible());
+}
+
+/** WDA_EXCLUDEFROMCAPTURE (Windows 10 2004+): JARVIS's own windows disappear from screen captures. */
+function protectOwnWindows(on) {
+  for (const w of ownWindows()) w.setContentProtection(on);
+}
+
+function packImage(img) {
+  const size = img.getSize();
+  const big = size.width > SCREEN_MAX_W ? img.resize({ width: SCREEN_MAX_W }) : img;
+  const small = img.resize({ width: THUMB_W, height: THUMB_H, quality: 'good' });
+  return {
+    dataUrl: 'data:image/jpeg;base64,' + big.toJPEG(80).toString('base64'),
+    thumb: grayThumb(small.toBitmap()),
+  };
+}
+
+/** One picture of a target: { kind: 'screen', displayId } or { kind: 'window', id }. */
+async function grabTarget(t) {
+  if (t.kind === 'window') {
+    const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: SCREEN_MAX_W, height: SCREEN_MAX_W } });
+    const src = sources.find((s) => s.id === t.id);
+    if (!src || src.thumbnail.isEmpty()) throw new Error('จับภาพหน้าต่างไม่ได้ (อาจถูกย่อหรือปิดไปแล้ว)');
+    return packImage(src.thumbnail);
+  }
+  const d = screen.getAllDisplays().find((x) => x.id === t.displayId) || screen.getPrimaryDisplay();
+  if (screenWatch.on) protectOwnWindows(true); // a window opened since the last check (the orb)
+  const width = Math.min(SCREEN_MAX_W, Math.round(d.size.width * d.scaleFactor));
+  const height = Math.round((width * d.size.height) / d.size.width);
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width, height } });
+  const src = sources.find((s) => String(s.display_id) === String(d.id)) || sources[0];
+  if (!src || src.thumbnail.isEmpty()) throw new Error('จับภาพหน้าจอไม่ได้');
+  return packImage(src.thumbnail);
+}
+
+/** Open windows the user could mean (JARVIS's own windows left out). */
+async function listWindows() {
+  const own = new Set([win, orb && orb.alive() ? orb.win : null].filter((w) => w && !w.isDestroyed()).map((w) => w.getMediaSourceId()));
+  const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 } });
+  return sources.filter((s) => s.name && !own.has(s.id)).map((s) => ({ id: s.id, name: s.name.slice(0, 120) }));
+}
+
+/** hint (spoken kind or words) or id -> { target } | { ok: false, error, choose? } */
+async function resolveWindow(hint, id) {
+  const wins = await listWindows();
+  const found = id ? wins.filter((w) => w.id === id) : matchWindows(wins, hint);
+  if (!found.length) return { ok: false, error: `ไม่พบหน้าต่าง ${hint || 'ที่เลือก'} ที่เปิดอยู่` };
+  if (found.length > 1) return { ok: false, choose: found.slice(0, 8), error: `มี ${found.length} หน้าต่างที่ตรงกับ ${hint}` };
+  return { target: { kind: 'window', id: found[0].id, name: found[0].name } };
+}
+
 /**
  * JPEG data URL of the display under the mouse. JARVIS's own windows (main + orb)
- * are excluded from the capture (content protection = WDA_EXCLUDEFROMCAPTURE on
- * Windows 10 2004+), so a fullscreen JARVIS doesn't hide what the user means.
+ * are excluded from the capture, so a fullscreen JARVIS doesn't hide what the user means.
  */
 async function captureScreen() {
   const d = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  const own = [win, orb && orb.alive() ? orb.win : null].filter((w) => w && !w.isDestroyed() && w.isVisible());
+  const keep = screenWatch.on; // while watching the screen, protection stays on
+  const own = ownWindows();
   for (const w of own) w.setContentProtection(true);
   try {
-    if (own.length) await new Promise((r) => setTimeout(r, 120)); // let the compositor drop them
-    const width = Math.min(SCREEN_MAX_W, Math.round(d.size.width * d.scaleFactor));
-    const height = Math.round((width * d.size.height) / d.size.width);
-    const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width, height } });
-    const src = sources.find((s) => String(s.display_id) === String(d.id)) || sources[0];
-    if (!src || src.thumbnail.isEmpty()) throw new Error('จับภาพหน้าจอไม่ได้');
-    return 'data:image/jpeg;base64,' + src.thumbnail.toJPEG(80).toString('base64');
+    if (own.length) await new Promise((done) => setTimeout(done, 120)); // let the compositor drop them
+    return (await grabTarget({ kind: 'screen', displayId: d.id })).dataUrl;
   } finally {
-    for (const w of own) if (!w.isDestroyed()) w.setContentProtection(false);
+    if (!keep) for (const w of own) if (!w.isDestroyed()) w.setContentProtection(false);
   }
 }
 
@@ -996,13 +1093,59 @@ function hideTray() {
   if (tray) { tray.destroy(); tray = null; }
 }
 
-// Push-to-talk hotkey. Electron's globalShortcut has no key-up event, so the
-// hotkey toggles listening; VAD ends the recording on silence.
+// Push-to-talk hotkey. Electron's globalShortcut has no key-up event, so in "toggle" mode the
+// hotkey toggles listening and VAD ends the recording on silence. In "hold" mode a native
+// keyboard hook (uiohook-napi) reports key-down / key-up for the one configured combination
+// only; if it cannot start, the toggle shortcut is used instead.
+let pttHook = null; // { uIOhook, tracker, onDown, onUp }
+
+function stopPttHook() {
+  if (!pttHook) return;
+  try {
+    pttHook.uIOhook.off('keydown', pttHook.onDown);
+    pttHook.uIOhook.off('keyup', pttHook.onUp);
+    pttHook.uIOhook.stop();
+  } catch { /* already stopped */ }
+  pttHook = null;
+}
+
+function startPttHook(accelerator) {
+  stopPttHook();
+  let mod;
+  try {
+    mod = require('uiohook-napi');
+  } catch (err) {
+    send('notice', { level: 'warn', text: `โหลดตัวจับการกดค้างไม่ได้ ใช้แบบกดสลับแทน: ${err.message}` });
+    return false;
+  }
+  const tracker = new PttTracker(accelerator, mod.UiohookKey);
+  if (!tracker.valid) {
+    send('notice', { level: 'warn', text: `คีย์ลัด ${accelerator} ใช้กับโหมดกดค้างไม่ได้ ใช้แบบกดสลับแทน` });
+    return false;
+  }
+  const emit = (edge) => { if (edge) send(edge === 'down' ? 'ptt:down' : 'ptt:up', { at: Date.now() }); };
+  const onDown = (e) => emit(tracker.feed('down', e.keycode));
+  const onUp = (e) => emit(tracker.feed('up', e.keycode));
+  try {
+    mod.uIOhook.on('keydown', onDown);
+    mod.uIOhook.on('keyup', onUp);
+    mod.uIOhook.start();
+  } catch (err) {
+    send('notice', { level: 'warn', text: `เริ่มตัวจับการกดค้างไม่ได้ ใช้แบบกดสลับแทน: ${err.message}` });
+    return false;
+  }
+  pttHook = { uIOhook: mod.uIOhook, tracker, onDown, onUp };
+  return true;
+}
+
 function registerHotkey() {
   globalShortcut.unregisterAll();
+  stopPttHook();
   const s = settings.get();
-  // push-to-talk + the orb's "listen from anywhere" key (works even when the orb is hidden)
-  const keys = [...new Set([s.pushToTalkKey, s.orbShortcut].map((k) => (k || '').trim()).filter(Boolean))];
+  const pttKey = (s.pushToTalkKey || '').trim();
+  const holding = s.pushToTalkMode === 'hold' && pttKey && startPttHook(pttKey);
+  // push-to-talk (unless the hold hook owns it) + the orb's "listen from anywhere" key (works even when the orb is hidden)
+  const keys = [...new Set([holding ? '' : pttKey, s.orbShortcut].map((k) => (k || '').trim()).filter(Boolean))];
   for (const key of keys) {
     try {
       const ok = globalShortcut.register(key, () => send('ptt', { at: Date.now() }));
@@ -1132,7 +1275,10 @@ app.whenReady().then(async () => {
   registerHotkey();
   // device sleep / screen lock pause hands-free listening; resume restarts it
   for (const ev of ['suspend', 'resume', 'lock-screen', 'unlock-screen']) {
-    powerMonitor.on(ev, () => send('hf:power', { kind: ev }));
+    powerMonitor.on(ev, () => {
+      if (ev === 'suspend' || ev === 'lock-screen') screenWatch.stop(ev);
+      send('hf:power', { kind: ev });
+    });
   }
 });
 
@@ -1140,6 +1286,8 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => { if (approvalWin) approvalWin.quitting = true; });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  stopPttHook();
+  screenWatch.stop('quit', { silent: true });
   if (reminders) reminders.stop();
   serial.close();
   hideTray();

@@ -172,6 +172,56 @@ const VIEW = {
   softer: R('^(?:เสียงเบาลง|เบาลง|เบาลงอีก|ลดเสียง|volumedown|quieter|softer|turnitdown)$'),
 };
 
+// ---------- Screen watching ("ดูหน้าจอต่อเนื่อง" / "หยุดดูหน้าจอ") ----------
+// A bare "ดูหน้าจอ" is the one-shot look (wantsScreenLook), so a start needs "ต่อเนื่อง" or "เฝ้า/จับตา".
+const WATCH = {
+  start: R('^(?:ช่วย|ลอง|ขอ)?(?:เริ่ม|เปิดโหมด|เปิด)?(?:(?:ดู|เฝ้าดู|จับตา)(?:หน้าจอ|จอ)(?:ต่อเนื่อง|ตลอด|ตลอดเวลา)|(?:เฝ้าดู|เฝ้า|จับตา|เริ่มดู)(?:หน้าจอ|จอ)|watch(?:my)?screen)(?:ให้|ให้ที|ด้วย)?$', 'i'),
+  stop: R('^(?:ช่วย|ลอง|ขอ)?(?:หยุด|เลิก|ปิด|พอ)(?:การ)?(?:ดู|เฝ้าดู|จับตา|เฝ้า)(?:หน้าจอ|จอ|หน้าต่าง|ต่อเนื่อง)?(?:ต่อเนื่อง)?(?:ได้แล้ว|แล้ว)?$|^(?:stopwatching|stopwatchingscreen)$', 'i'),
+};
+// "เฝ้าดูหน้าต่าง terminal" / "ดูหน้าต่าง chrome ต่อเนื่อง" (a one-shot "ดูหน้าต่าง X" goes to Claude with that window)
+const WATCH_WINDOW = R('^(?:ช่วย|ลอง|ขอ)?(?:เริ่ม)?(?:(?:เฝ้าดู|เฝ้า|จับตา)\\s*(?:หน้าต่าง)\\s*(.+?)|(?:ดู)\\s*(?:หน้าต่าง)\\s*(.+?)\\s*(?:ต่อเนื่อง|ตลอด))\\s*(?:ให้|ให้ที|ด้วย|ครับ|ค่ะ|คะ|นะ)*$', 'i');
+
+// Spoken window kinds -> the kind lib/screen-watch.js matches against window titles
+const WINDOW_KINDS = {
+  terminal: ['terminal', 'เทอร์มินัล', 'เทอมินัล', 'เทอร์มินอล', 'เทอมินอล', 'เทอมิเนล', 'พาวเวอร์เชลล์', 'powershell', 'cmd', 'คอมมานด์', 'command prompt'],
+  browser: ['browser', 'เบราว์เซอร์', 'เบราเซอร์', 'บราวเซอร์', 'เบราว์เซอ', 'โครม', 'chrome', 'เอดจ์', 'edge', 'ไฟร์ฟอกซ์', 'firefox'],
+  editor: ['editor', 'vscode', 'vs code', 'วีเอสโค้ด', 'วีเอสโคด', 'visual studio code', 'เอดิเตอร์', 'อีดิเตอร์', 'คอร์เซอร์', 'cursor'],
+  arduino: ['arduino', 'อาร์ดูโน่', 'อาร์ดูโน', 'อาดูโน่', 'อาร์ดูอิโน่', 'อาดูอิโน่'],
+};
+const WINDOW_KIND_LIST = Object.entries(WINDOW_KINDS).flatMap(([k, names]) => names.map((n) => [k, fold(n)]));
+
+/** "terminal" / "เทอร์มินัล" / "chrome" -> canonical hint; other words are kept as typed. Empty when none. */
+function hintFrom(raw) {
+  let h = fold(raw).replace(/\s*(?:นี|นัน|นู้น|ของผม|ของฉัน|ครับ|ค่ะ|คะ|หน่อย|ให้|ที|ด้วย)+$/g, '').trim();
+  if (!h || h.length > 80) return '';
+  const hit = WINDOW_KIND_LIST.find(([, n]) => h.includes(n));
+  return hit ? hit[0] : h;
+}
+
+/**
+ * The window the user points at in a request to look: "ช่วยดู error ในหน้าต่าง terminal นี้" -> 'terminal'.
+ * Needs a looking verb, so "เปิดหน้าต่างใหม่" is not a screen request. null when no window is named.
+ */
+export function screenTarget(text) {
+  const f = fold(text);
+  if (!/ดู|เช็ก|เช็ค|ตรวจ|อ่าน|look|check|see|read/i.test(f)) return null;
+  const m = /(?:หนาตาง|window)\s*([^\s,.!?]+(?:\s+[a-z0-9][a-z0-9.+-]*)*)/i.exec(f);
+  if (!m) return null;
+  return hintFrom(m[1]) || null;
+}
+
+/** @returns {null | {action: 'screen-watch', op: 'start', windowHint?: string} | {action: 'screen-watch', op: 'stop'}} */
+function watchCommand(t, raw) {
+  if (WATCH.stop.test(t)) return { action: 'screen-watch', op: 'stop' };
+  if (WATCH.start.test(t)) return { action: 'screen-watch', op: 'start' };
+  const m = WATCH_WINDOW.exec(fold(raw).replace(/\s+/g, ' ').trim());
+  if (m) {
+    const hint = hintFrom(m[1] || m[2]);
+    if (hint) return { action: 'screen-watch', op: 'start', windowHint: hint };
+  }
+  return null;
+}
+
 // ---------- coding (local: run tests / checks, show the diff, undo the last edit) ----------
 // "ช่วย…ให้" around them is fine; a bare "ทดสอบ" (mic check) is not a command.
 const PRE = '(?:ช่วย|ลอง|ขอ)?';
@@ -278,6 +328,8 @@ export function parseCommand(transcript, ctx = {}) {
   }
   const op = codeCommand(t);
   if (op) return { action: 'code', op };
+  const watch = watchCommand(t, raw);
+  if (watch) return watch;
   const ser = serialCommand(t);
   if (ser) return ser;
   if (CMD.stop.test(t)) return { action: 'stop' };

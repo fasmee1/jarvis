@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="ui/conversation.css">
   <link rel="stylesheet" href="ui/projects.css">
   <link rel="stylesheet" href="ui/task-status.css">
+  <link rel="stylesheet" href="ui/screen-watch.css">
 </head>
 <body>
   <!-- ============ HOME: one full-screen instrument ============ -->
@@ -431,6 +432,9 @@
         <div class="row"><input id="s-azure-key" type="password" placeholder="Azure Speech key (เก็บแบบเข้ารหัส)"><button id="s-azure-save" class="btn small">บันทึก key</button></div>
         <label>เงียบเกินกี่มิลลิวินาทีให้หยุดอัด (VAD)<input id="s-vadSilenceMs" type="number" min="300" max="5000" step="100"></label>
         <label>คีย์ลัดพูด (global)<input id="s-pushToTalkKey" type="text" placeholder="Control+Space"></label>
+        <label>ดูหน้าจอต่อเนื่อง: ตรวจทุกกี่วินาที<input id="s-screenWatchIntervalSec" type="number" min="2" max="60" step="1"></label>
+        <label>ดูหน้าจอต่อเนื่อง: หยุดเองหลังกี่นาที<input id="s-screenWatchMaxMin" type="number" min="1" max="60" step="1"></label>
+        <label>โหมดคีย์ลัดพูด<select id="s-pushToTalkMode"><option value="toggle">กดสลับ (กดเริ่ม เงียบแล้วหยุดเอง)</option><option value="hold">กดค้างเพื่อพูด ปล่อยเพื่อส่ง</option></select></label>
         <label>ไมโครโฟน (เสียงเข้า)<select id="s-micDeviceId"></select></label>
         <label>ลำโพง (เสียงออก: เสียงพูด + เอฟเฟกต์)<select id="s-speakerDeviceId"></select></label>
         <hr>
@@ -547,6 +551,21 @@
     </div>
   </div>
 
+
+  <!-- Screen watching indicator: visible the whole time JARVIS is watching the screen or a window; click stops it -->
+  <button id="watch-badge" class="watch-badge" type="button" hidden aria-live="polite"><span class="wb-dot"></span><span id="watch-badge-text"></span><span class="wb-stop">หยุด</span></button>
+
+  <!-- Window picker: when a spoken window name matches more than one open window -->
+  <div id="win-pick" class="modal" hidden>
+    <div class="modal-card cut" role="dialog" aria-modal="true" aria-label="เลือกหน้าต่าง">
+      <div class="approval-title">เลือกหน้าต่างที่จะให้ดู</div>
+      <p id="win-pick-why"></p>
+      <div id="win-pick-list" class="folder-pick-list"></div>
+      <div class="approval-actions">
+        <button id="win-pick-cancel" class="btn ghost">ยกเลิก</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Folder picker: shown once per conversation before a command that needs a project folder -->
   <div id="folder-pick" class="modal" hidden>

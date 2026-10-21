@@ -12,7 +12,7 @@ import { Mic, webSpeechOnce } from './audio/mic.js';
 import { Vision, listDevices } from './vision.js';
 import { HandsFree, ST as HF } from './handsfree/controller.js';
 import { OwwEngine } from './handsfree/engine.js';
-import { parseCommand, wantsScreenLook } from './handsfree/commands.js';
+import { parseCommand, wantsScreenLook, screenTarget } from './handsfree/commands.js';
 import { StageViewer } from './ui/stage-viewer.js';
 import { ResultViewer } from './ui/result-viewer.js';
 import { WebViewer } from './ui/web-viewer.js';
@@ -769,6 +769,79 @@ function needsTranscriptConfirm() {
   return S.settings.confirmVoiceBeforeSend || m === 'acceptEdits' || m === 'bypassPermissions';
 }
 
+/** A picture of the screen or one window (while watching: the latest changed frame). null when it failed. */
+async function lookAtScreen(opts = {}) {
+  let r = await api.invoke('screen:capture', opts).catch(failed);
+  if (!r.ok && r.choose) {
+    const id = await pickWindow(r.choose, r.error);
+    if (!id) return null;
+    r = await api.invoke('screen:capture', { windowId: id }).catch(failed);
+  }
+  if (r.ok) {
+    sfx.shutter();
+    return r.dataUrl;
+  }
+  notice(`จับภาพหน้าจอไม่ได้: ${r.error}`, 'warn', null, 5000);
+  return null;
+}
+
+/** Several windows fit the spoken name: the user picks one with a real click. Resolves to its id or null. */
+function pickWindow(choices, why) {
+  return new Promise((resolve) => {
+    const box = $('win-pick');
+    const list = $('win-pick-list');
+    $('win-pick-why').textContent = why || '';
+    list.textContent = '';
+    const done = (id) => { box.hidden = true; resolve(id); };
+    for (const c of choices) {
+      list.append(el('button', { class: 'btn', onclick: (ev) => { if (ev.isTrusted) done(c.id); } }, el('span', { text: c.name })));
+    }
+    $('win-pick-cancel').onclick = (ev) => { if (ev.isTrusted) done(null); };
+    box.hidden = false;
+    (list.firstElementChild || $('win-pick-cancel')).focus();
+    say('มีหลายหน้าต่างที่ตรงกัน เลือกบนจอได้เลยครับ');
+  });
+}
+
+async function screenWatchCommand(cmd, heard) {
+  if (heard) addSystemMsg(`🎙 ${heard}`);
+  if (cmd.op === 'stop') {
+    const was = S.watch && S.watch.on;
+    await api.invoke('screen:watch', { op: 'stop' }).catch(failed);
+    return say(was ? 'หยุดดูหน้าจอแล้วครับ' : 'ตอนนี้ไม่ได้ดูหน้าจออยู่ครับ');
+  }
+  let r = await api.invoke('screen:watch', { op: 'start', windowHint: cmd.windowHint || '' }).catch(failed);
+  if (!r.ok && r.choose) {
+    const id = await pickWindow(r.choose, r.error);
+    if (!id) return;
+    r = await api.invoke('screen:watch', { op: 'start', windowId: id }).catch(failed);
+  }
+  if (!r.ok) return say(r.error);
+  const what = r.target.kind === 'window' ? `หน้าต่าง ${r.target.name.slice(0, 40)}` : 'ทั้งหน้าจอ';
+  say(`เริ่มดู${what}แล้วครับ พูดว่า ดูนี่ เมื่อต้องการให้ผมดู หยุดเองใน ${S.settings.screenWatchMaxMin} นาที`);
+}
+
+/** Badge shown the whole time the screen or a window is being watched (click = stop). */
+function paintWatch() {
+  const w = S.watch;
+  const b = $('watch-badge');
+  b.hidden = !(w && w.on);
+  if (b.hidden) return;
+  const name = w.target && w.target.kind === 'window' ? w.target.name : 'ทั้งหน้าจอ';
+  $('watch-badge-text').textContent = `กำลังดู: ${name}`;
+  b.title = `กำลังดู ${name} — ภาพจะส่งให้ Claude เมื่อคุณถามเท่านั้น คลิกเพื่อหยุด`;
+}
+
+function onWatchState(st) {
+  const wasOn = S.watch && S.watch.on;
+  S.watch = st;
+  paintWatch();
+  if (wasOn && !st.on && st.reason && st.reason !== 'manual') {
+    const why = { timeout: 'ครบเวลาแล้ว', error: 'จับภาพไม่ได้ต่อเนื่อง', suspend: 'เครื่องเข้าโหมดสลีป', 'lock-screen': 'หน้าจอถูกล็อก' }[st.reason] || '';
+    notice(`หยุดดูหน้าจอแล้ว${why ? ` (${why})` : ''}`, 'info', null, 5000);
+  }
+}
+
 function hasTrigger(text) {
   return (S.settings.triggerWords || []).some((w) => w && text.includes(w));
 }
@@ -777,7 +850,12 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
   text = (text || '').trim();
   let image = presetImage; // a queued message keeps the picture taken when it was said
   let imageSource = presetSource;
-  if (!image && vision.on && !text.startsWith('/')) {
+  const winHint = !image && !text.startsWith('/') ? screenTarget(text) : null;
+  if (winHint) {
+    // "ดู error ในหน้าต่าง terminal": that window, even when the camera is on
+    const shot = await lookAtScreen({ windowHint: winHint });
+    if (shot) { image = shot; imageSource = 'screen'; }
+  } else if (!image && vision.on && !text.startsWith('/')) {
     const wantLook = S.lookArmed || hasTrigger(text);
     if (wantLook) {
       image = (fromVoice && S.frameAtListenEnd) || vision.snapshot(S.settings.snapshotWidth, S.settings.snapshotHeight, S.settings.snapshotQuality);
@@ -785,12 +863,8 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
     }
   } else if (!image && !text.startsWith('/') && wantsScreenLook(text)) {
     // camera off + "ดูนี่": JARVIS looks at the screen instead (its own windows are left out)
-    const r = await api.invoke('screen:capture').catch((err) => ({ ok: false, error: err.message }));
-    if (r.ok) {
-      image = r.dataUrl;
-      imageSource = 'screen';
-      sfx.shutter();
-    } else notice(`จับภาพหน้าจอไม่ได้: ${r.error}`, 'warn', null, 5000);
+    const shot = await lookAtScreen();
+    if (shot) { image = shot; imageSource = 'screen'; }
   }
   S.frameAtListenEnd = null;
   const attached = (S.app && S.app.attachments) || [];
@@ -958,7 +1032,7 @@ async function hasMicDevice() {
   }
 }
 
-async function startListening() {
+async function startListening({ hold = false } = {}) {
   if (S.micOff) return micOffNotice();
   if (hands && hands.active) return hands.manual();
   if (!(await hasMicDevice())) {
@@ -985,7 +1059,10 @@ async function startListening() {
   $('btn-mic').classList.add('listening');
   refreshState();
   sfx.micOn();
-  await mic.start({ deviceId: S.settings.micDeviceId, silenceMs: S.settings.vadSilenceMs });
+  // holding the key: only the key release ends the recording (no VAD cut-off, no no-speech timeout)
+  await mic.start(hold
+    ? { deviceId: S.settings.micDeviceId, silenceMs: HOLD_LIMIT_MS, noSpeechMs: HOLD_LIMIT_MS }
+    : { deviceId: S.settings.micDeviceId, silenceMs: S.settings.vadSilenceMs });
 }
 
 function stopListening() {
@@ -1064,6 +1141,10 @@ function afterTranscript(text, latency) {
   }
   if (cmd && cmd.action === 'code') {
     codeCommand(cmd, text);
+    return;
+  }
+  if (cmd && cmd.action === 'screen-watch') {
+    screenWatchCommand(cmd, text);
     return;
   }
   if (cmd && cmd.action === 'serial') {
@@ -1437,6 +1518,42 @@ async function toggleHandsFree(forceOn = false) {
   if (hands.active) term(`hands-free: เปิด · ${hfEngine.name} · VAD ${hfEngine.info && hfEngine.info.vad ? 'Silero' : 'energy'} · mic “${hfEngine.deviceLabel || 'default'}”`, 'info');
 }
 
+const HOLD_LIMIT_MS = 60000;
+const HOLD_TAP_MS = 250; // released sooner than this = a tap: keep listening with normal VAD
+
+/** Hold-to-talk key went down (native hook, pushToTalkMode 'hold'). */
+function pttDown() {
+  if (S.pttHeldAt) return;
+  S.pttHeldAt = Date.now();
+  S.pttStart = null;
+  if (S.micOff) return micOffNotice();
+  if (hands.active) {
+    if (hands.state !== HF.COMMAND_LISTENING) hands.manual();
+    return;
+  }
+  if (!S.listening) S.pttStart = startListening({ hold: true });
+}
+
+/** Key released: a real hold sends what was said; a quick tap behaves like the old toggle. */
+async function pttUp() {
+  const heldMs = S.pttHeldAt ? Date.now() - S.pttHeldAt : 0;
+  S.pttHeldAt = 0;
+  if (S.micOff) return;
+  if (S.pttStart) await S.pttStart;
+  S.pttStart = null;
+  const tap = heldMs < HOLD_TAP_MS;
+  if (hands.active) {
+    if (!tap && hands.state === HF.COMMAND_LISTENING) hands.manual();
+    return;
+  }
+  if (!S.listening) return;
+  if (tap) {
+    if (mic.opts) Object.assign(mic.opts, { silenceMs: S.settings.vadSilenceMs, noSpeechMs: 8000 });
+    return;
+  }
+  stopListening();
+}
+
 /** Mic button / reactor click / Ctrl+Space: push-to-talk, or "listen now" in hands-free. */
 function voiceButton() {
   if (S.micOff) return micOffNotice();
@@ -1594,10 +1711,10 @@ function applyMode(mode) {
 
 const FIELDS = {
   text: ['claudePath', 'model', 'userProfile', 'azureRegion', 'pushToTalkKey', 'orbShortcut'],
-  num: ['approvalTimeoutSec', 'vadSilenceMs', 'snapshotWidth', 'snapshotHeight'],
+  num: ['approvalTimeoutSec', 'vadSilenceMs', 'screenWatchIntervalSec', 'screenWatchMaxMin', 'snapshotWidth', 'snapshotHeight'],
   float: ['ttsRate', 'snapshotQuality'],
   bool: ['persistentProcess', 'guardEnabled', 'confirmVoiceBeforeSend', 'autoApproveSafe', 'visionOverlay', 'orbEnabled', 'orbOnTopFullscreen', 'orbAutoFade', 'orbAutoOpenResults'],
-  select: ['sttProvider', 'whisperModel', 'micDeviceId', 'speakerDeviceId', 'cameraDeviceId', 'orbSize'],
+  select: ['sttProvider', 'whisperModel', 'micDeviceId', 'speakerDeviceId', 'cameraDeviceId', 'orbSize', 'pushToTalkMode'],
 };
 
 async function applySpeaker() {
@@ -1616,7 +1733,7 @@ function fillSettings() {
   const s = S.settings;
   for (const k of [...FIELDS.text, ...FIELDS.num, ...FIELDS.float]) $(`s-${k}`).value = s[k];
   for (const k of FIELDS.bool) $(`s-${k}`).checked = !!s[k];
-  for (const k of ['sttProvider', 'whisperModel', 'orbSize']) $(`s-${k}`).value = s[k];
+  for (const k of ['sttProvider', 'whisperModel', 'orbSize', 'pushToTalkMode']) $(`s-${k}`).value = s[k];
   $('s-guardBlock').value = s.guardBlock.join('\n');
   $('s-guardAsk').value = s.guardAsk.join('\n');
   $('s-guardBlockPaths').value = s.guardBlockPaths.join('\n');
@@ -2049,6 +2166,9 @@ function wireEvents() {
   api.on('approval:request', onApprovalRequest);
   api.on('approval:close', onApprovalClose);
   api.on('ptt', () => voiceButton());
+  api.on('screen:watch', onWatchState);
+  api.on('ptt:down', () => pttDown());
+  api.on('ptt:up', () => pttUp());
   api.on('camera:cmd', ({ action }) => { if (action === 'on') cameraPanel.turnOn(); });
   api.on('install:progress', onInstallProgress);
 }
@@ -2064,6 +2184,7 @@ function wireDom() {
     }
   });
   $('btn-stop').onclick = stopAll;
+  $('watch-badge').onclick = (ev) => { if (ev.isTrusted) api.invoke('screen:watch', { op: 'stop' }).catch(failed); };
   $('btn-mic').onclick = () => voiceButton();
   $('btn-cam').onclick = toggleCamera;
   $('btn-look').onclick = () => {

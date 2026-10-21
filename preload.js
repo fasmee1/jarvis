@@ -92,6 +92,7 @@ const INVOKE = [
   'orb:sync',
   'orb:level',
   'screen:capture',
+  'screen:watch',
 ];
 
 const EVENTS = [
@@ -120,6 +121,8 @@ const EVENTS = [
   'tts:stop',
   'tts:flush',
   'ptt',
+  'ptt:down',
+  'ptt:up',
   'install:progress',
   'window:state',
   'hf:power',
@@ -130,6 +133,7 @@ const EVENTS = [
   'web:summary',
   'window:bg',
   'orb:cmd',
+  'screen:watch',
 ];
 
 contextBridge.exposeInMainWorld('jarvis', {
