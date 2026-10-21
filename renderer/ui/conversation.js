@@ -198,7 +198,7 @@ export class ConversationPopup {
     const a = document.activeElement;
     if (!this.isFront) {
       // on the HUD: Tab opens the conversation unless you are typing somewhere
-      if (e.shiftKey || isField(a)) return;
+      if (e.shiftKey || isField(a) || this.viewer._target() === 'projects') return;
       e.preventDefault();
       e.stopImmediatePropagation();
       this.open();

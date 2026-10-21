@@ -22,6 +22,7 @@ import { HistoryPanel } from './ui/history.js';
 import { UsagePanel } from './ui/usage.js';
 import { OrbBridge } from './orb-bridge.js';
 import { checkReport, diffReport, undoLines } from './ui/code-report.js';
+import { ProjectsPanel } from './ui/projects.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -68,6 +69,7 @@ let talk = null; // Conversation popup (set up below)
 
 const sections = new Sections({
   onTalk: () => talk.open(),
+  onProjects: () => projectsPanel.open(),
   onChange: (name) => {
     home.setVisible(!name);
     if (name) { S.dotErr = false; S.dotAtt = false; updateDot(); }
@@ -545,7 +547,7 @@ function diffDetails(preview) {
   return el('details', { open: '' }, el('summary', { text: `diff ${preview.file || ''}${preview.isNew ? ' (ไฟล์ใหม่)' : ''}` }), box);
 }
 
-function onTodos(todos) {
+function onTodos({ todos }) {
   const box = $('todos');
   box.hidden = !todos.length;
   box.replaceChildren(el('div', { class: 'accent', text: 'รายการงานของ Claude' }));
@@ -561,6 +563,15 @@ function onTodos(todos) {
 const approvalRows = new Map();
 
 function onApprovalRequest(req) {
+  // a background project's request: answered in the same dialog, but kept out of this chat
+  if (req.projectId && req.projectId !== 'main') {
+    S.approvals.push(req);
+    updateDot();
+    sfx.approval();
+    if (S.approvals.length === 1) showApproval();
+    else $('ap-queue').textContent = `มีคำขอรออีก ${S.approvals.length - 1} รายการ`;
+    return;
+  }
   const row = el('div', { class: 'cv-perm', role: 'status' },
     el('span', { class: 'cv-perm-k', text: 'ขออนุญาต' }),
     el('span', { class: 'mono cv-perm-t', text: req.tool }),
@@ -617,7 +628,7 @@ async function answerApproval(decision, ev) {
   const req = S.approvals[0];
   if (!req) return;
   const reason = decision === 'deny-reason' ? $('ap-deny-reason').value.trim() : '';
-  await api.invoke('approval:respond', { id: req.id, decision, reason });
+  await api.invoke('approval:respond', { id: req.id, projectId: req.projectId || 'main', decision, reason });
 }
 
 function onApprovalClose({ id }) {
@@ -1048,19 +1059,43 @@ const usagePanel = new UsagePanel({
 usagePanel.load();
 setInterval(() => { if (usagePanel.snap) home.usage(usagePanel.snap); }, 60000); // keep the card's countdown fresh
 
+// "/" menu of the background project's message box — made before the popup, like the main one
+const projectSlash = new SlashMenu({
+  id: 'proj-slash-menu',
+  input: $('proj-input'),
+  load: async () => {
+    const r = await api.invoke('skills:list');
+    return r && r.ok ? r.items : [];
+  },
+});
+
+// background projects: PROJECTS popup (a surface of the viewer, like the conversation) + the HUD chip
+const projectsPanel = new ProjectsPanel({
+  api,
+  slash: projectSlash,
+  el,
+  notice: (text, level) => notice(text, level || 'info', null, 7000),
+  viewer,
+  canKey: () => home.visible && !home.booting && !sections.current && ['menu', 'approval', 'barge', 'hf-consent'].every((id) => $(id).hidden),
+  isHomeVisible: () => home.visible && !sections.current,
+  onPromoted: (messages, title) => showResumed(messages, title),
+});
+/** A past conversation became the HUD's chat (history panel, or a background project taken over). */
+function showResumed(messages, title) {
+  curMsg = null;
+  curText = null;
+  $('chat').replaceChildren();
+  for (const m of messages) {
+    if (m.role === 'user') addUserMsg(m.text);
+    else $('chat').append(el('div', { class: 'msg assistant', text: m.text }));
+  }
+  addSystemMsg(`ทำต่อจากบทสนทนา "${title}" — JARVIS จำเนื้อหาเดิมได้ พิมพ์หรือพูดต่อได้เลย`);
+}
+
 const historyPanel = new HistoryPanel({
   api,
   notice: (text, level) => notice(text, level || 'info', null, 5000),
-  onResumed: (messages, item) => {
-    curMsg = null;
-    curText = null;
-    $('chat').replaceChildren();
-    for (const m of messages) {
-      if (m.role === 'user') addUserMsg(m.text);
-      else $('chat').append(el('div', { class: 'msg assistant', text: m.text }));
-    }
-    addSystemMsg(`ทำต่อจากบทสนทนา "${item.title}" — JARVIS จำเนื้อหาเดิมได้ พิมพ์หรือพูดต่อได้เลย`);
-  },
+  onResumed: (messages, item) => showResumed(messages, item.title),
 });
 
 /** "เปิดบทสนทนา" / "ปิดบทสนทนา" (voice, push-to-talk or hands-free). */

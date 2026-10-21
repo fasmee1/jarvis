@@ -6,6 +6,7 @@ const { pathToFileURL } = require('url');
 
 const { SettingsStore, defaults: settingDefaults } = require('./lib/settings');
 const { JarvisCore } = require('./lib/jarvis-core');
+const { ProjectManager } = require('./lib/projects');
 const { listSessions, readSession } = require('./lib/history');
 const { UsageService } = require('./lib/usage/service');
 const { resolveClaudeCommand } = require('./lib/claude/resolve');
@@ -71,6 +72,8 @@ function registerAppProtocol() {
 
 let win = null;
 let core = null;
+let projects = null; // background projects: one core per folder (lib/projects.js)
+const chosenProjectDirs = new Set(); // folders picked with project:choose
 let settings = null;
 let tts = null;
 let stt = null;
@@ -138,7 +141,7 @@ function createWindow() {
     win = null;
     if (approvalWin) approvalWin.destroy();
     // nobody can answer any more: deny what is open so the CLI doesn't wait for the timeout
-    if (core) core._dropPendingApprovals('ปิดหน้าต่างหลักแล้ว');
+    if (projects) projects.dropAllApprovals('ปิดหน้าต่างหลักแล้ว');
     openApprovals.length = 0;
     if (orb) orb.destroy(); // last window gone → the app quits
   });
@@ -300,7 +303,7 @@ function registerIpc() {
     const r = settings.update(p);
     if (r.ok) {
       const keys = Object.keys(p);
-      core.onSettingsChanged(keys);
+      projects.onSettingsChanged(keys);
       if (keys.includes('pushToTalkKey') || keys.includes('orbShortcut')) registerHotkey();
       if (keys.some((k) => k.startsWith('orb'))) { orb.configure(); sendBg(); }
       if (['sttProvider', 'whisperModel', 'azureRegion', 'sttVocabulary', 'sttCorrections'].some((k) => keys.includes(k))) stt.configure(settings.get());
@@ -312,7 +315,7 @@ function registerIpc() {
   handle('settings:reset-guard', () => {
     const d = settingDefaults();
     const r = settings.update({ guardBlock: d.guardBlock, guardAsk: d.guardAsk, guardBlockPaths: d.guardBlockPaths });
-    core.onSettingsChanged(['guardBlock']);
+    projects.onSettingsChanged(['guardBlock']);
     send('settings', settings.get());
     return r;
   });
@@ -502,8 +505,54 @@ function registerIpc() {
     v.str(p.id, 100, 'id');
     v.oneOf(p.decision, ['once', 'always', 'deny', 'deny-reason'], 'decision');
     v.str(p.reason ?? '', 1000, 'reason');
-    return core.respondApproval(p);
+    const projectId = v.projectId(p.projectId ?? 'main');
+    return projects.respondApproval(projectId, { id: p.id, decision: p.decision, reason: p.reason });
   });
+
+  // ---- background projects: one core + one task per folder ----
+  handle('project:choose', async () => {
+    const r = await dialog.showOpenDialog(win, { title: 'เลือกโฟลเดอร์สำหรับงานเบื้องหลัง', properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return { ok: false };
+    const dir = path.resolve(r.filePaths[0]);
+    chosenProjectDirs.add(dir.toLowerCase());
+    return { ok: true, path: dir };
+  });
+  handle('project:start', async (p) => {
+    v.obj(p);
+    const dir = path.resolve(v.str(p.dir, 4096, 'dir'));
+    const text = v.str(p.text, 20000, 'text');
+    // only folders the user picked: the dialog, the folder list, or an existing project
+    const key = dir.toLowerCase();
+    const known = chosenProjectDirs.has(key)
+      || core.folderOptions().some((o) => o.path.toLowerCase() === key)
+      || projects.list().some((x) => x.cwd.toLowerCase() === key);
+    if (!known) return { ok: false, code: 'FOLDER', error: 'ใช้ได้เฉพาะโฟลเดอร์ที่เลือกไว้' };
+    try {
+      return await projects.start({ dir, text, isolate: p.isolate === undefined ? false : v.bool(p.isolate, 'isolate'), approval: p.approval === 'auto' || p.approval === 'ask' ? p.approval : undefined });
+    } catch (err) {
+      return { ok: false, code: err.code || 'ERROR', error: err.message };
+    }
+  });
+  handle('project:stop', (p) => {
+    v.obj(p);
+    return projects.stop(v.projectId(p.projectId));
+  });
+  // the HUD takes over a finished project's conversation (same folder, same Claude session)
+  handle('project:promote', (p) => {
+    v.obj(p);
+    const r = projects.promote(v.projectId(p.projectId));
+    if (!r.ok) return r;
+    return { ok: true, cwd: r.cwd, title: path.basename(r.cwd), messages: readSession(r.cwd, r.sessionId) || [] };
+  });
+  handle('project:dequeue', (p) => {
+    v.obj(p);
+    return projects.dequeue(v.projectId(p.projectId), v.num(p.index, 'index', { min: 0, max: 100 }));
+  });
+  handle('project:remove', (p) => {
+    v.obj(p);
+    return projects.remove(v.projectId(p.projectId));
+  });
+  handle('project:list', () => ({ ok: true, projects: projects.list() }));
 
   handle('latency:report', (p) => {
     v.obj(p);
@@ -727,7 +776,8 @@ function registerIpc() {
     v.str(p.id, 100, 'id');
     v.oneOf(p.decision, ['once', 'always', 'deny', 'deny-reason'], 'decision');
     v.str(p.reason ?? '', 1000, 'reason');
-    return core.respondApproval(p);
+    const projectId = v.projectId(p.projectId ?? 'main');
+    return projects.respondApproval(projectId, { id: p.id, decision: p.decision, reason: p.reason });
   });
   handleOrb('orb:panel', (p) => {
     if (p === null) return orb.setPanel(null);
@@ -811,6 +861,8 @@ function approvalPayload(r, queue) {
   const hasDiff = diff.length > 0;
   return {
     id: r.id,
+    projectId: r.projectId || 'main',
+    projectName: String(r.projectName || ''),
     tool: String(r.tool || ''),
     summary: String(r.summary || ''),
     reason: r.reason || '',
@@ -929,21 +981,42 @@ app.whenReady().then(async () => {
   stt.configure(settings.get());
   vision = new VisionAssets({ dataDir: path.join(userData, 'vision') });
   wakeAssets = new WakeAssets({ dataDir: path.join(userData, 'handsfree') });
+  const coreUi = (channel, payload) => {
+    send(channel, payload);
+    approvalFeed(channel, payload);
+  };
   core = new JarvisCore({
     settings,
     tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
     appRoot: APP_ROOT,
     logDir: userData,
-    ui: (channel, payload) => {
-      send(channel, payload);
-      approvalFeed(channel, payload);
-    },
+    ui: coreUi,
     onCwd: (dir) => stt.setProject(path.basename(dir)),
     onRateLimit: (info) => usage && usage.onRateLimit(info),
     onTurnEnd: () => usage && setTimeout(() => usage.refresh(), 1500), // the transcript line lands just after the result
     trash: (p) => shell.trashItem(p), // undo moves files Claude created to the Recycle Bin
   });
   await core.init();
+  projects = new ProjectManager({
+    main: core,
+    settings,
+    ui: coreUi,
+    stateFile: path.join(userData, 'projects.json'),
+    createCore: ({ id, name, ui }) => new JarvisCore({
+      settings,
+      tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
+      appRoot: APP_ROOT,
+      logDir: userData,
+      id,
+      name,
+      primary: false,
+      ui,
+      onRateLimit: (info) => usage && usage.onRateLimit(info),
+      onTurnEnd: () => usage && setTimeout(() => usage.refresh(), 1500),
+      trash: (p) => shell.trashItem(p),
+    }),
+  });
+  projects.restore(); // background projects of the last run come back idle; their conversations resume on the next task
   usage = new UsageService({
     dataDir: userData,
     onChange: (snap) => send('usage', snap),
@@ -1015,7 +1088,8 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   hideTray();
   if (orb) orb.destroy();
-  if (core) core.cleanup();
+  if (projects) projects.disposeAll(); // every project's CLI tree: taskkill /T
+  else if (core) core.cleanup();
   if (tts) tts.dispose();
   if (stt) stt.dispose();
 });

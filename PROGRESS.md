@@ -260,3 +260,53 @@ Dev: `JARVIS_SCREENSHOT=<file.png>` (+ `JARVIS_SCREENSHOT_QUIT=1`, `JARVIS_SCREE
   and, when changed, into the next message of the open conversation. Added CLAUDE.md for this repo.
 - Permission clicks (D in the plan) were already covered by `autoApproveSafe` (edits in the project, `npm test`, `npm run check`, builds run without asking).
 - Verified: `npm run check` 119/119, `npm test` 131/131 (new: test/project-tools.test.js, test/coding-voice.test.js). Not yet tried in the running app.
+
+## Several projects at once — step 1: one core per folder + background status (2026-10-20)
+
+- New `lib/projects.js` `ProjectManager` (no Electron): the HUD's core is `main`; each background project gets its own `JarvisCore`
+  (`primary: false`) with its own folder, Claude process, permission broker (pipe + token), audit log and session.
+  Project id = `p-` + 10 hex of the folder path's sha1 (`v.projectId` in `lib/ipc-validate.js`).
+- Rules: one core per folder, one task per core (`BUSY`); at most `maxBackgroundProjects` running (new setting, default 3, 1–8; `LIMIT`);
+  background folders may not overlap the HUD's folder or each other (inside either way; `FOLDER`); system folders / AppData / secrets refused
+  (same rules as attachments). The HUD can't switch into a folder a background task is busy in (`FOLDER_IN_USE`); idle background cores there are closed.
+- Status per project on `project:status`: `running | awaiting-approval | done | error | stopped` (+ `removed`), with task, times, last text, error,
+  and on finish an `announce` line for the voice queue (step 3). Background events go out as `project:event {projectId, channel, payload}`,
+  never on the HUD's chat channels; `tts:*` from background cores is dropped (one voice at a time).
+- Every `ui()` payload from a core now carries `projectId` (`todos` became `{todos}`). Approval ids are unique across brokers (random prefix);
+  `approval:request` from a background project carries `projectName`; `approval:respond` / `approval-win:respond` take `projectId` (default `main`)
+  and a core refuses an answer meant for another project. Renderer: answers send `projectId`; background requests use the same dialog but stay out of the main chat.
+- Background cores never run `bypassPermissions` (→ `default`), never reset the app-wide mode, never write `lastCwd` / the STT project hint,
+  don't pre-warm the CLI, and stop their idle CLI after each task (the next task resumes with `--resume`).
+- IPC: `project:choose` (dialog), `project:start {dir, text}` (only folders from the dialog, the folder list or existing projects), `project:stop`,
+  `project:remove`, `project:list`; events `project:status`, `project:event`. Settings changes fan out to all cores.
+- Exit: `will-quit` → `projects.disposeAll()` → every core's CLI tree (taskkill /T) and local runs; closing the window denies every open approval.
+- Fix found by the new test: a `warm()` scheduled by `setCwd` could start a CLI after `cleanup()`; cores now refuse to start once disposed.
+- Verified: `npm run check` 125/125, `npm test` 141/141 (new `test/projects.test.js`: two cores with a fake CLI run at once — own cwd/pid/session/pipe,
+  every payload tagged, cross-project approval refused, stop one while the other finishes, BUSY / LIMIT / overlap rules, no bypass, disposeAll kills both trees).
+  Not yet tried in the running app; no UI yet (step 2), no voice queue / project name in the popup (step 3).
+
+## Several projects at once — step 2: PROJECTS page + HUD chip (2026-10-21)
+
+- Menu › 05 PROJECTS (Settings moved to 06; keys 1–6). New `renderer/ui/projects.js` (+ `ui/projects.css`): pure model
+  (`applyStatus`, `applyEvent`, `chipText`, `folderChoices`, `fmtElapsed`) and `ProjectsPanel`.
+- New task: folder list (existing projects, folders picked with "เลือกโฟลเดอร์…", the folder list minus the HUD's own folder) + task text →
+  "เริ่มงานเบื้องหลัง" (Ctrl+Enter). Errors (BUSY / LIMIT / overlapping or system folder) show inline.
+- One card per project, newest first: status badge (กำลังทำ / รออนุมัติ / เสร็จ / ผิดพลาด / หยุดแล้ว), folder, task, elapsed time,
+  final reply or error; "■ หยุด" while busy; when idle "สั่งงานต่อ" (same folder, resumes its conversation) and "✕ ปิดโปรเจกต์";
+  "ดูบันทึก" log (text, tools, errors, start / end / stop; last 300 lines, only since this app start).
+- HUD chip top-right under the clock: "งานเบื้องหลัง 2 · รออนุมัติ 1 · ผิดพลาด 1", amber while an approval waits; click → PROJECTS.
+  A toast (no speech yet) when a task finishes, fails or stops.
+- Fixed while checking: the model picker and hands-free button covered the HOME button / title of every full-screen page
+  (`body.in-section` hides the picker and the chip, headers start at 192 px); a CLI result arriving after a stop was reported as a new
+  finished turn (core now ignores a result that belongs to no turn — test added).
+- Verified: `npm run check` 127/127, `npm test` 148/148 (new `test/projects-ui.test.js` + a stop-while-awaiting test).
+  Real app on a separate profile with a fake CLI (screenshots): start → done with log, follow-up task → approval dialog → stop → "หยุดแล้ว",
+  HUD chip, quitting with a task still running leaves no process behind.
+  Not checked: the real Claude CLI in a background project, the folder dialog by hand, small window sizes.
+
+## Several projects at once — background cards on HOME (2026-10-21)
+
+- Under the reactor on the home HUD (`#proj-home`, stage coordinates 672,912 · 576 px wide): up to 3 mini cards
+  (status badge, project name, elapsed time, task / "รอคุณกดอนุญาต" / error) plus "+N"; order approvals → running → errors → rest,
+  newest first (`homeCards` in `renderer/ui/projects.js`). Click → PROJECTS with that project's log open. Hidden when there are no projects.
+- Verified: `npm run check` 127/127, `npm test` 149/149 (new home-cards test). Not yet checked in the running app (layout at small sizes, camera mode).

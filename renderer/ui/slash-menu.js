@@ -47,11 +47,11 @@ export class SlashMenu {
     this.active = 0;
     this.loadedAt = 0;
     this.box = el('div', { class: 'slash-menu', role: 'listbox', 'aria-label': 'คำสั่งและ skill' });
-    this.box.id = 'slash-menu';
+    this.box.id = o.id || 'slash-menu'; // one menu per input: ids must differ
     this.box.hidden = true;
     const composer = this.input.closest('.cv-composer') || this.input.parentElement;
     composer.before(this.box);
-    this.input.setAttribute('aria-controls', 'slash-menu');
+    this.input.setAttribute('aria-controls', this.box.id);
     this.input.setAttribute('aria-autocomplete', 'list');
 
     this._wireHighlight();
@@ -137,12 +137,12 @@ export class SlashMenu {
         el('span', { class: 'slash-src' }, SOURCE_LABEL[it.source] || it.source || ''),
         el('span', { class: 'slash-desc' }, it.description || ''));
       row.dataset.i = String(i);
-      row.id = `slash-opt-${i}`;
+      row.id = `${this.box.id}-opt-${i}`;
       this.box.append(row);
     });
     this.box.hidden = false;
     this.input.setAttribute('aria-expanded', 'true');
-    if (this.shown.length) this.input.setAttribute('aria-activedescendant', `slash-opt-${this.active}`);
+    if (this.shown.length) this.input.setAttribute('aria-activedescendant', `${this.box.id}-opt-${this.active}`);
     this.box.querySelector('.slash-item.on')?.scrollIntoView({ block: 'nearest' });
   }
 

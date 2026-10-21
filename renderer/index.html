@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="ui/viewer.css">
   <link rel="stylesheet" href="ui/web.css">
   <link rel="stylesheet" href="ui/conversation.css">
+  <link rel="stylesheet" href="ui/projects.css">
 </head>
 <body>
   <!-- ============ HOME: one full-screen instrument ============ -->
@@ -33,6 +34,7 @@
         </div>
       </div>
       <div id="cards" class="cards"></div>
+      <div id="proj-home" class="proj-home" aria-label="งานเบื้องหลัง" aria-live="polite"></div>
       <div id="caption-tr" class="caption caption-tr"></div>
       <div class="caption caption-bl"><span class="cap-hint"><span class="cap-key">TAB</span><span class="cap-key">SPACE</span>· บทสนทนา</span><br>REAL TIME · AI ASSISTANT<br>HUMAN + MACHINE · BETTER TOGETHER</div>
 
@@ -155,6 +157,79 @@
           </div>
         </div>
       </div>
+
+      <!-- ============ PROJECTS popup (ui/projects.js; same transition as the conversation) ============ -->
+      <div id="pj" class="sv cv pj" role="dialog" aria-modal="true" aria-label="งานเบื้องหลัง" tabindex="-1" hidden>
+        <div class="sv-fill"></div>
+        <svg class="frame sv-frame" aria-hidden="true"></svg>
+        <div class="sv-inner cv-inner">
+          <div class="cv-head" id="pj-head">
+            <div class="cv-grp cv-left">
+              <b class="pj-title">PROJECTS</b>
+              <span class="th dim">งานเบื้องหลัง · แต่ละโปรเจกต์คุยต่อได้เหมือนแชทหลัก</span>
+            </div>
+            <span class="cv-sp"></span>
+            <div class="cv-grp cv-right">
+              <button id="pj-close" class="cv-ctl cv-icon" type="button" title="ปิด (Esc)" aria-label="ปิดงานเบื้องหลัง">
+                <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18 M6 6l12 12"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="cv-pane pj-pane">
+            <!-- left: one row per project (status, progress, queue) -->
+            <aside class="pj-side" aria-label="โปรเจกต์">
+              <button id="proj-new-btn" class="cv-ctl primary pj-new-btn" type="button">＋ งานใหม่</button>
+              <div id="proj-list" class="pj-items" role="listbox" aria-label="รายการโปรเจกต์" aria-live="polite"></div>
+            </aside>
+            <section class="pj-main">
+              <!-- no project selected: start one -->
+              <div id="proj-new" class="pj-new">
+                <section class="proj-new cut" aria-label="สั่งงานเบื้องหลังใหม่">
+                  <div class="micro">งานใหม่ · ทำในโฟลเดอร์แยก ระหว่างนั้นคุยกับ JARVIS ในหน้าหลักได้</div>
+                  <div class="proj-new-row">
+                    <select id="proj-dir" class="proj-dir" aria-label="โฟลเดอร์ของงาน"></select>
+                    <button id="proj-choose" class="btn small" type="button">📁 เลือกโฟลเดอร์…</button>
+                  </div>
+                  <textarea id="proj-task" class="proj-task-input" rows="3" maxlength="20000" placeholder="บอกงานที่จะให้ทำ เช่น เพิ่มหน้า login แล้วรันเทสต์ให้ผ่าน (Ctrl+Enter เพื่อเริ่ม)" aria-label="งานที่จะให้ทำ"></textarea>
+                  <label class="proj-iso"><input type="checkbox" id="proj-iso"> แยกสำเนา (git worktree) — แก้ในสาขาของตัวเอง ใช้โฟลเดอร์เดียวกับแชทหลักหรืองานอื่นพร้อมกันได้</label>
+                  <div class="proj-new-row proj-appr" role="radiogroup" aria-label="การขออนุญาตเมื่อ AI เขียนโค้ดหรือรันคำสั่ง">
+                    <span class="micro">เมื่อ AI เขียนโค้ด / รันคำสั่ง</span>
+                    <label class="proj-iso"><input type="radio" name="proj-approval" value="ask" checked> ถามทุกครั้ง</label>
+                    <label class="proj-iso"><input type="radio" name="proj-approval" value="auto"> ไม่ถาม (อนุญาตอัตโนมัติ)</label>
+                  </div>
+                  <div class="proj-new-row">
+                    <button id="proj-start" class="btn primary" type="button">▶ เริ่มงานเบื้องหลัง</button>
+                    <span id="proj-msg" class="proj-msg" role="status"></span>
+                    <span class="dim proj-rule">ไม่แยกสำเนา = ใช้โฟลเดอร์เดียวกับบทสนทนาหลักไม่ได้ · ขอสิทธิ์จะเด้งหน้าต่างอนุญาตเหมือนเดิม</span>
+                  </div>
+                </section>
+              </div>
+              <!-- a project: its conversation, like the main chat -->
+              <div id="proj-view" class="pj-view" hidden>
+                <div class="pj-bar" id="proj-bar"></div>
+                <div id="proj-prog" class="pj-prog" hidden></div>
+                <div class="cv-main">
+                  <div id="proj-chat" class="chat cv-msgs" role="log" aria-live="polite" aria-label="ข้อความของโปรเจกต์"></div>
+                </div>
+                <div class="cv-foot pj-compose">
+                  <div id="proj-queue" class="pj-queue" hidden></div>
+                  <div class="cv-composer">
+                    <textarea id="proj-input" class="pj-input" rows="1" maxlength="20000" placeholder="พิมพ์ข้อความ หรือ /คำสั่ง แล้วกด Enter (Shift+Enter ขึ้นบรรทัดใหม่)" aria-label="ข้อความถึงโปรเจกต์นี้"></textarea>
+                    <div class="cv-actions">
+                      <button id="proj-stop" class="cv-act danger" type="button" title="หยุดงานนี้และล้างคิว" aria-label="หยุด">
+                        <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/></svg>
+                      </button>
+                      <button id="proj-send" class="cv-act primary" type="button" title="ส่ง (Enter) — ถ้างานยังรันอยู่จะเข้าคิว" aria-label="ส่ง">
+                        <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14 M13 6l6 6-6 6"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="card-tip" class="card-tip" hidden></div>
     <!-- camera elements; the camera viewer (camera mode) moves them into its feed -->
@@ -170,6 +245,7 @@
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16 M4 12h16 M4 17h16"/></svg>
     <span id="hb-dot" class="hb-dot" hidden></span>
   </button>
+  <button id="proj-chip" class="proj-chip" type="button" title="งานเบื้องหลัง — เปิดหน้าต่าง PROJECTS" hidden><span class="proj-chip-dot" aria-hidden="true"></span><span id="proj-chip-text"></span></button>
   <button id="btn-hud-sound" class="hud-sound-btn" type="button" aria-label="เปิด/ปิดเสียง HUD" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="snd-on" d="M11 5 6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7 M19 5a10 10 0 0 1 0 14"/><path class="snd-off" d="M11 5 6 9H2v6h4l5 4z M22 9l-6 6 M16 9l6 6"/></svg></button>
   <button id="btn-handsfree" class="hf-btn" type="button" aria-label="Hands-free · พูด “จาร์วิส” เพื่อเรียก" aria-pressed="false" title="Hands-free · พูด 'จาร์วิส' เพื่อเรียก (Ctrl+Shift+H)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4 M8 7v10 M12 4v16 M16 7v10 M20 10v4"/></svg><span class="hf-dot" aria-hidden="true"></span></button>
   <label class="model-pick" title="โมเดลของ Claude — เปลี่ยนแล้วบทสนทนาเดิมยังอยู่ (หรือพูดว่า &quot;เปลี่ยนโมเดลเป็น sonnet&quot;)">
@@ -195,7 +271,8 @@
       <button class="menu-item" data-section="maker"><span class="mi-k">02</span><span class="mi-t">MAKER</span><span class="mi-th">ขั้นตอน · แผนผัง · อุปกรณ์ · โค้ด</span></button>
       <button class="menu-item" data-section="activity"><span class="mi-k">03</span><span class="mi-t">ACTIVITY</span><span class="mi-th">เครื่องมือที่ Claude ใช้</span></button>
       <button class="menu-item" data-section="diagnostics"><span class="mi-k">04</span><span class="mi-t">DIAGNOSTICS</span><span class="mi-th">latency · tokens · terminal</span></button>
-      <button class="menu-item" id="btn-settings" data-section="settings"><span class="mi-k">05</span><span class="mi-t">SETTINGS</span><span class="mi-th">ตั้งค่า</span></button>
+      <button class="menu-item" data-section="projects"><span class="mi-k">05</span><span class="mi-t">PROJECTS</span><span class="mi-th">งานเบื้องหลัง · หลายโปรเจกต์</span></button>
+      <button class="menu-item" id="btn-settings" data-section="settings"><span class="mi-k">06</span><span class="mi-t">SETTINGS</span><span class="mi-th">ตั้งค่า</span></button>
       <div class="menu-sep"></div>
       <div class="menu-snd">
         <span class="mono dim">SOUND</span>

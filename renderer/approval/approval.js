@@ -103,7 +103,7 @@ function answer(decision, ev) {
   if (!ev || !ev.isTrusted || !req) return;
   if ((decision === 'once' || decision === 'always') && $('allow').disabled) return;
   const reason = decision === 'deny-reason' ? $('deny-reason').value.trim() : '';
-  api.invoke('approval-win:respond', { id: req.id, decision, reason }).catch(() => {});
+  api.invoke('approval-win:respond', { id: req.id, projectId: req.projectId || 'main', decision, reason }).catch(() => {});
 }
 
 $('allow').onclick = (e) => answer('once', e);

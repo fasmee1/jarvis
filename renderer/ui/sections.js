@@ -1,17 +1,18 @@
 // Hamburger menu + full-screen sections (one visible at a time) + window controls.
-// TALK is not a section: it is the Conversation popup on the HUD (ui/conversation.js),
-// opened through onTalk.
+// TALK and PROJECTS are not sections: they are popups on the HUD (ui/conversation.js,
+// ui/projects.js), opened through onTalk / onProjects.
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
 const VIEWS = { maker: 'view-maker', activity: 'view-activity', diagnostics: 'view-diagnostics', settings: 'settings' };
-const ORDER = ['talk', 'maker', 'activity', 'diagnostics', 'settings'];
+const ORDER = ['talk', 'maker', 'activity', 'diagnostics', 'projects', 'settings'];
 
 export class Sections {
-  constructor({ onChange, beforeShow, onTalk }) {
+  constructor({ onChange, beforeShow, onTalk, onProjects }) {
     this.onChange = onChange || (() => {});
     this.beforeShow = beforeShow || (() => {});
     this.onTalk = onTalk || (() => {});
+    this.onProjects = onProjects || (() => {});
     this.current = null; // null = home
     this.menu = $('menu');
     this.hb = $('hamburger');
@@ -47,7 +48,7 @@ export class Sections {
       else if (this.current) this.home();
       return;
     }
-    if (!this.menu.hidden && /^[1-5]$/.test(e.key)) {
+    if (!this.menu.hidden && /^[1-6]$/.test(e.key)) {
       e.preventDefault(); // "1" must not end up typed in the conversation input
       this.show(ORDER[Number(e.key) - 1]);
     }
@@ -76,10 +77,16 @@ export class Sections {
       this.onTalk();
       return;
     }
+    if (name === 'projects') {
+      this.home();
+      this.onProjects();
+      return;
+    }
     if (!VIEWS[name]) return;
     this.closeMenu();
     this.beforeShow(name);
     for (const [k, id] of Object.entries(VIEWS)) $(id).hidden = k !== name;
+    document.body.classList.add('in-section'); // HUD-only controls step aside (styles.css)
     this.current = name;
     this.onChange(name);
   }
@@ -87,6 +94,7 @@ export class Sections {
   home() {
     this.closeMenu();
     for (const id of Object.values(VIEWS)) $(id).hidden = true;
+    document.body.classList.remove('in-section');
     this.current = null;
     this.onChange(null);
   }
