@@ -6,6 +6,7 @@ const { pathToFileURL } = require('url');
 
 const { SettingsStore, defaults: settingDefaults } = require('./lib/settings');
 const { JarvisCore } = require('./lib/jarvis-core');
+const { MemoryStore } = require('./lib/memory');
 const { ProjectManager } = require('./lib/projects');
 const { listSessions, readSession } = require('./lib/history');
 const { UsageService } = require('./lib/usage/service');
@@ -76,6 +77,7 @@ let core = null;
 let projects = null; // background projects: one core per folder (lib/projects.js)
 const chosenProjectDirs = new Set(); // folders picked with project:choose
 let settings = null;
+let memory = null; // long-term voice memory shared by every project's core (lib/memory.js)
 let tts = null;
 let stt = null;
 let vision = null;
@@ -1000,8 +1002,10 @@ app.whenReady().then(async () => {
     send(channel, payload);
     approvalFeed(channel, payload);
   };
+  memory = new MemoryStore(userData);
   core = new JarvisCore({
     settings,
+    memory,
     tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
     appRoot: APP_ROOT,
     logDir: userData,
@@ -1019,6 +1023,7 @@ app.whenReady().then(async () => {
     stateFile: path.join(userData, 'projects.json'),
     createCore: ({ id, name, ui }) => new JarvisCore({
       settings,
+      memory,
       tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
       appRoot: APP_ROOT,
       logDir: userData,
