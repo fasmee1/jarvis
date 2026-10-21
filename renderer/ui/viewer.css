@@ -204,6 +204,21 @@ img.broken { visibility: hidden; }
 .mp-frame { width: 100%; height: calc(100% - 32px); min-height: 360px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, 0.04); }
 .sv-body.padded:has(.mp-frame) { padding-bottom: 32px; }
 .mp-cap { margin-top: 10px; font-size: 13px; color: var(--text-2); }
+.mp-wrap { position: relative; width: 100%; height: calc(100% - 32px); min-height: 360px; }
+.sv-body.padded:has(.mp-wrap) { padding-bottom: 32px; }
+.mp-wrap > .mp-frame { height: 100%; }
+.mp-gl { width: 100%; height: 100%; border-radius: 8px; overflow: hidden; background: rgba(255, 255, 255, 0.04); }
+.mp-bar { position: absolute; top: 10px; left: 10px; z-index: 2; display: flex; gap: 6px; }
+.mp-3d { min-width: 44px; padding: 6px 10px; border: 1px solid rgba(0, 216, 255, 0.4); border-radius: 6px; background: rgba(8, 14, 20, 0.8); color: #00d8ff; font-family: var(--font-mono); font-size: 13px; cursor: pointer; }
+.mp-3d:disabled { opacity: 0.4; cursor: default; }
+.mp-3d:not(:disabled):hover { background: rgba(0, 216, 255, 0.15); }
+.mp-3d.on { background: rgba(8, 14, 20, 0.92); border-color: #00d8ff; }
+.mp-earth-box { position: absolute; inset: 0; z-index: 1; border-radius: 8px; overflow: hidden; background: #0b1118; }
+.mp-earth-box canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.mp-earth-attr { position: absolute; right: 8px; bottom: 6px; max-width: 70%; padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #e8e8e8; font-size: 11px; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-earth-err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--text-2); font-size: 14px; }
+.wx-radar { height: 320px; margin-top: 20px; }
+.wx-radar-off { display: none; }
 
 /* ----- skeleton / empty ----- */
 .sk { display: flex; flex-direction: column; gap: 14px; max-width: 860px; }
@@ -230,3 +245,11 @@ img.broken { visibility: hidden; }
 /* viewer mode: the HUD-only model picker steps aside so it never covers the viewer header */
 .home.viewer-mode ~ .model-pick, body.viewer-mode .model-pick { opacity: 0; pointer-events: none; }
 .nw.featured .nw-thumb { aspect-ratio: auto; height: clamp(200px, 34vh, 380px); }
+
+/* ----- expanded popups (StageViewer.setWide): the popup covers the top-left HUD buttons' spot ----- */
+body.viewer-mode.sv-wide-on :is(.hamburger, .proj-chip, .hud-sound-btn, .hf-btn, .model-pick) { visibility: hidden; }
+/* Earth mode covers the MapLibre map: hide its zoom / attribution controls too */
+.mp-wrap:has(.mp-earth-box) .maplibregl-control-container { display: none; }
+.mp-sv-frame { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; border: 0; border-radius: 8px; background: #0b1118; }
+.mp-wrap:has(.mp-sv-frame) .maplibregl-control-container { display: none; }
+.mp-wrap:has(.mp-sv-frame) .mp-bar { left: auto; right: 64px; } /* clear of Google's address box (top-left) and fullscreen button */

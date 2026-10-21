@@ -11,6 +11,7 @@
 
 import { vicon } from './stage-viewer.js';
 import { safeUrl, domainOf, youtubeId, relTime } from './result-utils.js';
+import { createMap3D } from './map3d.js';
 
 export { safeUrl, domainOf, youtubeId, relTime };
 
@@ -375,8 +376,15 @@ function renderWeather(root, data) {
     }
     wrap.append(strip);
   }
+  // Rain radar on a small map when the payload carries coordinates (no fallback: the card stands alone).
+  let radar = null;
+  if (typeof data.lat === 'number' && typeof data.lon === 'number') {
+    const box = h('div', 'mp-gl wx-radar sv-item');
+    wrap.append(box);
+    radar = mountMap3D(box, { lat: data.lat, lon: data.lon, zoom: data.zoom || 7, radar: true, view3d: !!data.view3d }, () => h('div', 'wx-radar-off'));
+  }
   root.append(wrap);
-  return { items: [], read: `${data.location || ''} ${c.temp != null ? Math.round(c.temp) + ' องศา' : ''} ${c.condition || ''}` };
+  return { items: [], onShow: radar ? radar.onShow : undefined, dispose: radar ? radar.dispose : undefined, read: `${data.location || ''} ${c.temp != null ? Math.round(c.temp) + ' องศา' : ''} ${c.condition || ''}` };
 }
 
 // ---------- table ----------
@@ -542,9 +550,8 @@ function renderText(root, data, ctx) {
 }
 
 // ---------- map ----------
-function renderMap(root, data, ctx) {
+function osmFrame(data) {
   const { lat, lon } = data;
-  if (typeof lat !== 'number' || typeof lon !== 'number') return renderEmpty(root, 'ไม่มีพิกัดสำหรับแผนที่');
   const z = data.zoom || 14;
   const d = 0.02 * Math.pow(2, 14 - z);
   const bbox = [lon - d, lat - d / 2, lon + d, lat + d / 2].map((v) => v.toFixed(5)).join(',');
@@ -554,10 +561,192 @@ function renderMap(root, data, ctx) {
   f.referrerPolicy = 'no-referrer';
   f.title = data.location || 'แผนที่';
   f.src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat.toFixed(5)},${lon.toFixed(5)}`;
-  root.append(f);
-  if (data.location) root.append(h('div', 'mp-cap', data.location));
+  return f;
+}
+
+// MapLibre map in `box` (lazy-loaded); on any failure swaps in `fallback()` if given.
+// Returns { dispose, onShow, ctl: () => map controller | null }.
+function mountMap3D(box, opts, fallback) {
+  let map = null;
+  let gone = false;
+  createMap3D(box, opts).then((m) => {
+    if (gone) { m.dispose(); return; }
+    map = m;
+    box.classList.add('ready');
+    if (opts.onReady) opts.onReady(m);
+  }).catch(() => {
+    if (gone) return;
+    box.classList.add('failed');
+    if (fallback) box.replaceWith(fallback());
+  });
+  return {
+    ctl: () => map,
+    onShow: () => { if (map) map.resize(); },
+    dispose: () => { gone = true; if (map) map.dispose(); map = null; },
+  };
+}
+
+// Earth-mode credential (settings → การแสดงผล): a Google Maps key wins, else a
+// Cesium ion token → { apiKey } | { ionToken } | null when neither is set.
+let earthAuthPromise = null;
+function getEarthAuth() {
+  if (!earthAuthPromise) {
+    const api = typeof window !== 'undefined' && window.jarvis;
+    earthAuthPromise = (api ? api.invoke('maps:earth-keys') : Promise.resolve({}))
+      .then((k) => (k && k.google ? { apiKey: k.google } : k && k.ion ? { ionToken: k.ion } : null), () => null);
+    // re-check next time so a key saved in Settings shows up without a restart
+    earthAuthPromise.then(() => setTimeout(() => { earthAuthPromise = null; }, 0));
+  }
+  return earthAuthPromise;
+}
+
+// Google Street View embed (no key) facing east; Google shows its own notice where there is no imagery.
+function streetViewUrl(la, lo) {
+  return `https://www.google.com/maps/embed?origin=mfe&pb=!6m7!1m6!2m2!1d${la.toFixed(6)}!2d${lo.toFixed(6)}!3f90!4f0!5f1`;
+}
+function streetViewPage(la, lo) {
+  return `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${la.toFixed(6)},${lo.toFixed(6)}`;
+}
+
+function renderMap(root, data, ctx) {
+  const { lat, lon } = data;
+  if (typeof lat !== 'number' || typeof lon !== 'number') return renderEmpty(root, 'ไม่มีพิกัดสำหรับแผนที่');
+  const z = data.zoom || 14;
   const ext = `https://www.openstreetmap.org/?mlat=${lat.toFixed(5)}&mlon=${lon.toFixed(5)}#map=${z}/${lat.toFixed(5)}/${lon.toFixed(5)}`;
-  return { items: [], external: () => ext, dispose: () => { f.src = 'about:blank'; } };
+  let frame = null;
+  const fallback = () => { frame = osmFrame(data); bar.remove(); return frame; };
+  // 3D views default to real-colour satellite imagery unless the payload says otherwise.
+  const satellite = typeof data.satellite === 'boolean' ? data.satellite : !!data.view3d;
+
+  const wrap = h('div', 'mp-wrap sv-item');
+  const box = h('div', 'mp-gl');
+  const bar = h('div', 'mp-bar');
+  const button = (label, title) => { const b = h('button', 'mp-3d', label); b.type = 'button'; b.disabled = true; b.title = title; bar.append(b); return b; };
+  const btn = button(data.view3d ? '2D' : '3D', 'สลับมุมมอง 2D / 3D');
+  const sat = button(satellite ? 'แผนที่' : 'ดาวเทียม', 'สลับภาพดาวเทียม / แผนที่');
+  wrap.append(box, bar);
+  root.append(wrap);
+  if (data.location) root.append(h('div', 'mp-cap', data.location));
+
+  const m = mountMap3D(box, {
+    lat, lon, zoom: z, view3d: !!data.view3d, satellite,
+    onReady: () => { btn.disabled = false; sat.disabled = false; },
+  }, fallback);
+  btn.addEventListener('click', () => {
+    const map = m.ctl();
+    if (map) btn.textContent = map.toggle3D() ? '2D' : '3D';
+  });
+  sat.addEventListener('click', () => {
+    const map = m.ctl();
+    if (map) sat.textContent = map.toggleSatellite() ? 'แผนที่' : 'ดาวเทียม';
+  });
+
+  // Optional "Google Earth" mode (photoreal 3D tiles): only offered when a key is set,
+  // loaded on demand, and torn down when switched off so it holds no memory.
+  const earthBtn = h('button', 'mp-3d mp-earth', 'Earth');
+  earthBtn.type = 'button';
+  earthBtn.title = 'Google Earth 3D — ตึกและต้นไม้เป็นภาพถ่ายสีจริง (ใช้เครื่องมากขึ้น)';
+  earthBtn.hidden = true;
+  bar.append(earthBtn);
+  let earth = null;
+  let earthBox = null;
+  let earthGone = false;
+  const earthOff = () => {
+    if (earth) earth.dispose();
+    earth = null;
+    if (earthBox) earthBox.remove();
+    earthBox = null;
+    earthBtn.classList.remove('on');
+    earthBtn.textContent = 'Earth';
+    for (const b of [btn, sat]) b.hidden = false;
+  };
+  const earthOn = async () => {
+    const auth = await getEarthAuth();
+    if (!auth || earthGone) return;
+    const credit = auth.ionToken ? 'Google · Cesium ion' : 'Google';
+    earthBox = h('div', 'mp-earth-box');
+    const attr = h('div', 'mp-earth-attr', credit);
+    earthBox.append(attr);
+    wrap.insertBefore(earthBox, bar);
+    earthBtn.classList.add('on');
+    earthBtn.textContent = 'ปิด Earth';
+    for (const b of [btn, sat]) b.hidden = true;
+    try {
+      const { createEarth3D } = await import('./vendor/earth3d.min.js');
+      if (earthGone || !earthBox) return;
+      earth = createEarth3D(earthBox, {
+        ...auth, lat, lon,
+        height: Math.max(150, 450 * Math.pow(2, 16 - z)),
+        dracoPath: new URL('./vendor/draco/', import.meta.url).href,
+        onAttribution: (t) => { attr.textContent = t ? `${credit} · ${t}` : credit; },
+        onError: (err) => {
+          if (!earthBox) return;
+          if (earth) earth.pause();
+          const denied = /GoogleCloudAuth|CesiumIonAuth|\b40[0134]\b/.test(String((err && err.message) || err));
+          const msg = !denied ? 'โหลดภาพ Google Earth ไม่ได้ (ตรวจอินเทอร์เน็ต)'
+            : auth.ionToken ? 'Cesium ion ไม่รับ token นี้ — ตรวจว่าเพิ่ม Google Photorealistic 3D Tiles ใน My Assets แล้ว'
+              : 'Google ไม่รับ key นี้ — ตรวจว่าเปิด Map Tiles API ใน Google Cloud แล้ว';
+          earthBox.append(h('div', 'mp-earth-err', msg));
+        },
+      });
+    } catch (err) {
+      earthOff();
+      console.warn('[earth3d]', err);
+      earthBtn.title = `เปิด Google Earth 3D ไม่ได้: ${err.message}`;
+    }
+  };
+  earthBtn.addEventListener('click', () => { if (earth || earthBox) earthOff(); else { svOff(); earthOn(); } });
+
+  // Street View: Google's own keyless embed, at the centre of the map as it is now.
+  const svBtn = h('button', 'mp-3d mp-sv', 'Street View');
+  svBtn.type = 'button';
+  svBtn.title = 'ภาพถนนจริงแบบ 360° ของ Google ที่จุดกลางแผนที่ (ลากเพื่อมองรอบ · คลิกลูกศรบนถนนเพื่อเดิน)';
+  bar.append(svBtn);
+  let svFrame = null;
+  let svAt = null;
+  const svOff = () => {
+    if (!svFrame) return;
+    svFrame.src = 'about:blank';
+    svFrame.remove();
+    svFrame = null;
+    svBtn.classList.remove('on');
+    svBtn.textContent = 'Street View';
+    for (const b of [btn, sat]) b.hidden = false;
+    earthBtn.hidden = !earthBtnWanted;
+  };
+  const svOn = () => {
+    earthOff();
+    const map = m.ctl();
+    svAt = (map && map.center()) || { lat, lon };
+    svFrame = document.createElement('iframe');
+    svFrame.className = 'mp-sv-frame';
+    svFrame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
+    svFrame.referrerPolicy = 'no-referrer-when-downgrade';
+    svFrame.allow = 'fullscreen; accelerometer; gyroscope';
+    svFrame.title = 'Google Street View';
+    svFrame.src = streetViewUrl(svAt.lat, svAt.lon);
+    wrap.insertBefore(svFrame, bar);
+    svBtn.classList.add('on');
+    svBtn.textContent = 'ปิด Street View';
+    for (const b of [btn, sat, earthBtn]) b.hidden = true;
+  };
+  svBtn.addEventListener('click', () => { if (svFrame) svOff(); else svOn(); });
+  if (data.streetview) setTimeout(() => { if (!earthGone && !svFrame) svOn(); }, 0);
+  let earthBtnWanted = false;
+  getEarthAuth().then((a) => {
+    if (!a || earthGone) return;
+    earthBtnWanted = true;
+    earthBtn.hidden = !!svFrame;
+    if (data.earth && !svFrame) earthOn();
+  });
+
+  return {
+    items: [],
+    external: () => (svFrame && svAt ? streetViewPage(svAt.lat, svAt.lon) : ext),
+    onShow: () => { m.onShow(); if (earth) earth.resume(); },
+    onHide: () => { if (earth) earth.pause(); },
+    dispose: () => { earthGone = true; svOff(); earthOff(); m.dispose(); if (frame) frame.src = 'about:blank'; },
+  };
 }
 
 // ---------- states ----------

@@ -2,6 +2,8 @@
 // current project (Claude Code's own transcripts), a read-only preview, and
 // "ทำต่อจากบทสนทนานี้" which continues one with --resume.
 
+import { linkParts } from './result-utils.js';
+
 const $ = (id) => document.getElementById(id);
 
 function el(tag, props = {}, ...kids) {
@@ -139,7 +141,12 @@ export class HistoryPanel {
     this.body.replaceChildren();
     if (!r.ok) return this.body.append(el('div', { class: 'cv-hist-empty', text: r.error }));
     if (s.startedAt) this.body.append(el('div', { class: 'cv-hist-day', text: `เริ่มเมื่อ ${FULL.format(new Date(s.startedAt))} · ${r.messages.length} ข้อความ` }));
-    for (const m of r.messages) this.body.append(el('div', { class: `msg ${m.role}`, text: m.text }));
+    // URLs become a.cv-link; app.js opens them in the browser
+    for (const m of r.messages) {
+      this.body.append(el('div', { class: `msg ${m.role}` }, ...linkParts(m.text).map((p) => (p.url
+        ? el('a', { class: 'cv-link', href: p.url, title: p.url, text: p.text })
+        : document.createTextNode(p.text)))));
+    }
     $('cv-hist-back').focus();
   }
 

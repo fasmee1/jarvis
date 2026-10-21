@@ -238,9 +238,10 @@ export class ResultViewer {
     const ctl = (t && t.ctl) || {};
     const items = ctl.items || [];
     const item = (n) => items[n - 1];
-    if (cmd.op !== 'close' && this.o.web && this.o.web.command(cmd)) return true;
+    if (cmd.op !== 'close' && cmd.op !== 'wide' && this.o.web && this.o.web.command(cmd)) return true;
     switch (cmd.op) {
       case 'close': v.closeAll(); return true;
+      case 'wide': v.setWide(cmd.n === 1); return true;
       case 'next':
       case 'prev': {
         const d = cmd.op === 'next' ? 1 : -1;

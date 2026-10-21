@@ -20,9 +20,26 @@ test('jarvis-result payloads validate by type', () => {
   ok({ type: 'table', columns: ['a', 'b'], rows: [[1, 'x'], [2, 'y']] });
   ok({ type: 'chart', labels: ['1', '2'], series: [{ name: 's', values: [1, 2] }] });
   ok({ type: 'map', lat: 13.76, lon: 100.53, zoom: 15 });
+  ok({ type: 'map', lat: 13.76, lon: 100.53, view3d: true, satellite: true, earth: true, streetview: true });
+  assert.ok(validate(SCHEMAS.result, { type: 'map', lat: 1, lon: 1, streetview: 'yes' }).length, 'streetview must be boolean');
+  ok({ type: 'weather', location: 'เชียงใหม่', lat: 18.79, lon: 98.98, current: { temp: 27 } });
+  assert.ok(validate(SCHEMAS.result, { type: 'map', lat: 1, lon: 1, view3d: 'yes' }).length, 'view3d must be boolean');
   assert.ok(validate(SCHEMAS.result, { type: 'video' }).length, 'unknown type rejected');
   assert.ok(validate(SCHEMAS.result, { type: 'map', lat: 120, lon: 0 }).length, 'lat out of range');
   assert.ok(validate(SCHEMAS.result, { type: 'search', items: new Array(41).fill({}) }).length, 'max 40 items');
+});
+
+test('linkParts turns chat URLs into links', async () => {
+  const { linkParts } = await utils();
+  assert.deepStrictEqual(linkParts('ดูที่ https://a.com/x?y=1. ครับ'), [
+    { text: 'ดูที่ ' }, { text: 'https://a.com/x?y=1', url: 'https://a.com/x?y=1' }, { text: '. ครับ' },
+  ]);
+  assert.deepStrictEqual(linkParts('[เว็บ](https://b.com/p)'), [{ text: 'เว็บ', url: 'https://b.com/p' }]);
+  assert.deepStrictEqual(linkParts('https://c.comครับ')[0], { text: 'https://c.com', url: 'https://c.com/' });
+  assert.strictEqual(linkParts('(https://en.wikipedia.org/wiki/A_(b))')[1].text, 'https://en.wikipedia.org/wiki/A_(b)');
+  assert.strictEqual(linkParts('(https://d.com)')[1].text, 'https://d.com');
+  assert.deepStrictEqual(linkParts('[x](javascript:alert(1))'), [{ text: '[x](javascript:alert(1))' }]);
+  assert.deepStrictEqual(linkParts('ไม่มีลิงก์'), [{ text: 'ไม่มีลิงก์' }]);
 });
 
 test('a streamed ```jarvis-result block comes out as a block item', () => {
@@ -101,6 +118,11 @@ test('viewer voice commands (only while the viewer is open)', async () => {
   const VV = { viewer: true, video: true };
   assert.deepStrictEqual(p('ปิด', V), { action: 'viewer', op: 'close' });
   assert.deepStrictEqual(p('ปิดหน้าจอ', V), { action: 'viewer', op: 'close' });
+  assert.deepStrictEqual(p('ขยายจอ', V), { action: 'viewer', op: 'wide', n: 1 });
+  assert.deepStrictEqual(p('ขยายเต็มจอครับ', V), { action: 'viewer', op: 'wide', n: 1 });
+  assert.deepStrictEqual(p('ย่อจอ', V), { action: 'viewer', op: 'wide', n: 0 });
+  assert.deepStrictEqual(p('ขยายจอ', { viewer: true, web: true }), { action: 'viewer', op: 'wide', n: 1 });
+  assert.deepStrictEqual(p('ขยาย', { viewer: true, web: true }), { action: 'viewer', op: 'expand' });
   assert.strictEqual(p('ปิด', {}), null, 'plain "ปิด" means nothing without the viewer');
   assert.deepStrictEqual(p('ถัดไป', V), { action: 'viewer', op: 'next' });
   assert.deepStrictEqual(p('ก่อนหน้า', V), { action: 'viewer', op: 'prev' });

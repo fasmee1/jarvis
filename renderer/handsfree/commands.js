@@ -161,6 +161,8 @@ const VIEW = {
   readEn: new RegExp(`^read(?:the)?(?:number|item|result)?${NUM}(?:one|item|result)?$`),
   down: R('^(?:เลื่อนลง|เลื่อนลงอีก|ลงอีก|scrolldown|down)$'),
   up: R('^(?:เลื่อนขึ้น|เลื่อนขึ้นอีก|scrollup|up)$'),
+  wide: R('^(?:ขยายจอ|ขยายเต็มจอ|ขยายหน้าจอ|ขยายหน้าต่าง|ขยายให้กว้าง|ขยายให้ใหญ่|เต็มจอ|maximize|maximise|fullsize|expandwindow)$'),
+  narrow: R('^(?:ย่อจอ|ย่อหน้าจอ|ย่อหน้าต่าง|ย่อกลับ|ขนาดปกติ|จอปกติ|restore|restoresize|shrink)$'),
   external: R('^(?:เปิดในเบราว์เซอร์|เปิดในบราวเซอร์|เปิดเบราว์เซอร์|เปิดบราวเซอร์|เปิดข้างนอก|openinbrowser|openinthebrowser|openexternally)$'),
   play: R('^(?:เล่น|เล่นต่อ|เล่นวิดีโอ|เล่นคลิป|play|resume|playvideo)$'),
   pause: R('^(?:หยุด|หยุดวิดีโอ|หยุดคลิป|หยุดก่อน|พัก|พักก่อน|pause|stop|stopvideo)$'),
@@ -226,6 +228,8 @@ function viewerCommand(t, ctx) {
     if (VIEW.softer.test(t)) return v('volume', -15);
   }
   if (VIEW.close.test(t)) return v('close');
+  if (VIEW.wide.test(t)) return v('wide', 1);
+  if (VIEW.narrow.test(t)) return v('wide', 0);
   if (VIEW.next.test(t)) return v('next');
   if (VIEW.prev.test(t)) return v('prev');
   if (VIEW.down.test(t)) return v('scroll', 1);

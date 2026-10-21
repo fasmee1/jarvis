@@ -17,6 +17,7 @@ import { StageViewer } from './ui/stage-viewer.js';
 import { ResultViewer } from './ui/result-viewer.js';
 import { WebViewer } from './ui/web-viewer.js';
 import { ConversationPopup } from './ui/conversation.js';
+import { linkParts } from './ui/result-utils.js';
 import { SlashMenu } from './ui/slash-menu.js';
 import { HistoryPanel } from './ui/history.js';
 import { UsagePanel } from './ui/usage.js';
@@ -363,10 +364,28 @@ function addUserMsg(text, image, source = 'camera') {
       if (r.ok) { notice('บันทึกภาพแล้ว: ' + r.file); e.target.disabled = true; } else notice(r.error || 'บันทึกไม่ได้', 'error');
     } }));
   }
-  m.append(el('div', { text }));
+  m.append(linkedText(el('div'), text));
   $('chat').append(m);
   scrollChat();
 }
+
+/** Fill node with text, URLs as <a class="cv-link"> (opened externally by the click handler below). */
+function linkedText(node, text) {
+  node.replaceChildren(...linkParts(text).map((p) => (p.url
+    ? el('a', { class: 'cv-link', href: p.url, title: p.url, text: p.text })
+    : document.createTextNode(p.text))));
+  return node;
+}
+
+// Links in chat and history open in the default browser; the app window itself never navigates.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a.cv-link');
+  if (!a) return;
+  e.preventDefault();
+  api.invoke('web:open-external', a.href).then((r) => {
+    if (r && !r.ok) notice(r.error || 'เปิดลิงก์ไม่ได้', 'error');
+  }).catch(() => notice('เปิดลิงก์ไม่ได้', 'error'));
+});
 
 function addSystemMsg(text) {
   $('chat').append(el('div', { class: 'msg system', text }));
@@ -390,10 +409,12 @@ function ensureAssistant() {
 function appendText(t) {
   const m = ensureAssistant();
   if (!curText) {
-    curText = document.createTextNode('');
+    curText = el('span');
+    curText._raw = '';
     m.append(curText);
   }
-  curText.appendData(t);
+  curText._raw += t;
+  linkedText(curText, curText._raw);
   scrollChat();
 }
 
@@ -1087,7 +1108,7 @@ function showResumed(messages, title) {
   $('chat').replaceChildren();
   for (const m of messages) {
     if (m.role === 'user') addUserMsg(m.text);
-    else $('chat').append(el('div', { class: 'msg assistant', text: m.text }));
+    else $('chat').append(linkedText(el('div', { class: 'msg assistant' }), m.text));
   }
   addSystemMsg(`ทำต่อจากบทสนทนา "${title}" — JARVIS จำเนื้อหาเดิมได้ พิมพ์หรือพูดต่อได้เลย`);
 }
@@ -1717,6 +1738,16 @@ function wireSettings() {
     await api.invoke('stt:set-typhoon-key', key).then(() => notice(key ? 'บันทึก Typhoon key (เข้ารหัส) แล้ว' : 'ลบ Typhoon key แล้ว'), (err) => notice(err.message, 'error'));
     $('s-typhoon-key').value = '';
     refreshInstallStatus();
+  };
+  $('s-ion-save').onclick = async () => {
+    const key = $('s-ion-key').value.trim();
+    await api.invoke('maps:set-ion-key', key).then(() => notice(key ? 'บันทึก Cesium ion token (เข้ารหัส) แล้ว — แผนที่จะมีปุ่ม Earth' : 'ลบ Cesium ion token แล้ว'), (err) => notice(err.message, 'error'));
+    $('s-ion-key').value = '';
+  };
+  $('s-google-maps-save').onclick = async () => {
+    const key = $('s-google-maps-key').value.trim();
+    await api.invoke('maps:set-google-key', key).then(() => notice(key ? 'บันทึก Google Maps key (เข้ารหัส) แล้ว — แผนที่จะมีปุ่ม Earth' : 'ลบ Google Maps key แล้ว'), (err) => notice(err.message, 'error'));
+    $('s-google-maps-key').value = '';
   };
   $('s-orb-reset').onclick = async () => {
     const r = await saveSetting({ orbPos: null });

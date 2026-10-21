@@ -10,6 +10,7 @@
     "postinstall": "node node_modules/electron/install.js",
     "start": "electron .",
     "check": "node scripts/check-all.js",
+    "build:earth3d": "node scripts/build-earth3d.js",
     "test": "node --test \"test/*.test.js\""
   },
   "license": "UNLICENSED",
@@ -19,12 +20,16 @@
     "@fontsource/ibm-plex-sans-thai": "^5.3.0",
     "@fontsource/rajdhani": "^5.3.0",
     "@fontsource/share-tech-mono": "^5.3.0",
+    "3d-tiles-renderer": "0.5.3",
     "electron": "44.8.0",
-    "gsap": "^3.15.0"
+    "esbuild": "0.28.2",
+    "gsap": "^3.15.0",
+    "three": "0.186.1"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.1.1",
     "@mozilla/readability": "0.6.0",
+    "maplibre-gl": "6.15.0",
     "onnxruntime-web": "1.29.0",
     "pdfjs-dist": "6.4.299"
   }

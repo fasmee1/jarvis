@@ -61,6 +61,8 @@
 .cv .msg { font-size: 15px; line-height: 1.75; white-space: pre-wrap; word-break: break-word; }
 .cv .msg.user { justify-self: end; max-width: 80%; padding: 10px 14px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.06); }
 .cv .msg.assistant { justify-self: stretch; color: var(--text-1); }
+.cv .msg a.cv-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.cv .msg a.cv-link:hover { filter: brightness(1.25); }
 .cv .msg.system { justify-self: center; text-align: center; color: var(--text-3); font-size: 12px; line-height: 1.6; }
 .cv .msg .cam-badge { color: var(--orange); font-size: 12px; margin-bottom: 4px; }
 .cv .msg img.thumb { display: block; max-width: 240px; border-radius: 6px; margin-bottom: 8px; }

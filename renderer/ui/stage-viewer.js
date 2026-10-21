@@ -34,6 +34,10 @@ const VCUT = 6; // same chamfer as the cards
 const MAX_TABS = 6;
 const DIM = ['#grid-bg', '.corner-brk', '#caption-tr', '.caption-bl'];
 
+const WIDE_KEY = 'jarvis.viewerWide'; // "expanded" popups (all surfaces), remembered between launches
+const WIDE_PAD = 8; // window px margin around an expanded popup
+const WIDE_ICON = { on: 'M4 14h6v6 M20 10h-6V4 M14 10l7-7 M3 21l7-7', off: 'M15 3h6v6 M9 21H3v-6 M21 3l-7 7 M3 21l7-7' };
+
 // Lucide-style 24px icons for the viewer (strokes only)
 export const VICONS = {
   search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M21 21l-4.35-4.35',
@@ -102,6 +106,8 @@ export class StageViewer {
     this.seq = 0;
     this.listeners = new Set();
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.wideBtns = []; // the expand / restore button of every surface
+    try { this.wide = localStorage.getItem(WIDE_KEY) === '1'; } catch { this.wide = false; }
     this._build();
     this._keys();
     addEventListener('resize', () => this._relayout());
@@ -146,6 +152,13 @@ export class StageViewer {
    */
   registerSurface(name, parts, hooks = {}) {
     this.surfaces[name] = { ...parts, hooks };
+    // expand / restore button, just before the surface's own close button
+    if (parts.head) {
+      const close = parts.head.querySelector('[id$="-close"]');
+      const b = this._wideButton('cv-ctl cv-icon', 'cv-i');
+      if (close) close.before(b); else parts.head.append(b);
+      this._wideDblClick(parts.head);
+    }
     if (this.g) this._layout(this.g);
   }
 
@@ -209,8 +222,10 @@ export class StageViewer {
     const tabs = h('div', 'sv-tabs');
     tabs.setAttribute('role', 'tablist');
     const ext = iconButton('external', 'เปิดในเบราว์เซอร์', 'sv-ext');
+    const wide = this._wideButton('sv-btn sv-wide');
     const x = iconButton('x', 'ปิด (Esc)', 'sv-close');
-    head.append(tIco, title, meta, extras, h('span', 'sv-sp'), tabs, ext, x);
+    head.append(tIco, title, meta, extras, h('span', 'sv-sp'), tabs, ext, wide, x);
+    this._wideDblClick(head);
 
     const bodies = h('div', 'sv-bodies');
     const foot = h('div', 'sv-foot');
@@ -397,10 +412,62 @@ export class StageViewer {
     v.inner.classList.toggle('has-foot', !v.foot.hidden);
   }
 
+  // ---------- expand (wide) ----------
+  /** Expand every popup to (almost) the whole window, or restore the normal size. */
+  setWide(on = !this.wide) {
+    this.wide = !!on;
+    try { localStorage.setItem(WIDE_KEY, this.wide ? '1' : '0'); } catch { /* storage unavailable */ }
+    this._syncWide();
+    this._relayout();
+    return this.wide;
+  }
+
+  _wideButton(cls, svgCls) {
+    const b = h('button', cls);
+    b.type = 'button';
+    const s = svg('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', ...(svgCls ? { class: svgCls } : {}) });
+    s.append(svg('path', {}));
+    b.append(s);
+    b.addEventListener('click', (e) => { e.stopPropagation(); this.setWide(); });
+    this.wideBtns.push(b);
+    this._syncWide();
+    return b;
+  }
+
+  _syncWide() {
+    const label = this.wide ? 'ย่อกลับขนาดปกติ (ดับเบิลคลิกหัวหน้าต่าง)' : 'ขยายเต็มจอ (ดับเบิลคลิกหัวหน้าต่าง)';
+    for (const b of this.wideBtns) {
+      b.title = label;
+      b.setAttribute('aria-label', label);
+      b.setAttribute('aria-pressed', String(this.wide));
+      b.querySelector('path').setAttribute('d', this.wide ? WIDE_ICON.on : WIDE_ICON.off);
+    }
+    document.body.classList.toggle('sv-wide-on', this.wide);
+  }
+
+  /** Double-clicking an empty part of a popup's header toggles expand. */
+  _wideDblClick(head) {
+    head.addEventListener('dblclick', (e) => {
+      if (e.target.closest('button, input, textarea, select, a, [role="tab"]')) return;
+      this.setWide();
+    });
+  }
+
   // ---------- geometry ----------
-  /** Viewer box in stage px: 80vw × 90vh centred, never under the top-left buttons (end at 176 px). */
+  /**
+   * Viewer box in stage px: 80vw × 90vh centred, never under the top-left buttons (end at 176 px);
+   * expanded: the whole window less a small margin.
+   */
   _geom() {
     const t = this.home.t;
+    if (this.wide) {
+      return {
+        x: (WIDE_PAD - t.ox) / t.scale,
+        y: (WIDE_PAD - t.oy) / t.scale,
+        w: (innerWidth - 2 * WIDE_PAD) / t.scale,
+        h: (innerHeight - 2 * WIDE_PAD) / t.scale,
+      };
+    }
     const left = Math.max(innerWidth * 0.1, 192);
     return {
       x: (left - t.ox) / t.scale,

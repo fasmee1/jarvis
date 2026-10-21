@@ -12,6 +12,39 @@ export function safeUrl(u) {
   }
 }
 
+// [label](url) or a bare http(s) URL. A bare URL stops at whitespace, quotes,
+// brackets and Thai letters (Thai text often follows a URL with no space).
+const LINK_RE = /\[([^\]\n]{1,300})\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>"'`฀-๿]+/g;
+
+/** Split chat text into [{text, url?}] so URLs can be shown as clickable links. */
+export function linkParts(text) {
+  const s = String(text ?? '');
+  const out = [];
+  let last = 0;
+  for (const m of s.matchAll(LINK_RE)) {
+    let raw = m[0];
+    let label;
+    let url;
+    if (m[1] !== undefined) {
+      label = m[1];
+      url = safeUrl(m[2]);
+    } else {
+      // drop trailing punctuation, and a ")" that closes a paren opened before the URL
+      raw = raw.replace(/[.,;:!?*_~]+$/, '');
+      while (raw.endsWith(')') && (raw.match(/\(/g) || []).length < (raw.match(/\)/g) || []).length) raw = raw.slice(0, -1);
+      raw = raw.replace(/[.,;:!?*_~]+$/, '');
+      label = raw;
+      url = safeUrl(raw);
+    }
+    if (!url) continue;
+    if (m.index > last) out.push({ text: s.slice(last, m.index) });
+    out.push({ text: label, url });
+    last = m.index + raw.length;
+  }
+  if (last < s.length) out.push({ text: s.slice(last) });
+  return out;
+}
+
 export function domainOf(u) {
   try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; }
 }

@@ -28,13 +28,14 @@ const { resolveSite } = require('./lib/web/web-utils');
 const { Summarizer } = require('./lib/web/summarize');
 const { PageReader } = require('./lib/web/page-reader');
 const { PdfReader } = require('./lib/web/pdf');
+const { MapsKey } = require('./lib/maps-key');
 const { OrbWindow, ORB_PRELOAD } = require('./lib/orb/orb-window');
 const { ApprovalWindow, APPROVAL_PRELOAD } = require('./lib/approval-window');
 
 const APP_ROOT = __dirname;
 const APP_ORIGIN = 'app://jarvis';
 // Only these folders are reachable from the renderer via app://jarvis/…
-const SERVED_DIRS = ['renderer', path.join('node_modules', '@mediapipe', 'tasks-vision'), path.join('node_modules', 'onnxruntime-web', 'dist')];
+const SERVED_DIRS = ['renderer', path.join('node_modules', '@mediapipe', 'tasks-vision'), path.join('node_modules', 'onnxruntime-web', 'dist'), path.join('node_modules', 'maplibre-gl', 'dist')];
 
 // Dev aid: JARVIS_USER_DATA=<dir> runs with a separate profile (own settings,
 // own single-instance lock) next to a normally running JARVIS.
@@ -79,6 +80,7 @@ let tts = null;
 let stt = null;
 let vision = null;
 let wakeAssets = null;
+let mapsKeys = null; // { google, ion } credentials for the optional Google Earth 3D map
 let tray = null;
 let web = null; // Web Viewer browser (WebContentsViews in the main window)
 let reader = null; // Web Viewer page reader (extraction + summaries)
@@ -610,6 +612,18 @@ function registerIpc() {
     stt.setKey('typhoon', p);
     return { ok: true };
   });
+  // ---- Google Earth 3D map (optional) ----
+  handle('maps:earth-keys', () => ({ google: mapsKeys.google.get(), ion: mapsKeys.ion.get() }));
+  handle('maps:set-google-key', (p) => {
+    v.str(p, 200, 'key');
+    mapsKeys.google.set(p);
+    return { ok: true };
+  });
+  handle('maps:set-ion-key', (p) => {
+    v.str(p, 2000, 'key'); // ion tokens are JWTs (~200–1000 chars)
+    mapsKeys.ion.set(p);
+    return { ok: true };
+  });
   handle('stt:transcribe', async (p) => {
     v.obj(p);
     const pcm = v.bytes(p.pcm, 16000 * 2 * 180, 'pcm'); // ≤ 3 minutes of 16 kHz mono int16
@@ -977,6 +991,7 @@ app.whenReady().then(async () => {
   const userData = app.getPath('userData');
   settings = new SettingsStore(userData);
   tts = new HybridTts({ edge: new EdgeTts(), fallback: new WinRtTts() });
+  mapsKeys = { google: new MapsKey({ dataDir: userData }), ion: new MapsKey({ dataDir: userData, kind: 'ion' }) };
   stt = new SttService({ dataDir: path.join(userData, 'stt'), tempDir: path.join(app.getPath('temp'), 'mee-jarvis') });
   stt.configure(settings.get());
   vision = new VisionAssets({ dataDir: path.join(userData, 'vision') });
