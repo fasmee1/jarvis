@@ -34,16 +34,12 @@ body.shown .o-in { opacity: 1; transform: scale(1); }
 
 .glass {
   position: absolute; inset: 0; border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(var(--c-rgb), 0.16) 0%, rgba(var(--c-rgb), 0.05) 34%, transparent 62%),
-    radial-gradient(circle at 50% 120%, rgba(var(--c-rgb), 0.10), transparent 60%),
-    radial-gradient(circle at 50% 50%, #0B1219 0%, #060A0F 72%, #04070A 100%);
-  border: 1px solid rgba(var(--c-rgb), 0.28);
-  box-shadow: inset 0 0 0 3px rgba(4, 7, 10, 0.9), inset 0 0 0 4px rgba(255, 255, 255, 0.05), inset 0 0 calc(var(--s) * 0.22) rgba(var(--c-rgb), 0.14), 0 4px 14px rgba(0, 0, 0, 0.55);
-  transition: border-color 240ms var(--ease), box-shadow 240ms var(--ease);
+  background: radial-gradient(circle at 50% 50%, rgba(var(--c-rgb), 0.07) 0%, transparent 48%), radial-gradient(circle at 50% 50%, #090D12 0%, #07090C 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 4px 14px rgba(0, 0, 0, 0.55);
+  transition: box-shadow 240ms var(--ease);
 }
 /* soft glow around the orb (lives in the window's margin) */
-.halo { position: absolute; inset: -22%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, rgba(var(--c-rgb), 0.22) 0%, rgba(var(--c-rgb), 0.08) 45%, transparent 70%); opacity: 0.55; transition: opacity 300ms var(--ease); }
+.halo { position: absolute; inset: -22%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, rgba(var(--c-rgb), 0.22) 0%, rgba(var(--c-rgb), 0.08) 45%, transparent 70%); opacity: 0.35; transition: opacity 300ms var(--ease); }
 .orb:hover .halo, .orb.active .halo { opacity: 0.9; }
 .orb.thinking .halo { animation: halo 1.6s ease-in-out infinite; }
 @keyframes halo { 0%, 100% { opacity: 0.55; transform: scale(0.96); } 50% { opacity: 1; transform: scale(1.04); } }
@@ -53,38 +49,31 @@ body.shown .o-in { opacity: 1; transform: scale(1); }
   transform: scale(calc(0.9 + var(--lv) * 0.35)); opacity: calc(0.55 + var(--lv) * 0.45); }
 .orb.idle .core { animation: core 4s ease-in-out infinite; }
 @keyframes core { 0%, 100% { opacity: 0.45; transform: scale(0.9); } 50% { opacity: 0.75; transform: scale(1); } }
-/* glass reflection, top-left */
-.shine { position: absolute; inset: 4%; border-radius: 50%; pointer-events: none;
-  background: radial-gradient(ellipse 55% 35% at 32% 18%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.03) 60%, transparent 72%); }
-/* bezel scale */
+/* tick ring: 5° minor, 45° / 90° longer, one turn per two minutes */
 .ticks { position: absolute; inset: 0; width: 100%; height: 100%; }
-.ticks path { fill: none; stroke: rgba(var(--c-rgb), 0.55); stroke-width: 0.7; }
-.orb.idle .ticks, .orb.speaking .ticks { animation: spin-back 60s linear infinite; }
-.orb.thinking .ticks { animation: spin-back 12s linear infinite; }
+.ticks path { fill: none; stroke: rgba(255, 255, 255, 0.26); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.orb.idle .ticks, .orb.speaking .ticks { animation: spin-back 120s linear infinite; }
+.orb.thinking .ticks { animation: spin-back 20s linear infinite; }
 @keyframes spin-back { to { transform: rotate(-360deg); } }
-/* static rails, notches and hex marks */
+/* hairline rings, the 72 dim segments and the connector nodes */
 .hud { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; }
-.hud .rail { stroke: rgba(var(--c-rgb), 0.22); stroke-width: 0.6; }
-.hud .rail.faint { stroke: rgba(var(--c-rgb), 0.12); stroke-dasharray: 0.8 2.2; }
-.hud .notch { stroke: var(--c); stroke-width: 1.2; stroke-linecap: square; opacity: 0.85; }
-.hud .hex { fill: rgba(var(--c-rgb), 0.7); }
-/* three segments on an inner ring, turning the opposite way to the arc */
-.segs { position: absolute; inset: 0; width: 100%; height: 100%; }
-.segs circle { fill: none; stroke: var(--c); stroke-width: 1.6; stroke-dasharray: 26 14; opacity: 0.38; transition: opacity 240ms var(--ease); }
-.orb.idle .segs { animation: spin-back 18s linear infinite; }
-.orb.listening .segs { animation: spin-back 6s linear infinite; }
-.orb.thinking .segs { animation: spin-back 2.2s linear infinite; }
-.orb.thinking .segs circle { opacity: 0.7; }
-.orb.speaking .segs { animation: spin-back 8s linear infinite; }
-.orb.speaking .segs circle { opacity: calc(0.35 + var(--lv) * 0.6); }
-/* second, thinner arc */
-.arc2 { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(90deg); }
-.arc2 circle { fill: none; stroke: var(--c); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-dasharray: 6 44; opacity: 0.45; }
-.orb.idle .arc2 { animation: spin2 14s linear infinite; }
-.orb.listening .arc2, .orb.speaking .arc2 { animation: spin2 4s linear infinite; }
-.orb.thinking .arc2 { animation: spin2 1.8s linear infinite; }
-.orb.muted .arc2, .orb.muted .segs { display: none; }
-@keyframes spin2 { from { transform: rotate(90deg); } to { transform: rotate(450deg); } }
+.hud .hair { stroke: rgba(255, 255, 255, 0.12); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.hud .hair.dim { stroke: rgba(255, 255, 255, 0.08); }
+.hud .hair.track { stroke: rgba(255, 255, 255, 0.08); }
+.hud .seg { stroke: rgba(255, 255, 255, 0.12); stroke-width: 2; stroke-dasharray: 0.13 0.87; }
+.hud .node { fill: #8B98A5; stroke: none; }
+.hud .node.on { fill: var(--c); }
+.hud .node-ring { stroke: rgba(255, 255, 255, 0.3); stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* standby wave: accent segments lit by a soft wedge that laps the ring every 6 s */
+.segs { position: absolute; inset: 0; width: 100%; height: 100%; display: none; pointer-events: none;
+  -webkit-mask-image: conic-gradient(from 0deg, transparent 0deg 250deg, #000 330deg, transparent 360deg);
+  mask-image: conic-gradient(from 0deg, transparent 0deg 250deg, #000 330deg, transparent 360deg); }
+.segs circle { fill: none; stroke: var(--c); stroke-width: 2; stroke-dasharray: 0.13 0.87; opacity: 0.9; }
+.orb.idle .segs { display: block; animation: spin-cw 6s linear infinite; }
+.orb.thinking .segs { display: block; animation: spin-cw 1.6s linear infinite; }
+.orb.listening .segs, .orb.speaking .segs { display: block; animation: spin-cw 4s linear infinite; }
+.orb.speaking .segs circle { opacity: calc(0.4 + var(--lv) * 0.6); }
+.orb.muted .segs { display: none; }
 .orb:hover .glass { border-color: rgba(var(--c-rgb), 0.5); }
 .orb.dragging .glass { box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); }
 
@@ -92,10 +81,28 @@ body.shown .o-in { opacity: 1; transform: scale(1); }
 .orb.idle .logo { animation: breathe 4s ease-in-out infinite; }
 @keyframes breathe { 0%, 100% { transform: scale(0.96); opacity: 0.82; } 50% { transform: scale(1); opacity: 1; } }
 
+/* depth layer: same pieces as the reactor on the HUD, kept very dim */
+.ico { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; pointer-events: none; }
+.ico path { stroke: rgba(var(--c-rgb), 0.1); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.orbit { position: absolute; inset: 0; pointer-events: none; transform: rotate(-8deg) scaleY(0.42); }
+.orbit svg { position: absolute; inset: 0; width: 100%; height: 100%; fill: none; }
+.orbit circle { stroke: rgba(var(--c-rgb), 0.1); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sat-spin { position: absolute; inset: 0; }
+.orb.idle .sat-spin, .orb.speaking .sat-spin { animation: spin-cw 20s linear infinite; }
+.sat { position: absolute; left: 50%; top: 0; width: 5%; height: 12%; margin: -6% 0 0 -2.5%; border-radius: 50%; background: var(--c); box-shadow: 0 0 6px rgba(var(--c-rgb), 0.9); }
+.sweep { position: absolute; inset: 5%; border-radius: 50%; display: none; pointer-events: none;
+  background: conic-gradient(from 0deg, transparent 0deg 180deg, rgba(var(--c-rgb), 0.16) 358deg, transparent 360deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 34%, #000 40% 92%, transparent 100%);
+  mask: radial-gradient(circle, transparent 0 34%, #000 40% 92%, transparent 100%); }
+.orb.idle .sweep { display: block; animation: spin-cw 8s linear infinite; }
+@keyframes spin-cw { to { transform: rotate(360deg); } }
+.orb.muted .ico, .orb.muted .orbit, .orb.muted .sweep { display: none; }
+
 /* live arc (2px, on the edge) */
 .arc { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.arc circle { fill: none; stroke: var(--accent); stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-dasharray: 12 88; opacity: 0.4; transition: stroke 240ms var(--ease), opacity 240ms var(--ease), stroke-dasharray 300ms var(--ease); }
-.orb.idle .arc { animation: spin 9s linear infinite; }
+.arc { filter: drop-shadow(0 0 3px rgba(var(--c-rgb), 0.55)); }
+.arc circle { fill: none; stroke: var(--accent); stroke-width: 2.4; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-dasharray: 11 89; opacity: 0.95; transition: stroke 240ms var(--ease), opacity 240ms var(--ease), stroke-dasharray 300ms var(--ease); }
+.orb.idle .arc { animation: spin 12s linear infinite; }
 .orb.listening .arc { animation: spin 3.2s linear infinite; }
 .orb.listening .arc circle { stroke: var(--amber); stroke-dasharray: 8 92; opacity: 0.9; }
 .orb.thinking .arc { animation: spin 1.15s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite; }
@@ -162,8 +169,9 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
 /* reduced motion: no orbiting arc, just static state colours */
 @media (prefers-reduced-motion: reduce) {
   .o-in, .card, .glass, .ring { transition: none !important; }
-  .arc, .arc2, .ticks, .segs, .core, .halo, .orb .logo, .orb.pulsing .pulse { animation: none !important; }
-  .arc, .arc2 { display: none; }
+  .arc, .ticks, .segs, .core, .halo, .ico, .sweep, .sat-spin, .orb .logo, .orb.pulsing .pulse { animation: none !important; }
+  .sweep { display: none !important; }
+  .arc, .segs { display: none; }
   .ring { transform: none; }
   .orb.listening .glass { border-color: var(--amber); }
   .orb.thinking .glass, .orb.speaking .glass { border-color: rgba(91, 225, 240, 0.6); }

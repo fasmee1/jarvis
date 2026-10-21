@@ -14,20 +14,25 @@
       <div class="glass"></div>
       <div class="core"></div>
       <div class="pulse"></div>
-      <!-- bezel: fine scale ticks (drawn by orb.js), turns slowly the other way -->
+      <!-- same reactor as the HUD, scaled to the orb: tick ring (5° / 45° / 90°, drawn by orb.js) -->
       <svg id="ticks" class="ticks" viewBox="0 0 100 100" aria-hidden="true"></svg>
-      <!-- static detail: inner rails, cardinal notches, small hex marks -->
-      <svg class="hud" viewBox="0 0 100 100" aria-hidden="true">
-        <circle class="rail" cx="50" cy="50" r="38.5"/>
-        <circle class="rail faint" cx="50" cy="50" r="30"/>
-        <path class="notch" d="M50 3.5v4 M50 92.5v4 M3.5 50h4 M92.5 50h4"/>
-        <path class="hex" d="M50 9.5l2 1.2v2.3l-2 1.2-2-1.2v-2.3z M50 85.8l2 1.2v2.3l-2 1.2-2-1.2v-2.3z"/>
+      <!-- hairline rings, 72 dim segments, connector nodes (nodes drawn by orb.js) -->
+      <svg id="hud" class="hud" viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="hair" cx="50" cy="50" r="22.2"/>
+        <circle class="hair" cx="50" cy="50" r="35.4"/>
+        <circle class="hair dim" cx="50" cy="50" r="38.2"/>
+        <circle class="hair" cx="50" cy="50" r="45.9"/>
+        <circle class="hair track" cx="50" cy="50" r="32.7"/>
+        <circle class="seg" cx="50" cy="50" r="27" pathLength="72" transform="rotate(-90 50 50)"/>
       </svg>
-      <svg class="segs" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="34" pathLength="120"/></svg>
-      <svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="41"/></svg>
-      <svg class="arc" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="48" pathLength="100"/></svg>
-      <svg class="arc2" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="45.5" pathLength="100"/></svg>
-      <div class="shine"></div>
+      <!-- standby wave: the same 72 segments in accent, lit by a turning mask -->
+      <svg class="segs" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="27" pathLength="72" transform="rotate(-90 50 50)"/></svg>
+      <svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="30.4"/></svg>
+      <!-- depth layer: radar sweep (idle only), one tilted orbit with a satellite, wireframe icosahedron (turned by orb.js) -->
+      <div class="sweep"></div>
+      <div class="orbit"><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="49"/></svg><div class="sat-spin"><i class="sat"></i></div></div>
+      <svg id="ico" class="ico" viewBox="0 0 100 100" aria-hidden="true"><path/></svg>
+      <svg class="arc" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="32.7" pathLength="100"/></svg>
       <svg class="logo" viewBox="-44 -44 88 88" aria-hidden="true">
         <defs>
           <mask id="logo-cut" maskUnits="userSpaceOnUse" x="-44" y="-44" width="88" height="88">

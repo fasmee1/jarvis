@@ -4,6 +4,8 @@
 //   • a slim ring of 72 segments that fade with the real audio, with a soft
 //     brightness wave travelling round at standby
 //   • connector nodes, a faint inner disc, and the logo with a breathing halo
+//   • a slow wireframe icosahedron behind the logo, a radar sweep at standby, a soft
+//     glow on the live arc and one tilted orbit with a single satellite (full quality only)
 //   • thin amber arcs around the logo only while listening or speaking
 // Every moving value is driven by a real signal fed in through setSignals().
 
@@ -35,6 +37,33 @@ const PAL = {
   amber: [255, 170, 80],
   red: [255, 92, 108],
 };
+// Wireframe icosahedron (subdivided once: 42 vertices, 120 edges), unit radius.
+const ICO = (() => {
+  const t = (1 + Math.sqrt(5)) / 2;
+  const norm = (p) => { const l = Math.hypot(p[0], p[1], p[2]); return [p[0] / l, p[1] / l, p[2] / l]; };
+  const verts = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(norm);
+  const faces = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  const cache = new Map();
+  const mid = (a, b) => {
+    const k = a < b ? `${a}_${b}` : `${b}_${a}`;
+    if (!cache.has(k)) {
+      verts.push(norm([verts[a][0] + verts[b][0], verts[a][1] + verts[b][1], verts[a][2] + verts[b][2]]));
+      cache.set(k, verts.length - 1);
+    }
+    return cache.get(k);
+  };
+  const edges = new Set();
+  const add = (a, b) => edges.add(a < b ? a * 100 + b : b * 100 + a);
+  for (const [a, b, c] of faces) {
+    const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a);
+    for (const [x, y, z] of [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]]) { add(x, y); add(y, z); add(z, x); }
+  }
+  return { verts, edges: [...edges].map((e) => [Math.floor(e / 100), e % 100]) };
+})();
+const ICO_R = 140; // px, inside the inner circle
+const GYRO = { rx: 322, ry: 132, rot: -0.14 }; // one tilted orbit, drawn very dim
+const SWEEP = 8; // seconds per radar sweep turn
+
 // Boot parameters (tweened by ui/boot.js). FULL = normal operation.
 const FULL = { rings: 1, arc: 1, lines: null, nodes: 99, order: [], logo: 1 };
 const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
@@ -67,6 +96,11 @@ export class Core {
     this.lineRipples = [];
     this.wakeAt = -1e9;
     this.follow = null; // { at, ms } while the follow-up window is open
+    this.icoX = 0.4; // icosahedron rotation
+    this.icoY = 0;
+    this.sweepAng = 0; // radar sweep head, radians clockwise from 12 o'clock
+    this.sweepK = 0; // 0..1, only at standby / waiting for the wake word
+    this.satA = 0; // satellite position on the orbit
   }
 
   /** Hands-free wake word heard: logo 1 → 1.08 → 1, one soft ripple, one bright ring sweep. */
@@ -177,6 +211,16 @@ export class Core {
     this.head += speed * dt;
     this.arcLen += (target - this.arcLen) * Math.min(1, dt * (audio ? 14 : 6));
 
+    // ---- decor: icosahedron turns a little faster with the voice, sweep only while idle ----
+    if (!this.reduced) {
+      this.icoY += dt * 0.12 * (1 + this.level * 3);
+      this.icoX += dt * 0.07;
+      this.sweepAng = (this.sweepAng + (dt * TAU) / SWEEP) % TAU;
+      this.satA = (this.satA + dt * TAU * 0.05) % TAU;
+    }
+    const idle = s === 'STANDBY' || calm;
+    this.sweepK += ((idle ? 1 : 0) - this.sweepK) * Math.min(1, dt * 2.5);
+
     // ---- segments: smooth fades toward the target brightness ----
     const tgt = this._segTargets(now);
     for (let i = 0; i < SEGS; i++) {
@@ -258,6 +302,72 @@ export class Core {
     ctx.stroke();
   }
 
+  /** Depth layer behind the logo: orbit + satellite, wireframe icosahedron, radar sweep. Always dim. */
+  _decor(ctx, accent, a) {
+    const hi = this.quality === 'high';
+
+    // one tilted orbit with a single satellite (the mini reactor is drawn at ~1/3 size, so lines get thicker)
+    ctx.save();
+    ctx.rotate(GYRO.rot);
+    ctx.strokeStyle = rgba(accent, 0.06 * a);
+    ctx.lineWidth = this.mini ? 2 : 1;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, GYRO.rx, GYRO.ry, 0, 0, TAU);
+    ctx.stroke();
+    if (hi) {
+      const sx = Math.cos(this.satA) * GYRO.rx;
+      const sy = Math.sin(this.satA) * GYRO.ry;
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, 9);
+      g.addColorStop(0, rgba(accent, 0.3 * a));
+      g.addColorStop(1, rgba(accent, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 9, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = rgba(accent, 0.9 * a);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 2.2, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // wireframe icosahedron, one path, rotating about Y then X
+    const cy = Math.cos(this.icoY), sy = Math.sin(this.icoY);
+    const cx = Math.cos(this.icoX), sx = Math.sin(this.icoX);
+    const pts = ICO.verts.map(([x, y, z]) => {
+      const x1 = x * cy + z * sy;
+      const z1 = -x * sy + z * cy;
+      return [x1 * ICO_R, (y * cx - z1 * sx) * ICO_R];
+    });
+    // behind the status text in the mini reactor, so a touch dimmer there
+    ctx.strokeStyle = rgba(accent, (this.mini ? 0.07 : 0.1) * a);
+    ctx.lineWidth = this.mini ? 2 : 1;
+    ctx.beginPath();
+    for (const [i, j] of ICO.edges) {
+      ctx.moveTo(pts[i][0], pts[i][1]);
+      ctx.lineTo(pts[j][0], pts[j][1]);
+    }
+    ctx.stroke();
+
+    // radar sweep: a wedge fading behind its leading edge, only between the inner circle and the outer hairline
+    if (hi && this.sweepK > 0.01) {
+      const head = -Math.PI / 2 + this.sweepAng;
+      const g = ctx.createConicGradient(head - Math.PI, 0, 0);
+      const K = 0.11 * this.sweepK * a;
+      for (let i = 0; i <= 8; i++) {
+        const p = (i / 8) * 0.5;
+        g.addColorStop(p, rgba(accent, K * Math.exp(-(0.5 - p) * TAU * 1.7)));
+      }
+      g.addColorStop(0.502, rgba(accent, 0));
+      g.addColorStop(1, rgba(accent, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, R.outer - 6, 0, TAU);
+      ctx.arc(0, 0, R.inner + 6, 0, TAU, true);
+      ctx.fill();
+    }
+  }
+
   _draw(now) {
     const ctx = this.canvas.getContext('2d');
     const k = this.k;
@@ -286,10 +396,24 @@ export class Core {
     this._ring(ctx, R.inner, rgba(W, 0.08), B.rings);
     this._ring(ctx, R.track, rgba(W, 0.08), B.rings);
 
+    if (B.rings > 0) this._decor(ctx, accent, B.rings);
+
     // ---- the live arc: 2px cyan, round caps ----
     if (B.arc > 0 && this.arcLen > 0.5) {
       const len = ((this.arcLen * Math.PI) / 180) * B.arc;
       const calmA = WAKE_IDLE.has(this.state) && !this.reduced ? 0.22 + 0.2 * (0.5 + 0.5 * Math.sin((now / 5000) * TAU)) : WAKE_IDLE.has(this.state) ? 0.35 : 0.95;
+      if (this.quality === 'high') {
+        // soft bloom under the arc
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = rgba(accent, 0.12 * calmA);
+        ctx.lineWidth = 9;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(0, 0, R.track, this.head, this.head + len);
+        ctx.stroke();
+        ctx.restore();
+      }
       ctx.strokeStyle = rgba(accent, calmA);
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';

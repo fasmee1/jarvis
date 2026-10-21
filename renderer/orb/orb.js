@@ -34,19 +34,86 @@ const cancel = (name) => { clearTimeout(timers[name]); timers[name] = null; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
 
-// bezel scale: 72 ticks, every 6th one long
+// ---------- the reactor's static drawing, scaled to the orb (viewBox 100) ----------
+const NS = 'http://www.w3.org/2000/svg';
+const sv = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+const polar = (r, deg) => [50 + r * Math.sin((deg * Math.PI) / 180), 50 - r * Math.cos((deg * Math.PI) / 180)];
+
+// tick ring: 5° minor, 45° major, 90° longest
 {
-  const NS = 'http://www.w3.org/2000/svg';
-  const g = document.createElementNS(NS, 'path');
   let d = '';
-  for (let i = 0; i < 72; i++) {
-    const a = (i / 72) * Math.PI * 2;
-    const r0 = i % 6 === 0 ? 43.2 : 44.6;
-    const c = Math.cos(a), s = Math.sin(a);
-    d += `M${(50 + r0 * c).toFixed(2)} ${(50 + r0 * s).toFixed(2)}L${(50 + 46.6 * c).toFixed(2)} ${(50 + 46.6 * s).toFixed(2)}`;
+  for (let deg = 0; deg < 360; deg += 5) {
+    const len = deg % 90 === 0 ? 2.2 : deg % 45 === 0 ? 1.7 : 0.85;
+    const [x0, y0] = polar(40.6, deg);
+    const [x1, y1] = polar(40.6 + len, deg);
+    d += `M${x0.toFixed(2)} ${y0.toFixed(2)}L${x1.toFixed(2)} ${y1.toFixed(2)}`;
   }
-  g.setAttribute('d', d);
-  $('ticks').append(g);
+  $('ticks').append(sv('path', { d }));
+}
+
+// connector nodes at the HUD's angles (first one in the accent colour)
+{
+  [310, 50, 334, 26, 270, 90, 225, 135].forEach((deg, i) => {
+    const [x, y] = polar(45.9, deg);
+    $('hud').append(sv('circle', { class: i === 0 ? 'node on' : 'node', cx: x.toFixed(2), cy: y.toFixed(2), r: 0.9 }));
+    $('hud').append(sv('circle', { class: 'node-ring', cx: x.toFixed(2), cy: y.toFixed(2), r: 1.8, fill: 'none' }));
+  });
+}
+
+// wireframe icosahedron (subdivided once: 42 vertices, 120 edges). Turns about a vertex axis, so 72° is a
+// full period: 12 keyframes of the path morph into each other and repeat, with no per-frame script.
+const icoAnim = (() => {
+  const T = (1 + Math.sqrt(5)) / 2;
+  const norm = (p) => { const l = Math.hypot(p[0], p[1], p[2]); return [p[0] / l, p[1] / l, p[2] / l]; };
+  const verts = [[-1, T, 0], [1, T, 0], [-1, -T, 0], [1, -T, 0], [0, -1, T], [0, 1, T], [0, -1, -T], [0, 1, -T], [T, 0, -1], [T, 0, 1], [-T, 0, -1], [-T, 0, 1]].map(norm);
+  const faces = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  const cache = new Map();
+  const mid = (a, b) => {
+    const k = a < b ? `${a}_${b}` : `${b}_${a}`;
+    if (!cache.has(k)) { verts.push(norm([verts[a][0] + verts[b][0], verts[a][1] + verts[b][1], verts[a][2] + verts[b][2]])); cache.set(k, verts.length - 1); }
+    return cache.get(k);
+  };
+  const edges = new Set();
+  const add = (a, b) => edges.add(a < b ? a * 100 + b : b * 100 + a);
+  for (const [a, b, c] of faces) {
+    const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a);
+    for (const [x, y, z] of [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]]) { add(x, y); add(y, z); add(z, x); }
+  }
+  const list = [...edges].map((e) => [Math.floor(e / 100), e % 100]);
+  const axis = verts[0];
+  const rodrigues = (p, th) => {
+    const c = Math.cos(th), s = Math.sin(th);
+    const dot = axis[0] * p[0] + axis[1] * p[1] + axis[2] * p[2];
+    const cr = [axis[1] * p[2] - axis[2] * p[1], axis[2] * p[0] - axis[0] * p[2], axis[0] * p[1] - axis[1] * p[0]];
+    return [0, 1, 2].map((i) => p[i] * c + cr[i] * s + axis[i] * dot * (1 - c));
+  };
+  const R = 18.4; // 1.32 of the 3.3 hairline, like the HUD
+  const ay = 0.3, ax = 0.45;
+  const view = ([x, y, z]) => {
+    const x1 = x * Math.cos(ay) + z * Math.sin(ay);
+    const z1 = -x * Math.sin(ay) + z * Math.cos(ay);
+    return [50 + x1 * R, 50 + (y * Math.cos(ax) - z1 * Math.sin(ax)) * R];
+  };
+  const FR = 12;
+  const frames = [];
+  for (let f = 0; f <= FR; f++) {
+    const th = (f / FR) * ((Math.PI * 2) / 5);
+    const pts = verts.map((v) => view(rodrigues(v, th)));
+    frames.push(list.map(([i, j]) => `M${pts[i][0].toFixed(1)} ${pts[i][1].toFixed(1)}L${pts[j][0].toFixed(1)} ${pts[j][1].toFixed(1)}`).join(''));
+  }
+  const path = $('ico').querySelector('path');
+  path.setAttribute('d', frames[0]);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+  const an = sv('animate', { attributeName: 'd', values: frames.join(';'), dur: '10s', repeatCount: 'indefinite', calcMode: 'linear' });
+  path.append(an);
+  return an;
+})();
+/** The icosahedron only turns while the orb is shown and not faded. */
+function syncIco() {
+  const svg = $('ico');
+  if (!icoAnim) return;
+  if (!shown || O.classList.contains('faded') || O.classList.contains('muted')) svg.pauseAnimations();
+  else svg.unpauseAnimations();
 }
 
 // ---------- layout from main ----------
@@ -235,9 +302,10 @@ orb.on('orb:visible', ({ on }) => {
 function refreshFade() {
   O.classList.remove('faded');
   cancel('fade');
+  syncIco();
   if (!autoFade || !shown) return;
   if (st.state !== 'idle' || hover || mode || dragging) return;
-  later('fade', FADE_MS, () => O.classList.add('faded'));
+  later('fade', FADE_MS, () => { O.classList.add('faded'); syncIco(); });
 }
 
 // ---------- click-through: only the circle and the bubble take the mouse ----------
