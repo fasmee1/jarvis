@@ -1145,11 +1145,13 @@ resultViewer = new ResultViewer({
   sfx,
   web: webViewer,
   retry: () => { if (S.lastUserText) send(S.lastUserText); },
-  // the conversation is open: results wait as a card in the chat instead of taking the screen
+  // the conversation is open: the result opens in the viewer right away and also
+  // leaves a "เปิดดู" card in the chat to open it again later
   defer: () => talk.isFront,
   onDeferred: (data, open) => {
-    S.deferredResult = open;
-    addResultLink(`ผลลัพธ์: ${data.title || data.type || 'ผลลัพธ์'}`, () => { S.deferredResult = null; open(); });
+    S.deferredResult = null;
+    addResultLink(`ผลลัพธ์: ${data.title || data.type || 'ผลลัพธ์'}`, () => open());
+    open();
   },
 });
 window.jarvisViewer = Object.freeze({

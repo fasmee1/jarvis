@@ -612,9 +612,10 @@ function renderMap(root, data, ctx) {
   const { lat, lon } = data;
   if (typeof lat !== 'number' || typeof lon !== 'number') return renderEmpty(root, 'ไม่มีพิกัดสำหรับแผนที่');
   const z = data.zoom || 14;
-  const ext = `https://www.openstreetmap.org/?mlat=${lat.toFixed(5)}&mlon=${lon.toFixed(5)}#map=${z}/${lat.toFixed(5)}/${lon.toFixed(5)}`;
+  const osmPage = (p) => `https://www.openstreetmap.org/?mlat=${p.lat.toFixed(5)}&mlon=${p.lon.toFixed(5)}#map=${z}/${p.lat.toFixed(5)}/${p.lon.toFixed(5)}`;
   let frame = null;
-  const fallback = () => { frame = osmFrame(data); bar.remove(); return frame; };
+  // the static OSM embed can't move the pin or show coverage, so drop those hints with the toolbar
+  const fallback = () => { frame = osmFrame(data); bar.remove(); capHint.remove(); capLegend.remove(); return frame; };
   // 3D views default to real-colour satellite imagery unless the payload says otherwise.
   const satellite = typeof data.satellite === 'boolean' ? data.satellite : !!data.view3d;
 
@@ -624,13 +625,26 @@ function renderMap(root, data, ctx) {
   const button = (label, title) => { const b = h('button', 'mp-3d', label); b.type = 'button'; b.disabled = true; b.title = title; bar.append(b); return b; };
   const btn = button(data.view3d ? '2D' : '3D', 'สลับมุมมอง 2D / 3D');
   const sat = button(satellite ? 'แผนที่' : 'ดาวเทียม', 'สลับภาพดาวเทียม / แผนที่');
+  const cov = button('จุด Street View', 'แสดง / ซ่อนเส้นสีน้ำเงินตรงที่มีภาพ Street View');
   wrap.append(box, bar);
   root.append(wrap);
-  if (data.location) root.append(h('div', 'mp-cap', data.location));
+  // Caption: place name, the pin's coordinates and how to use the map.
+  const cap = h('div', 'mp-cap');
+  const capPin = h('span', 'mp-pin');
+  const capHint = h('span', 'mp-hint', 'ลากเพื่อเลื่อน · คลิกหรือลากหมุดเพื่อย้าย');
+  const capLegend = h('span', 'mp-legend', 'เส้นสีน้ำเงิน = มี Street View');
+  capLegend.hidden = true;
+  if (data.location) cap.append(h('span', 'mp-loc', data.location));
+  cap.append(capPin, capHint, capLegend);
+  root.append(cap);
+  let pinAt = { lat, lon };
+  const showPin = () => { capPin.textContent = `หมุด ${pinAt.lat.toFixed(5)}, ${pinAt.lon.toFixed(5)}`; };
+  showPin();
 
   const m = mountMap3D(box, {
-    lat, lon, zoom: z, view3d: !!data.view3d, satellite,
-    onReady: () => { btn.disabled = false; sat.disabled = false; },
+    lat, lon, zoom: z, view3d: !!data.view3d, satellite, coverage: true,
+    onReady: () => { btn.disabled = false; sat.disabled = false; cov.disabled = false; cov.classList.add('on'); capLegend.hidden = false; },
+    onPin: (p) => { pinAt = p; showPin(); },
   }, fallback);
   btn.addEventListener('click', () => {
     const map = m.ctl();
@@ -639,6 +653,13 @@ function renderMap(root, data, ctx) {
   sat.addEventListener('click', () => {
     const map = m.ctl();
     if (map) sat.textContent = map.toggleSatellite() ? 'แผนที่' : 'ดาวเทียม';
+  });
+  cov.addEventListener('click', () => {
+    const map = m.ctl();
+    if (!map) return;
+    const on = map.toggleCoverage();
+    cov.classList.toggle('on', on);
+    capLegend.hidden = !on;
   });
 
   // Optional "Google Earth" mode (photoreal 3D tiles): only offered when a key is set,
@@ -658,7 +679,7 @@ function renderMap(root, data, ctx) {
     earthBox = null;
     earthBtn.classList.remove('on');
     earthBtn.textContent = 'Earth';
-    for (const b of [btn, sat]) b.hidden = false;
+    for (const b of [btn, sat, cov]) b.hidden = false;
   };
   const earthOn = async () => {
     const auth = await getEarthAuth();
@@ -670,12 +691,12 @@ function renderMap(root, data, ctx) {
     wrap.insertBefore(earthBox, bar);
     earthBtn.classList.add('on');
     earthBtn.textContent = 'ปิด Earth';
-    for (const b of [btn, sat]) b.hidden = true;
+    for (const b of [btn, sat, cov]) b.hidden = true;
     try {
       const { createEarth3D } = await import('./vendor/earth3d.min.js');
       if (earthGone || !earthBox) return;
       earth = createEarth3D(earthBox, {
-        ...auth, lat, lon,
+        ...auth, lat: pinAt.lat, lon: pinAt.lon,
         height: Math.max(150, 450 * Math.pow(2, 16 - z)),
         dracoPath: new URL('./vendor/draco/', import.meta.url).href,
         onAttribution: (t) => { attr.textContent = t ? `${credit} · ${t}` : credit; },
@@ -697,10 +718,10 @@ function renderMap(root, data, ctx) {
   };
   earthBtn.addEventListener('click', () => { if (earth || earthBox) earthOff(); else { svOff(); earthOn(); } });
 
-  // Street View: Google's own keyless embed, at the centre of the map as it is now.
+  // Street View: Google's own keyless embed, at the pin (click the map to move it).
   const svBtn = h('button', 'mp-3d mp-sv', 'Street View');
   svBtn.type = 'button';
-  svBtn.title = 'ภาพถนนจริงแบบ 360° ของ Google ที่จุดกลางแผนที่ (ลากเพื่อมองรอบ · คลิกลูกศรบนถนนเพื่อเดิน)';
+  svBtn.title = 'ภาพถนนจริงแบบ 360° ของ Google ที่ตำแหน่งหมุด — ย้ายหมุดไปบนเส้นสีน้ำเงินก่อน (ลากเพื่อมองรอบ · คลิกลูกศรบนถนนเพื่อเดิน)';
   bar.append(svBtn);
   let svFrame = null;
   let svAt = null;
@@ -711,13 +732,12 @@ function renderMap(root, data, ctx) {
     svFrame = null;
     svBtn.classList.remove('on');
     svBtn.textContent = 'Street View';
-    for (const b of [btn, sat]) b.hidden = false;
+    for (const b of [btn, sat, cov]) b.hidden = false;
     earthBtn.hidden = !earthBtnWanted;
   };
   const svOn = () => {
     earthOff();
-    const map = m.ctl();
-    svAt = (map && map.center()) || { lat, lon };
+    svAt = pinAt;
     svFrame = document.createElement('iframe');
     svFrame.className = 'mp-sv-frame';
     svFrame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups');
@@ -728,7 +748,7 @@ function renderMap(root, data, ctx) {
     wrap.insertBefore(svFrame, bar);
     svBtn.classList.add('on');
     svBtn.textContent = 'ปิด Street View';
-    for (const b of [btn, sat, earthBtn]) b.hidden = true;
+    for (const b of [btn, sat, cov, earthBtn]) b.hidden = true;
   };
   svBtn.addEventListener('click', () => { if (svFrame) svOff(); else svOn(); });
   if (data.streetview) setTimeout(() => { if (!earthGone && !svFrame) svOn(); }, 0);
@@ -742,7 +762,7 @@ function renderMap(root, data, ctx) {
 
   return {
     items: [],
-    external: () => (svFrame && svAt ? streetViewPage(svAt.lat, svAt.lon) : ext),
+    external: () => (svFrame && svAt ? streetViewPage(svAt.lat, svAt.lon) : osmPage(pinAt)),
     onShow: () => { m.onShow(); if (earth) earth.resume(); },
     onHide: () => { if (earth) earth.pause(); },
     dispose: () => { earthGone = true; svOff(); earthOff(); m.dispose(); if (frame) frame.src = 'about:blank'; },

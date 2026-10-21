@@ -12,6 +12,8 @@ const DEM_TILES = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{
 const SAT_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 const SAT_ATTRIBUTION = 'Imagery © Esri, Maxar, Earthstar Geographics';
 const RADAR_INDEX = 'https://api.rainviewer.com/public/weather-maps.json';
+// Google's Street View coverage overlay (blue lines/dots where imagery exists), the same keyless tiles maps.google.com draws.
+const SV_TILES = [0, 1, 2, 3].map((n) => `https://mts${n}.googleapis.com/vt?hl=th&lyrs=svv|cb_client:apiv3&style=40,18&x={x}&y={y}&z={z}`);
 const LOAD_TIMEOUT_MS = 10000;
 const PITCH_3D = 55;
 
@@ -83,8 +85,10 @@ function addBuildings(map) {
 
 /**
  * Mount a map in `el`. Resolves once the style has loaded:
- *   { toggle3D(on?) → boolean, is3D(), toggleSatellite(on?) → boolean, isSatellite(), resize(), center() → {lat, lon}, dispose() }
- * opts: { lat, lon, zoom?, view3d?, satellite?, radar?, interactive? }
+ *   { toggle3D(on?) → boolean, is3D(), toggleSatellite(on?) → boolean, isSatellite(),
+ *     toggleCoverage(on?) → boolean, isCoverage(), pin() → {lat, lon}, resize(), center() → {lat, lon}, dispose() }
+ * opts: { lat, lon, zoom?, view3d?, satellite?, coverage?, radar?, interactive?, onPin?({lat, lon}) }
+ * When interactive, the pin can be dragged, or moved by clicking the map.
  */
 export async function createMap3D(el, opts) {
   if (!webglAvailable()) throw new Error('webgl unavailable');
@@ -113,8 +117,16 @@ export async function createMap3D(el, opts) {
     throw err;
   }
 
-  new lib.Marker({ color: '#00d8ff' }).setLngLat([opts.lon, opts.lat]).addTo(map);
-  if (opts.interactive !== false) map.addControl(new lib.NavigationControl({ visualizePitch: true }), 'top-right');
+  const interactive = opts.interactive !== false;
+  const marker = new lib.Marker({ color: '#00d8ff', draggable: interactive }).setLngLat([opts.lon, opts.lat]).addTo(map);
+  const pin = () => { const p = marker.getLngLat(); return { lat: p.lat, lon: p.lng }; };
+  if (interactive) {
+    map.addControl(new lib.NavigationControl({ visualizePitch: true }), 'top-right');
+    const moved = () => { if (opts.onPin) opts.onPin(pin()); };
+    marker.on('dragend', moved);
+    // A plain click drops the pin there; drags pan the map as usual (MapLibre only fires click without movement).
+    map.on('click', (e) => { marker.setLngLat(e.lngLat); moved(); });
+  }
 
   const buildings = addBuildings(map);
   map.addSource('jv-dem', { type: 'raster-dem', tiles: [DEM_TILES], encoding: 'terrarium', tileSize: 256, maxzoom: 14 });
@@ -149,8 +161,19 @@ export async function createMap3D(el, opts) {
     return onSat;
   };
 
+  // Street View coverage sits over the imagery but under labels and buildings.
+  map.addSource('jv-sv', { type: 'raster', tiles: SV_TILES, tileSize: 256, maxzoom: 19 });
+  map.addLayer({ id: 'jv-sv', type: 'raster', source: 'jv-sv', layout: { visibility: 'none' }, paint: { 'raster-fade-duration': 0 } }, firstSymbol());
+  let onSv = false;
+  const toggleCoverage = (want = !onSv) => {
+    onSv = !!want;
+    map.setLayoutProperty('jv-sv', 'visibility', onSv ? 'visible' : 'none');
+    return onSv;
+  };
+
   if (opts.view3d) toggle3D(true);
   if (opts.satellite) toggleSatellite(true);
+  if (opts.coverage) toggleCoverage(true);
 
   if (opts.radar) {
     radarTiles().then((tiles) => {
@@ -165,6 +188,9 @@ export async function createMap3D(el, opts) {
     is3D: () => on3D,
     toggleSatellite,
     isSatellite: () => onSat,
+    toggleCoverage,
+    isCoverage: () => onSv,
+    pin,
     resize: () => map.resize(),
     center: () => { const c = map.getCenter(); return { lat: c.lat, lon: c.lng }; },
     dispose: () => { try { map.remove(); } catch { /* already gone */ } },

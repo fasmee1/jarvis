@@ -67,7 +67,7 @@ export class ResultViewer {
     const id = this.turn.skeletonId;
     this.turn.skeletonId = null;
     if (this._deferred()) {
-      // the conversation popup is in front: the result waits as a "เปิดดู" card in the chat
+      // the conversation popup is in front: the app opens the result and adds a "เปิดดู" card in the chat
       if (id && this.viewer.tabs.has(id)) this.viewer.close(id);
       this.o.onDeferred(data, () => this._openPayload(data, null));
       return;

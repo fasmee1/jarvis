@@ -204,6 +204,13 @@ img.broken { visibility: hidden; }
 .mp-frame { width: 100%; height: calc(100% - 32px); min-height: 360px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, 0.04); }
 .sv-body.padded:has(.mp-frame) { padding-bottom: 32px; }
 .mp-cap { margin-top: 10px; font-size: 13px; color: var(--text-2); }
+.mp-cap { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.mp-loc { color: var(--text-1); }
+.mp-pin { font-family: var(--font-mono); }
+.mp-hint { opacity: 0.75; }
+.mp-legend::before { content: ''; display: inline-block; width: 14px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; background: #8ea6f4; }
+.mp-gl .maplibregl-canvas { cursor: crosshair; }
+.mp-gl .maplibregl-canvas:active { cursor: grabbing; }
 .mp-wrap { position: relative; width: 100%; height: calc(100% - 32px); min-height: 360px; }
 .sv-body.padded:has(.mp-wrap) { padding-bottom: 32px; }
 .mp-wrap > .mp-frame { height: 100%; }
