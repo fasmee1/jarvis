@@ -111,6 +111,15 @@ export class Docking {
     this._sync();
   }
 
+  /** Fold every open card into the reactor (or, when none is open, bring them all back). */
+  toggleAll() {
+    const ids = [...this.st.keys()];
+    const anyOpen = ids.some((id) => !this.isDocked(id));
+    for (const id of ids) {
+      if (anyOpen ? !this.isDocked(id) : this.isDocked(id)) (anyOpen ? this.close(id) : this.open(id));
+    }
+  }
+
   open(id) {
     if (this.locked) return this._defer(() => this.open(id));
     const s = this.st.get(id);
@@ -439,6 +448,16 @@ export class Docking {
     tray.hidden = true;
     readout.append(tray);
     this.tray = { tray, btn, list };
+    // one button to close every open card at once (and reopen them all when none is open)
+    const all = h('button', 'dock-all-btn');
+    all.type = 'button';
+    all.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._toggleList(false);
+      this.toggleAll();
+    });
+    readout.append(all);
+    this.allBtn = all;
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       this._toggleList();
@@ -532,6 +551,10 @@ export class Docking {
     btn.textContent = `${n} DOCKED`;
     btn.setAttribute('aria-label', `การ์ดที่เก็บไว้ ${n} ใบ — คลิกเพื่อดูรายการ`);
     if (n === 0 && !list.hidden) this._toggleList(false);
+    const anyOpen = [...this.st.values()].some((x) => !x.target);
+    this.allBtn.textContent = anyOpen ? 'ปิดการ์ดทั้งหมด' : 'เปิดการ์ดทั้งหมด';
+    this.allBtn.hidden = this.st.size === 0;
+    this.allBtn.setAttribute('aria-label', anyOpen ? 'ปิดการ์ดทั้งหมด เก็บเข้าแกนกลาง' : 'เปิดการ์ดทั้งหมดอีกครั้ง');
     for (const fn of this.listeners) fn();
   }
 
