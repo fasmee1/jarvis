@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog, shell, session: eSession, globalShortcut, protocol, net, powerMonitor, Tray, Menu, nativeImage, screen, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, session: eSession, globalShortcut, protocol, net, powerMonitor, Tray, Menu, nativeImage, screen, desktopCapturer, Notification } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -7,6 +7,7 @@ const { pathToFileURL } = require('url');
 const { SettingsStore, defaults: settingDefaults } = require('./lib/settings');
 const { JarvisCore } = require('./lib/jarvis-core');
 const { MemoryStore } = require('./lib/memory');
+const { ReminderStore } = require('./lib/reminders');
 const { ProjectManager } = require('./lib/projects');
 const { listSessions, readSession } = require('./lib/history');
 const { UsageService } = require('./lib/usage/service');
@@ -78,6 +79,8 @@ let projects = null; // background projects: one core per folder (lib/projects.j
 const chosenProjectDirs = new Set(); // folders picked with project:choose
 let settings = null;
 let memory = null; // long-term voice memory shared by every project's core (lib/memory.js)
+let reminders = null; // reminders shared by every project's core (lib/reminders.js)
+let remindersStarted = false;
 let tts = null;
 let stt = null;
 let vision = null;
@@ -181,6 +184,11 @@ function createWindow() {
     if (mainCrashed) { mainCrashed = false; orb.setMainCrashed(false); }
     if (settings.get().orbEnabled) orb.create(); // ready before the first minimize
     sendBg();
+    // overdue reminders speak only once the page has finished booting (the first load only)
+    if (reminders && !remindersStarted) {
+      remindersStarted = true;
+      setTimeout(() => reminders.start(), 6000);
+    }
   });
   // F11 toggles fullscreen. Esc is left to the page and never exits the app.
   win.webContents.on('before-input-event', (e, input) => {
@@ -1003,9 +1011,18 @@ app.whenReady().then(async () => {
     approvalFeed(channel, payload);
   };
   memory = new MemoryStore(userData);
+  reminders = new ReminderStore({
+    dir: userData,
+    onDue: ({ text, late }) => {
+      const say = late ? `เตือนความจำที่พลาดไป ${text}` : `เตือนความจำ ${text}`;
+      coreUi('tts:announce', { text: say });
+      if (Notification.isSupported()) new Notification({ title: 'JARVIS', body: text }).show();
+    },
+  });
   core = new JarvisCore({
     settings,
     memory,
+    reminders,
     tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
     appRoot: APP_ROOT,
     logDir: userData,
@@ -1024,6 +1041,7 @@ app.whenReady().then(async () => {
     createCore: ({ id, name, ui }) => new JarvisCore({
       settings,
       memory,
+      reminders,
       tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
       appRoot: APP_ROOT,
       logDir: userData,
@@ -1106,6 +1124,7 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => { if (approvalWin) approvalWin.quitting = true; });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  if (reminders) reminders.stop();
   hideTray();
   if (orb) orb.destroy();
   if (projects) projects.disposeAll(); // every project's CLI tree: taskkill /T
