@@ -1,0 +1,26 @@
+/* Task status pill — one slim glass capsule, top centre, only while JARVIS is working. */
+.task-status {
+  position: fixed; top: 40px; left: 50%; z-index: 101; transform: translate(-50%, -6px);
+  display: flex; align-items: center; gap: 10px; height: 32px; max-width: min(560px, 42vw); padding: 0 14px 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 999px; background: rgba(11, 15, 20, 0.78);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  font-size: 12px; color: var(--text-2); pointer-events: none; user-select: none;
+  opacity: 0; transition: opacity 240ms var(--ease), transform 240ms var(--ease), border-color 240ms var(--ease);
+}
+.task-status[hidden] { display: none; }
+.task-status.on { opacity: 1; transform: translate(-50%, 0); }
+.task-status.att { border-color: var(--orange-soft); }
+body.booting .task-status { display: none; }
+.ts-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: ts-pulse 2.4s ease-in-out infinite; }
+.task-status.att .ts-dot { background: var(--orange); }
+.ts-cmd { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+.ts-sep { flex: none; width: 1px; height: 12px; background: var(--line); }
+.ts-phase { flex: none; white-space: nowrap; }
+.task-status.att .ts-phase { color: var(--orange); }
+.ts-time { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+@keyframes ts-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (max-width: 900px) { .ts-phase, .ts-phase + .ts-sep { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .task-status { transition: none; transform: translate(-50%, 0); }
+  .ts-dot { animation: none; }
+}

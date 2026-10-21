@@ -24,6 +24,7 @@ import { UsagePanel } from './ui/usage.js';
 import { OrbBridge } from './orb-bridge.js';
 import { checkReport, diffReport, undoLines } from './ui/code-report.js';
 import { ProjectsPanel } from './ui/projects.js';
+import { TaskStatus } from './ui/task-status.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -37,6 +38,8 @@ const S = {
   speaking: false,
   busy: false,
   toolRunning: false,
+  toolName: '', // tool Claude is using right now (task status pill)
+  stepInfo: null, // { current, total } of the latest jarvis-steps block
   lookArmed: false,
   lat: {},
   turnSpoke: false,
@@ -84,6 +87,19 @@ const sections = new Sections({
     }
   },
 });
+const taskStatus = new TaskStatus();
+const TASK_PHASE = { THINKING: 'กำลังคิด', STREAMING: 'กำลังตอบ', TOOL_RUNNING: 'กำลังทำงาน', AWAITING_APPROVAL: 'รอคุณกดอนุญาต' };
+/** Task status pill: the latest command, what JARVIS is doing now, elapsed time. */
+function updateTaskStatus() {
+  const phase = TASK_PHASE[S.coreState] || '';
+  taskStatus.update({
+    running: !!phase,
+    command: S.lastUserText || '',
+    phase: S.coreState === 'TOOL_RUNNING' && S.toolName ? `กำลังใช้ ${S.toolName}` : phase,
+    attention: S.coreState === 'AWAITING_APPROVAL',
+    step: S.stepInfo,
+  });
+}
 const home = new Home({
   onOpen: (name) => sections.show(name),
   onCoreClick: () => voiceButton(),
@@ -283,6 +299,7 @@ function refreshState(sub) {
   if (v) home.setState(v.core, '', { label: v.label, tone: v.tone });
   else home.setState(st, sub || STATE_TH[st] || '');
   updateDot();
+  updateTaskStatus();
   if (hands) hands.assistant({ speaking: S.speaking, busy: S.busy });
   if (resultViewer) resultViewer.setAttention(S.speaking || S.listening || (!!hands && ['WAKE_DETECTED', 'COMMAND_LISTENING'].includes(hands.state)));
   orbBridge.set({
@@ -503,6 +520,8 @@ function onChatItem(item) {
       const firstOpen = st.findIndex((x) => !x.done);
       const cur = Math.min(st.length, item.data.current || (firstOpen >= 0 ? firstOpen + 1 : st.length));
       home.step({ current: cur, total: st.length, title: st[cur - 1].title });
+      S.stepInfo = { current: cur, total: st.length };
+      updateTaskStatus();
     }
     const tab = TAB_FOR_KIND[item.kind];
     const node = renderForTab(item);
@@ -1908,6 +1927,7 @@ function wireEvents() {
   api.on('state', ({ state, tool }) => {
     S.coreState = state;
     S.busy = !['STANDBY', 'ERROR'].includes(state);
+    S.toolName = state === 'TOOL_RUNNING' && tool ? String(tool) : '';
     if (state === 'STANDBY' || state === 'ERROR') S.toolRunning = false;
     refreshState(state === 'TOOL_RUNNING' && tool ? `Claude กำลังใช้ ${tool}` : undefined);
   });
@@ -1919,6 +1939,7 @@ function wireEvents() {
       setBuildRunning(t.buildStartedAt);
     }
     resultViewer.startTurn();
+    S.stepInfo = null;
     S.turnSpokenChars = 0;
     curMsg = null;
     curText = null;
@@ -1941,6 +1962,7 @@ function wireEvents() {
       S.sessionTokens = 0;
       home.tokens(null);
       home.step(null);
+      S.stepInfo = null;
     }
     if (e.kind === 'new') {
       $('chat').replaceChildren();
