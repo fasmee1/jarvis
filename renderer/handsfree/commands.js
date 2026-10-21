@@ -183,6 +183,25 @@ const CODE = {
   undo: R(`^${PRE}(?:(?:ยกเลิก|ย้อน|ย้อนกลับ|เลิกทำ|undo)(?:การ)?(?:แก้|แก้ไข|แก้ไฟล์|แก้โค้ด|เปลี่ยนแปลง|ที่แก้)(?:ล่าสุด|เมื่อกี้|เมื่อกี๊|อันล่าสุด)?|undo(?:the)?(?:last)?(?:change|changes|edit|edits)?)${POST}$`),
 };
 
+// ---------- Serial monitor (Arduino / ESP32 on a COM port) ----------
+const SER = '(?:ซีเรียล|ซีเรียว|เซอเรียล|serial)(?:มอนิเตอร์|มอนิเตอ|มอนิเตอร์|monitor)?';
+const PORT = '(?:พอร์ต|port)?(?:com|คอม)?(\\d{1,3})?';
+const BAUD = '(?:(?:baud|บอด|บอด์)(\\d{3,6}))?';
+const SERIAL = {
+  open: R(`^${PRE}(?:เปิด|เชื่อมต่อ|เชื่อม|เริ่ม)${SER}${PORT}${BAUD}${POST}$`, 'i'),
+  close: R(`^${PRE}(?:ปิด|หยุด|ตัด)${SER}${POST}$`, 'i'),
+  chart: R(`^${PRE}(?:ดู|แสดง|โชว์|เปิด)(?:กราฟ|ค่า|ข้อมูล)(?:ที่)?(?:จาก)?(?:บอร์ด|ซีเรียล|serial|เซนเซอร์|เซ็นเซอร์|sensor|board)(?:ล่าสุด|ตอนนี้)?${POST}$`, 'i'),
+};
+
+/** @returns {null | {action: 'serial', op: 'open', port?: string, baud?: number} | {action: 'serial', op: 'close' | 'chart'}} */
+function serialCommand(t) {
+  const o = SERIAL.open.exec(t);
+  if (o) return { action: 'serial', op: 'open', ...(o[1] ? { port: `COM${+o[1]}` } : {}), ...(o[2] ? { baud: +o[2] } : {}) };
+  if (SERIAL.close.test(t)) return { action: 'serial', op: 'close' };
+  if (SERIAL.chart.test(t)) return { action: 'serial', op: 'chart' };
+  return null;
+}
+
 /** @returns {null | 'test' | 'check' | 'diff' | 'undo'} */
 function codeCommand(t) {
   for (const op of ['test', 'check', 'diff', 'undo']) if (CODE[op].test(t)) return op;
@@ -259,6 +278,8 @@ export function parseCommand(transcript, ctx = {}) {
   }
   const op = codeCommand(t);
   if (op) return { action: 'code', op };
+  const ser = serialCommand(t);
+  if (ser) return ser;
   if (CMD.stop.test(t)) return { action: 'stop' };
   if (CMD.done.test(t)) return { action: 'done' };
   if (CMD.off.test(t) || CMD.offEn.test(t)) return { action: 'handsfree-off' };

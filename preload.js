@@ -55,6 +55,10 @@ const INVOKE = [
   'maps:earth-keys',
   'maps:set-google-key',
   'maps:set-ion-key',
+  'serial:ports',
+  'serial:open',
+  'serial:close',
+  'serial:chart',
   'vision:status',
   'vision:install',
   'vision:model',
@@ -91,6 +95,7 @@ const INVOKE = [
 ];
 
 const EVENTS = [
+  'serial:state',
   'state',
   'app-state',
   'settings',

@@ -161,6 +161,25 @@ async function codeCommand(cmd, heard) {
   return null;
 }
 
+async function serialCommand(cmd, heard) {
+  if (heard) addSystemMsg(`🎙 ${heard}`);
+  if (cmd.op === 'chart') {
+    const r = await api.invoke('serial:chart').catch(failed);
+    if (r.error) return say(r.error);
+    resultViewer.display(r);
+    return say(r.spokenSummary);
+  }
+  if (cmd.op === 'close') {
+    await api.invoke('serial:close').catch(failed);
+    return say('ปิดซีเรียลแล้ว');
+  }
+  const ports = await api.invoke('serial:ports').catch(() => []);
+  const port = cmd.port || (ports.length === 1 ? ports[0] : null);
+  if (!port) return say(ports.length ? `มีพอร์ต ${ports.join(' ')} ต้องการพอร์ตไหน` : 'ไม่พบพอร์ตซีเรียลที่เสียบอยู่');
+  const r = await api.invoke('serial:open', { port, baud: cmd.baud || 9600 }).catch(failed);
+  say(r.ok === false ? r.error : `เปิด ${port} แล้ว พูดว่า ดูกราฟบอร์ด เพื่อดูค่า`);
+}
+
 async function runProjectCheck(kind) {
   const label = kind === 'test' ? 'เทสต์' : 'เช็ก';
   const found = S.app && S.app.checks && S.app.checks[kind];
@@ -1047,6 +1066,10 @@ function afterTranscript(text, latency) {
     codeCommand(cmd, text);
     return;
   }
+  if (cmd && cmd.action === 'serial') {
+    serialCommand(cmd, text);
+    return;
+  }
   if (needsTranscriptConfirm()) {
     // the confirm box lives in the conversation popup: open it so JARVIS never looks silent
     if (sections.current) sections.home();
@@ -1287,6 +1310,7 @@ function hfLocal(cmd) {
     case 'viewer': resultViewer.command(cmd); break;
     case 'open-site': openSite(cmd, (t) => hfSend(t)); break;
     case 'code': codeCommand(cmd); break;
+    case 'serial': serialCommand(cmd); break;
     case 'stop': api.invoke('code:cancel').catch(() => {}); break; // also stops a running test/check
     default: break;
   }

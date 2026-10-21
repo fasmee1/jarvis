@@ -8,6 +8,7 @@ const { SettingsStore, defaults: settingDefaults } = require('./lib/settings');
 const { JarvisCore } = require('./lib/jarvis-core');
 const { MemoryStore } = require('./lib/memory');
 const { ReminderStore } = require('./lib/reminders');
+const { SerialMonitor, listPorts } = require('./lib/serial/monitor');
 const { ProjectManager } = require('./lib/projects');
 const { listSessions, readSession } = require('./lib/history');
 const { UsageService } = require('./lib/usage/service');
@@ -81,6 +82,7 @@ let settings = null;
 let memory = null; // long-term voice memory shared by every project's core (lib/memory.js)
 let reminders = null; // reminders shared by every project's core (lib/reminders.js)
 let remindersStarted = false;
+const serial = new SerialMonitor({ onState: (s) => send('serial:state', s) }); // one open COM port at a time
 let tts = null;
 let stt = null;
 let vision = null;
@@ -819,6 +821,20 @@ function registerIpc() {
     return { ok: true };
   });
 
+  // ---- Serial monitor: Arduino / ESP32 on a COM port (lib/serial) ----
+  handle('serial:ports', () => listPorts());
+  handle('serial:open', (p) => {
+    v.obj(p);
+    try {
+      serial.open(v.str(p.port, 8, 'port'), v.num(p.baud, 'baud', { min: 1200, max: 921600 }));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+  handle('serial:close', () => { serial.close(); return { ok: true }; });
+  handle('serial:chart', () => (serial.isOpen || serial.buffer.lines.length ? serial.chart() : { error: 'ยังไม่ได้เปิดซีเรียล พูดว่า เปิดซีเรียล ก่อน' }));
+
   // ---- Vision (phase 3) ----
   handle('vision:status', () => vision.status());
   handle('vision:install', () => vision.install((p) => send('install:progress', { what: 'vision', ...p })));
@@ -1125,6 +1141,7 @@ app.on('before-quit', () => { if (approvalWin) approvalWin.quitting = true; });
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   if (reminders) reminders.stop();
+  serial.close();
   hideTray();
   if (orb) orb.destroy();
   if (projects) projects.disposeAll(); // every project's CLI tree: taskkill /T
