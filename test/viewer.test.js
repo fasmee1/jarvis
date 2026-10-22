@@ -24,6 +24,8 @@ test('jarvis-result payloads validate by type', () => {
   assert.ok(validate(SCHEMAS.result, { type: 'map', lat: 1, lon: 1, streetview: 'yes' }).length, 'streetview must be boolean');
   ok({ type: 'weather', location: 'เชียงใหม่', lat: 18.79, lon: 98.98, current: { temp: 27 } });
   assert.ok(validate(SCHEMAS.result, { type: 'map', lat: 1, lon: 1, view3d: 'yes' }).length, 'view3d must be boolean');
+  ok({ type: 'model', title: 'พวงกุญแจ', parts: [{ shape: 'box', size: [4, 1, 2], radius: 0.3, color: '#222222' }, { shape: 'extrude', points: [[0, 0], [1, 0], [1, 1]], holes: [{ cx: 0.5, cy: 0.3, r: 0.1 }], depth: 0.5 }], autoRotate: false });
+  assert.ok(validate(SCHEMAS.result, { type: 'model', parts: [{ color: 'red' }] }).length, 'part needs a shape');
   assert.ok(validate(SCHEMAS.result, { type: 'video' }).length, 'unknown type rejected');
   assert.ok(validate(SCHEMAS.result, { type: 'map', lat: 120, lon: 0 }).length, 'lat out of range');
   assert.ok(validate(SCHEMAS.result, { type: 'search', items: new Array(41).fill({}) }).length, 'max 40 items');

@@ -805,6 +805,38 @@ export function renderEmpty(root, msg = 'ไม่พบผลลัพธ์', 
   return { items: [] };
 }
 
+// ---------- model (3D parts, orbit view) ----------
+function renderModel(root, data) {
+  const wrap = h('div', 'mp-wrap sv-item md-wrap');
+  const box = h('div', 'md-box');
+  const bar = h('div', 'mp-bar');
+  const spin = h('button', 'mp-3d', 'หยุดหมุน');
+  const reset = h('button', 'mp-3d', 'รีเซ็ตมุม');
+  for (const b of [spin, reset]) { b.type = 'button'; b.disabled = true; bar.append(b); }
+  wrap.append(box, bar);
+  root.append(wrap);
+  let viewer = null;
+  let gone = false;
+  const spinLabel = () => { spin.textContent = viewer.isAutoRotating() ? 'หยุดหมุน' : 'หมุนอัตโนมัติ'; };
+  import('./vendor/model3d.min.js').then(({ createModelViewer }) => {
+    if (gone) return;
+    viewer = createModelViewer(box, data);
+    spin.disabled = reset.disabled = false;
+    spinLabel();
+    spin.addEventListener('click', () => { viewer.setAutoRotate(!viewer.isAutoRotating()); spinLabel(); });
+    reset.addEventListener('click', () => viewer.resetView());
+  }).catch((err) => {
+    if (gone) return;
+    wrap.replaceChildren(h('div', 'rs-empty', `แสดงโมเดล 3D ไม่ได้ (${err.message})`));
+  });
+  return {
+    items: [],
+    onShow: () => { if (viewer) viewer.resume(); },
+    onHide: () => { if (viewer) viewer.pause(); },
+    dispose: () => { gone = true; if (viewer) viewer.dispose(); viewer = null; },
+  };
+}
+
 // ---------- registry ----------
 const RENDERERS = {
   search: renderSearch,
@@ -816,6 +848,7 @@ const RENDERERS = {
   chart: renderChart,
   text: renderText,
   map: renderMap,
+  model: renderModel,
 };
 
 export const TYPE_META = {
@@ -829,6 +862,7 @@ export const TYPE_META = {
   chart: { icon: 'chart', label: 'กราฟ' },
   text: { icon: 'text', label: 'คำตอบ' },
   map: { icon: 'map', label: 'แผนที่' },
+  model: { icon: 'step', label: 'โมเดล 3D' },
 };
 
 /** Has this payload anything to show? */
@@ -840,6 +874,7 @@ export function isEmptyResult(data) {
     case 'chart': return !(data.series && data.series.length);
     case 'text': return !(data.markdown || (data.items && data.items.length));
     case 'map': return typeof data.lat !== 'number';
+    case 'model': return !(Array.isArray(data.parts) && data.parts.length);
     default: return !(data.items && data.items.length);
   }
 }

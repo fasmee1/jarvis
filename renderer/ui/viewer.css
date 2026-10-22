@@ -221,6 +221,9 @@ img.broken { visibility: hidden; }
 .mp-3d:not(:disabled):hover { background: rgba(0, 216, 255, 0.15); }
 .mp-3d.on { background: rgba(8, 14, 20, 0.92); border-color: #00d8ff; }
 .mp-earth-box { position: absolute; inset: 0; z-index: 1; border-radius: 8px; overflow: hidden; background: #0b1118; }
+.md-wrap { background: #0b1118; border-radius: 8px; overflow: hidden; }
+.md-box { position: absolute; inset: 0; }
+.md-box canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
 .mp-earth-box canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .mp-earth-attr { position: absolute; right: 8px; bottom: 6px; max-width: 70%; padding: 2px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.55); color: #e8e8e8; font-size: 11px; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mp-earth-err { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: var(--text-2); font-size: 14px; }
