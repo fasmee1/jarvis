@@ -7,7 +7,8 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { PermissionBroker } = require('../lib/permission-mcp/broker');
 const { ruleFor, addAllowRule } = require('../lib/permissions/rules');
-const { evaluate, defaultGuardConfig } = require('../lib/hooks/guard-rules');
+const { evaluate, evaluatePlan, defaultGuardConfig } = require('../lib/hooks/guard-rules');
+const { buildClaudeArgs } = require('../lib/claude/args');
 
 function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-test-'));
@@ -184,4 +185,20 @@ test('guard hook script talks to the broker for "ask" commands', async () => {
   } finally {
     broker.stop();
   }
+});
+
+test('plan mode: file tools and mutating shell are blocked, read-only shell is allowed', () => {
+  for (const t of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) assert.strictEqual(evaluatePlan(t, { file_path: 'C:\proj\a.js' }).action, 'block', t);
+  const blocked = ['rm a.txt', 'echo hi > a.txt', 'git commit -m x', 'git branch -D x', 'npm install', 'ls && touch a', 'cat a | tee b', 'echo $(touch a)', 'find . -delete', 'node build.js'];
+  for (const c of blocked) assert.strictEqual(evaluatePlan('Bash', { command: c }).action, 'block', c);
+  const allowed = ['ls -la', 'git status', 'git diff HEAD', 'cat a.js | grep foo', 'rg TODO src 2>&1', 'dir'];
+  for (const c of allowed) assert.strictEqual(evaluatePlan('PowerShell', { command: c }).action, 'allow', c);
+  assert.strictEqual(evaluatePlan('Read', { file_path: 'a' }).action, 'allow');
+  assert.strictEqual(evaluatePlan('mcp__x__create_form', {}).action, 'block');
+  assert.strictEqual(evaluatePlan('mcp__x__get_design_context', {}).action, 'allow');
+});
+
+test('buildClaudeArgs passes disallowedTools', () => {
+  const a = buildClaudeArgs({ permissionMode: 'plan', disallowedTools: ['Write', 'Edit'] });
+  assert.ok(a.includes('--disallowedTools') && a.includes('Write,Edit'));
 });

@@ -814,13 +814,17 @@ function renderModel(root, data) {
   const reset = h('button', 'mp-3d', 'รีเซ็ตมุม');
   for (const b of [spin, reset]) { b.type = 'button'; b.disabled = true; bar.append(b); }
   wrap.append(box, bar);
+  if (typeof data.credit === 'string' && data.credit) wrap.append(h('div', 'dim', data.credit)); // CC attribution of a downloaded model
   root.append(wrap);
   let viewer = null;
   let gone = false;
   const spinLabel = () => { spin.textContent = viewer.isAutoRotating() ? 'หยุดหมุน' : 'หมุนอัตโนมัติ'; };
   import('./vendor/model3d.min.js').then(({ createModelViewer }) => {
     if (gone) return;
-    viewer = createModelViewer(box, data);
+    viewer = createModelViewer(box, {
+      ...data,
+      onError: (e) => { if (!gone) wrap.replaceChildren(h('div', 'rs-empty', `โหลดไฟล์โมเดลไม่ได้ (${e.message})`)); },
+    });
     spin.disabled = reset.disabled = false;
     spinLabel();
     spin.addEventListener('click', () => { viewer.setAutoRotate(!viewer.isAutoRotating()); spinLabel(); });
@@ -874,7 +878,7 @@ export function isEmptyResult(data) {
     case 'chart': return !(data.series && data.series.length);
     case 'text': return !(data.markdown || (data.items && data.items.length));
     case 'map': return typeof data.lat !== 'number';
-    case 'model': return !(Array.isArray(data.parts) && data.parts.length);
+    case 'model': return !(data.glb || (Array.isArray(data.parts) && data.parts.length));
     default: return !(data.items && data.items.length);
   }
 }

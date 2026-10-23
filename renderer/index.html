@@ -440,6 +440,11 @@
         <hr>
         <label>ความเร็วเสียงพูด<input id="s-ttsRate" type="number" min="0.5" max="2" step="0.1"></label>
         <div class="row"><span id="tts-status" class="dim"></span></div>
+        <label class="check"><input id="s-ttsGemini" type="checkbox"> ใช้เสียง Gemini เป็นอันดับแรก (ฟรี มีอารมณ์ ต้องมี API key จาก aistudio.google.com/apikey) · ถ้าโควตาหมดจะใช้ Edge แทนเอง</label>
+        <div class="row"><input id="s-gemini-key" type="password" placeholder="Gemini API key (เก็บแบบเข้ารหัส)"><button id="s-gemini-save" class="btn small">บันทึก key</button></div>
+        <label>เสียง Gemini (เช่น Kore, Puck, Leda, Aoede)<input id="s-geminiVoice" type="text" placeholder="Kore"></label>
+        <label>เพดานจำนวนครั้งต่อวัน (เกินแล้วใช้ Edge แทน)<input id="s-geminiDailyCap" type="number" min="1" max="100000" step="1"></label>
+        <div class="row"><span id="gemini-usage" class="dim mono"></span></div>
         <div class="row"><button id="s-thai-voice" class="btn small">ติดตั้งเสียงภาษาไทย (Windows, ต้องใช้ admin)</button><button id="s-speech-settings" class="btn small">เปิดหน้า Speech ของ Windows</button></div>
       </div>
       <div class="stab" id="stab-camera" hidden>
@@ -513,6 +518,9 @@
         <p class="dim">ใส่อย่างใดอย่างหนึ่ง แผนที่จะมีปุ่ม "Earth" — ตึกและต้นไม้เป็นภาพถ่าย 3D สีจริงทุกด้าน ใช้เครื่องมากกว่าโหมดดาวเทียม</p>
         <div class="row"><input id="s-ion-key" type="password" placeholder="Cesium ion access token จาก ion.cesium.com — ฟรี ไม่ต้องใช้บัตร (เก็บแบบเข้ารหัส)"><button id="s-ion-save" class="btn small">บันทึก token</button></div>
         <div class="row"><input id="s-google-maps-key" type="password" placeholder="หรือ Google Maps API key ที่เปิด Map Tiles API (เก็บแบบเข้ารหัส)"><button id="s-google-maps-save" class="btn small">บันทึก key</button></div>
+        <h3>โมเดล 3D สมจริงจาก Sketchfab (ไม่บังคับ)</h3>
+        <p class="dim">ใส่ API token ฟรีจาก sketchfab.com/settings/password แล้วสั่ง "ขอดูโมเดล 3D ของ…" JARVIS จะค้นและดาวน์โหลดโมเดลจริงมาแสดง พร้อมเครดิตเจ้าของ</p>
+        <div class="row"><input id="s-sketchfab-key" type="password" placeholder="Sketchfab API token (เก็บแบบเข้ารหัส)"><button id="s-sketchfab-save" class="btn small">บันทึก token</button></div>
       </div>
       <div class="stab" id="stab-web" hidden>
         <p>หน้าเว็บที่ JARVIS เปิดใช้ข้อมูลแยกจากแอป (คุกกี้ การล็อกอิน แคช) และเก็บไว้ระหว่างการเปิดแอปแต่ละครั้ง</p>

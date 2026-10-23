@@ -19,6 +19,8 @@ const { v } = require('./lib/ipc-validate');
 const { WinRtTts } = require('./lib/tts/winrt');
 const { EdgeTts } = require('./lib/tts/edge');
 const { HybridTts } = require('./lib/tts/hybrid');
+const { GeminiTts } = require('./lib/tts/gemini');
+const { TtsUsage } = require('./lib/tts/usage');
 const { installThaiVoice } = require('./lib/installer/thai-voice');
 const { PERMISSION_MODES } = require('./lib/claude/args');
 const { SttService } = require('./lib/stt');
@@ -34,6 +36,8 @@ const { Summarizer } = require('./lib/web/summarize');
 const { PageReader } = require('./lib/web/page-reader');
 const { PdfReader } = require('./lib/web/pdf');
 const { MapsKey } = require('./lib/maps-key');
+const { Sketchfab } = require('./lib/model3d/sketchfab');
+const { ImageTo3d } = require('./lib/model3d/image-to-3d');
 const { OrbWindow, ORB_PRELOAD } = require('./lib/orb/orb-window');
 const { ApprovalWindow, APPROVAL_PRELOAD } = require('./lib/approval-window');
 
@@ -69,8 +73,13 @@ function registerAppProtocol() {
     const url = new URL(req.url);
     if (url.host !== 'jarvis') return new Response('not found', { status: 404 });
     const rel = path.normalize(decodeURIComponent(url.pathname).replace(/^\/+/, ''));
-    const full = path.join(APP_ROOT, rel);
-    const allowed = SERVED_DIRS.some((d) => full.startsWith(path.join(APP_ROOT, d) + path.sep));
+    // downloaded 3D models live in userData, not next to the app
+    const modelsDir = path.join(app.getPath('userData'), 'models');
+    const isModel = rel.startsWith('models' + path.sep);
+    const full = isModel ? path.join(modelsDir, rel.slice('models'.length + 1)) : path.join(APP_ROOT, rel);
+    const allowed = isModel
+      ? full.startsWith(modelsDir + path.sep)
+      : SERVED_DIRS.some((d) => full.startsWith(path.join(APP_ROOT, d) + path.sep));
     if (!allowed || !fs.existsSync(full) || !fs.statSync(full).isFile()) return new Response('not found', { status: 404 });
     return net.fetch(pathToFileURL(full).toString());
   });
@@ -93,10 +102,27 @@ const screenWatch = new ScreenWatcher({
 });
 const serial = new SerialMonitor({ onState: (s) => send('serial:state', s) }); // one open COM port at a time
 let tts = null;
+let geminiTts = null; // Gemini voice + its usage counter (status shown in Settings)
 let stt = null;
 let vision = null;
 let wakeAssets = null;
-let mapsKeys = null; // { google, ion } credentials for the optional Google Earth 3D map
+let mapsKeys = null; // { google, ion, sketchfab } credentials: Google Earth 3D map, 3D model downloads
+let modelSource = null; // Sketchfab client behind the jarvis-model-search block
+let imageTo3d = null; // picture -> GLB via a Hugging Face Space (jarvis-image-to-3d block)
+
+/** The picture is about to leave this computer: ask the user, every time. */
+async function confirmUpload(file) {
+  const r = await dialog.showMessageBox(win && !win.isDestroyed() ? win : undefined, {
+    type: 'question',
+    buttons: ['ส่งรูปไปแปลงเป็น 3D', 'ไม่ส่ง'],
+    defaultId: 1,
+    cancelId: 1,
+    title: 'JARVIS',
+    message: 'ส่งรูปนี้ออกไปที่ Hugging Face เพื่อแปลงเป็น 3D?',
+    detail: `${file}\n\nรูปจะถูกอัปโหลดไปที่บริการภายนอก (Space ฟรีของ TRELLIS) ไม่ควรส่งรูปที่เป็นความลับ`,
+  });
+  return r.response === 0;
+}
 let tray = null;
 let web = null; // Web Viewer browser (WebContentsViews in the main window)
 let reader = null; // Web Viewer page reader (extraction + summaries)
@@ -658,6 +684,14 @@ function registerIpc() {
       return { ok: false, error: err.message };
     }
   });
+  handle('tts:gemini-status', () => geminiTts.status());
+  handle('tts:set-gemini-key', (p) => {
+    v.str(p, 200, 'key');
+    mapsKeys.gemini.set(p);
+    geminiTts.downUntil = 0; // a new key gets a fresh try
+    geminiTts.failures = 0;
+    return { ok: true };
+  });
   handle('system:open-speech-settings', () => shell.openExternal('ms-settings:speech'));
 
   // ---- STT (phase 2) ----
@@ -683,6 +717,11 @@ function registerIpc() {
   handle('maps:set-ion-key', (p) => {
     v.str(p, 2000, 'key'); // ion tokens are JWTs (~200–1000 chars)
     mapsKeys.ion.set(p);
+    return { ok: true };
+  });
+  handle('model3d:set-sketchfab-token', (p) => {
+    v.str(p, 200, 'token');
+    mapsKeys.sketchfab.set(p);
     return { ok: true };
   });
   handle('stt:transcribe', async (p) => {
@@ -1159,8 +1198,15 @@ function registerHotkey() {
 app.whenReady().then(async () => {
   const userData = app.getPath('userData');
   settings = new SettingsStore(userData);
-  tts = new HybridTts({ edge: new EdgeTts(), fallback: new WinRtTts() });
-  mapsKeys = { google: new MapsKey({ dataDir: userData }), ion: new MapsKey({ dataDir: userData, kind: 'ion' }) };
+  mapsKeys = { google: new MapsKey({ dataDir: userData }), ion: new MapsKey({ dataDir: userData, kind: 'ion' }), sketchfab: new MapsKey({ dataDir: userData, kind: 'sketchfab' }), gemini: new MapsKey({ dataDir: userData, kind: 'gemini' }) };
+  geminiTts = new GeminiTts({
+    getKey: () => mapsKeys.gemini.get(),
+    getConfig: () => settings.get(),
+    usage: new TtsUsage({ file: path.join(userData, 'tts-usage.json') }),
+  });
+  tts = new HybridTts({ edge: new EdgeTts(), fallback: new WinRtTts(), gemini: geminiTts });
+  modelSource = new Sketchfab({ getToken: () => mapsKeys.sketchfab.get(), modelsDir: path.join(userData, 'models') });
+  imageTo3d = new ImageTo3d({ modelsDir: path.join(userData, 'models') });
   stt = new SttService({ dataDir: path.join(userData, 'stt'), tempDir: path.join(app.getPath('temp'), 'mee-jarvis') });
   stt.configure(settings.get());
   vision = new VisionAssets({ dataDir: path.join(userData, 'vision') });
@@ -1182,6 +1228,9 @@ app.whenReady().then(async () => {
     settings,
     memory,
     reminders,
+    modelSource,
+    imageTo3d,
+    confirmUpload,
     tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
     appRoot: APP_ROOT,
     logDir: userData,
@@ -1201,6 +1250,9 @@ app.whenReady().then(async () => {
       settings,
       memory,
       reminders,
+      modelSource,
+      imageTo3d,
+      confirmUpload,
       tempDir: path.join(app.getPath('temp'), 'mee-jarvis'),
       appRoot: APP_ROOT,
       logDir: userData,

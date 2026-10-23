@@ -10,6 +10,12 @@
 .task-status[hidden] { display: none; }
 .task-status.on { opacity: 1; transform: translate(-50%, 0); }
 .task-status.att { border-color: var(--orange-soft); }
+.task-status.done { border-color: var(--green, #3ddc84); }
+.task-status.done .ts-dot { background: var(--green, #3ddc84); animation: none; }
+.task-status.done .ts-phase { color: var(--green, #3ddc84); }
+.task-status.err { border-color: var(--red, #ff5c5c); }
+.task-status.err .ts-dot { background: var(--red, #ff5c5c); animation: none; }
+.task-status.err .ts-phase { color: var(--red, #ff5c5c); }
 body.booting .task-status { display: none; }
 .ts-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: ts-pulse 2.4s ease-in-out infinite; }
 .task-status.att .ts-dot { background: var(--orange); }

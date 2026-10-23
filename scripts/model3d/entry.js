@@ -11,6 +11,8 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
 const MAX_PARTS = 300;
 const num = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -75,7 +77,24 @@ function buildModel(spec) {
   return group;
 }
 
+// A glb is only loaded from this app's own origin or a blob: URL (the CSP blocks other hosts anyway).
+function glbUrl(src) {
+  if (typeof src !== 'string' || !src) return null;
+  try {
+    const u = new URL(src, window.location.href);
+    return u.protocol === 'blob:' || u.origin === window.location.origin ? u.href : null;
+  } catch { return null; }
+}
+
+function loadGlb(url) {
+  const draco = new DRACOLoader().setDecoderPath(new URL('./draco/', import.meta.url).href);
+  const loader = new GLTFLoader().setDRACOLoader(draco);
+  return loader.loadAsync(url).finally(() => draco.dispose()).then((gltf) => gltf.scene);
+}
+
 export function createModelViewer(container, spec) {
+  const glb = glbUrl(spec.glb);
+  if (spec.glb && !glb) throw new Error('glb url not allowed');
   const renderer = new WebGLRenderer({ antialias: true, powerPreference: 'low-power' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.toneMapping = ACESFilmicToneMapping;
@@ -90,29 +109,50 @@ export function createModelViewer(container, spec) {
   sun.position.set(3, 5, 4);
   scene.add(sun);
 
-  const model = buildModel(spec);
-  if (!model.children.length) throw new Error('no drawable parts');
-  scene.add(model);
-  const box = new Box3().setFromObject(model);
-  const center = box.getCenter(new Vector3());
-  const radius = Math.max(0.001, box.getSize(new Vector3()).length() / 2);
-  model.position.sub(center); // centre on the origin so orbiting pivots on the model
-
-  const grid = new GridHelper(radius * 5, 20, '#1d4a5c', '#14303c');
-  grid.position.y = -(box.max.y - box.min.y) / 2 - radius * 0.02;
-  scene.add(grid);
-
-  const camera = new PerspectiveCamera(40, 1, radius / 50, radius * 60);
-  camera.position.set(radius * 1.6, radius * 1.1, radius * 2.2);
+  const camera = new PerspectiveCamera(40, 1, 0.01, 1000);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.autoRotate = spec.autoRotate !== false;
   controls.autoRotateSpeed = 1.6;
-  controls.minDistance = radius * 0.4;
-  controls.maxDistance = radius * 12;
   renderer.domElement.addEventListener('pointerdown', () => { controls.autoRotate = false; });
 
+  let radius = 1;
+  let grid = null;
+  // Centre the model on the origin, then size the grid, camera and zoom limits to it.
+  const frameModel = (model) => {
+    const box = new Box3().setFromObject(model);
+    const center = box.getCenter(new Vector3());
+    radius = Math.max(0.001, box.getSize(new Vector3()).length() / 2);
+    model.position.sub(center); // so orbiting pivots on the model
+    if (grid) { scene.remove(grid); grid.dispose(); }
+    grid = new GridHelper(radius * 5, 20, '#1d4a5c', '#14303c');
+    grid.position.y = -(box.max.y - box.min.y) / 2 - radius * 0.02;
+    scene.add(grid);
+    camera.near = radius / 50;
+    camera.far = radius * 60;
+    camera.updateProjectionMatrix();
+    controls.minDistance = radius * 0.4;
+    controls.maxDistance = radius * 12;
+    camera.position.set(radius * 1.6, radius * 1.1, radius * 2.2);
+    controls.target.set(0, 0, 0);
+    controls.update();
+  };
+
   let alive = true;
+  if (glb) {
+    loadGlb(glb).then((model) => {
+      if (!alive) return;
+      scene.add(model);
+      frameModel(model);
+      if (spec.onLoaded) spec.onLoaded();
+    }).catch((err) => { if (alive && spec.onError) spec.onError(err); });
+  } else {
+    const model = buildModel(spec);
+    if (!model.children.length) throw new Error('no drawable parts');
+    scene.add(model);
+    frameModel(model);
+  }
+
   let visible = true;
   let raf = 0;
   const resize = () => {

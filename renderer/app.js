@@ -25,6 +25,7 @@ import { OrbBridge } from './orb-bridge.js';
 import { checkReport, diffReport, undoLines } from './ui/code-report.js';
 import { ProjectsPanel } from './ui/projects.js';
 import { TaskStatus } from './ui/task-status.js';
+import { toolPhase } from './ui/task-phase.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -39,6 +40,7 @@ const S = {
   busy: false,
   toolRunning: false,
   toolName: '', // tool Claude is using right now (task status pill)
+  toolInput: null, // its input, for the file name on the pill
   stepInfo: null, // { current, total } of the latest jarvis-steps block
   lookArmed: false,
   lat: {},
@@ -95,7 +97,7 @@ function updateTaskStatus() {
   taskStatus.update({
     running: !!phase,
     command: S.lastUserText || '',
-    phase: S.coreState === 'TOOL_RUNNING' && S.toolName ? `กำลังใช้ ${S.toolName}` : phase,
+    phase: S.coreState === 'TOOL_RUNNING' && S.toolName ? toolPhase(S.toolName, S.toolInput) : phase,
     attention: S.coreState === 'AWAITING_APPROVAL',
     step: S.stepInfo,
   });
@@ -119,7 +121,7 @@ function notice(text, level = 'info', action = null, ms = 9000) {
   const n = el('div', { class: `notice ${level}` }, el('div', { text }));
   if (action) {
     const row = el('div', { class: 'row' });
-    const label = { 'open-interactive': 'เปิด Claude Code แบบ interactive', 'new-from-summary': 'เริ่ม session ใหม่จากสรุป', 'install-thai-voice': 'ติดตั้งเสียงภาษาไทย', 'open-settings-voice': 'เปิด Settings เสียง', 'init-claude-md': 'สร้าง CLAUDE.md (/init)', 'choose-folder': 'เลือกโฟลเดอร์โปรเจกต์' }[action] || action;
+    const label = { 'open-interactive': 'เปิด Claude Code แบบ interactive', 'new-from-summary': 'เริ่ม session ใหม่จากสรุป', 'install-thai-voice': 'ติดตั้งเสียงภาษาไทย', 'open-settings-voice': 'เปิด Settings เสียง', 'init-claude-md': 'สร้าง CLAUDE.md (/init)', 'choose-folder': 'เลือกโฟลเดอร์โปรเจกต์', 'open-settings-3d': 'เปิด Settings ใส่ token' }[action] || action;
     row.append(el('button', { class: 'btn small', text: label, onclick: () => { runAction(action); n.remove(); } }));
     n.append(row);
   }
@@ -138,6 +140,7 @@ function runAction(a) {
   if (a === 'new-from-summary') newFromSummary();
   if (a === 'install-thai-voice') installThaiVoice();
   if (a === 'open-settings-voice') openSettings('voice');
+  if (a === 'open-settings-3d') openSettings('display');
   if (a === 'init-claude-md') send('/init');
   if (a === 'choose-folder') $('btn-folder').click();
 }
@@ -586,6 +589,10 @@ function onActivity(a) {
     $('activity').prepend(card);
     $('activity-count').textContent = `(${acts.size})`;
     S.toolRunning = true;
+    if (!a.parent && S.coreState === 'TOOL_RUNNING') {
+      S.toolInput = a.input;
+      updateTaskStatus();
+    }
   } else if (a.kind === 'tool-result') {
     const card = acts.get(a.id);
     if (!card) return;
@@ -1710,10 +1717,10 @@ function applyMode(mode) {
 // ---------------- settings dialog ----------------
 
 const FIELDS = {
-  text: ['claudePath', 'model', 'userProfile', 'azureRegion', 'pushToTalkKey', 'orbShortcut'],
-  num: ['approvalTimeoutSec', 'vadSilenceMs', 'screenWatchIntervalSec', 'screenWatchMaxMin', 'snapshotWidth', 'snapshotHeight'],
+  text: ['claudePath', 'model', 'userProfile', 'azureRegion', 'pushToTalkKey', 'orbShortcut', 'geminiVoice'],
+  num: ['approvalTimeoutSec', 'geminiDailyCap', 'vadSilenceMs', 'screenWatchIntervalSec', 'screenWatchMaxMin', 'snapshotWidth', 'snapshotHeight'],
   float: ['ttsRate', 'snapshotQuality'],
-  bool: ['persistentProcess', 'guardEnabled', 'confirmVoiceBeforeSend', 'autoApproveSafe', 'visionOverlay', 'orbEnabled', 'orbOnTopFullscreen', 'orbAutoFade', 'orbAutoOpenResults'],
+  bool: ['persistentProcess', 'ttsGemini', 'guardEnabled', 'confirmVoiceBeforeSend', 'autoApproveSafe', 'visionOverlay', 'orbEnabled', 'orbOnTopFullscreen', 'orbAutoFade', 'orbAutoOpenResults'],
   select: ['sttProvider', 'whisperModel', 'micDeviceId', 'speakerDeviceId', 'cameraDeviceId', 'orbSize', 'pushToTalkMode'],
 };
 
@@ -1770,6 +1777,9 @@ async function refreshInstallStatus() {
   const st = await api.invoke('stt:status');
   const w = st.whisper;
   $('stt-status').textContent = `whisper: ${w.hasExe ? '✓' : '✕'} โปรแกรม · ${w.hasModel ? '✓' : '✕'} โมเดล ${w.modelName} · Typhoon key: ${st.typhoon.hasKey ? '✓' : '✕'} · Azure key: ${st.azure.hasKey ? '✓' : '✕'}`;
+  const g = await api.invoke('tts:gemini-status');
+  const n = (x) => x.toLocaleString('en-US');
+  $('gemini-usage').textContent = `Gemini key: ${g.hasKey ? '✓' : '✕'} · วันนี้ ${n(g.day.requests)}/${n(g.dailyCap)} ครั้ง ${n(g.day.chars)} ตัวอักษร · เดือนนี้ ${n(g.month.requests)} ครั้ง ${n(g.month.chars)} ตัวอักษร${g.coolingDown ? ' · พักชั่วคราว (ใช้ Edge แทน)' : ''}${g.lastError ? ` · ผิดพลาดล่าสุด: ${g.lastError}` : ''}`;
   const vs = await api.invoke('vision:status');
   $('vision-status').textContent = `MediaPipe: face ${vs.models.face ? '✓' : '✕'} · hand ${vs.models.hand ? '✓' : '✕'} · gesture ${vs.models.gesture ? '✓' : '✕'}`;
   return { st, vs };
@@ -1911,6 +1921,11 @@ function wireSettings() {
     await api.invoke('maps:set-google-key', key).then(() => notice(key ? 'บันทึก Google Maps key (เข้ารหัส) แล้ว — แผนที่จะมีปุ่ม Earth' : 'ลบ Google Maps key แล้ว'), (err) => notice(err.message, 'error'));
     $('s-google-maps-key').value = '';
   };
+  $('s-sketchfab-save').onclick = async () => {
+    const key = $('s-sketchfab-key').value.trim();
+    await api.invoke('model3d:set-sketchfab-token', key).then(() => notice(key ? 'บันทึก Sketchfab token (เข้ารหัส) แล้ว' : 'ลบ Sketchfab token แล้ว'), (err) => notice(err.message, 'error'));
+    $('s-sketchfab-key').value = '';
+  };
   $('s-orb-reset').onclick = async () => {
     const r = await saveSetting({ orbPos: null });
     if (r.ok) notice('รีเซ็ตตำแหน่งไอคอนแล้ว (มุมขวาล่างของจอหลัก)', 'info', null, 3000);
@@ -1919,6 +1934,12 @@ function wireSettings() {
     const key = $('s-azure-key').value.trim();
     await api.invoke('stt:set-azure-key', key).then(() => notice(key ? 'บันทึก Azure key (เข้ารหัส) แล้ว' : 'ลบ Azure key แล้ว'), (err) => notice(err.message, 'error'));
     $('s-azure-key').value = '';
+    refreshInstallStatus();
+  };
+  $('s-gemini-save').onclick = async () => {
+    const key = $('s-gemini-key').value.trim();
+    await api.invoke('tts:set-gemini-key', key).then(() => notice(key ? 'บันทึก Gemini key (เข้ารหัส) แล้ว' : 'ลบ Gemini key แล้ว'), (err) => notice(err.message, 'error'));
+    $('s-gemini-key').value = '';
     refreshInstallStatus();
   };
   $('s-thai-voice').onclick = installThaiVoice;
@@ -2069,7 +2090,9 @@ function wireEvents() {
     S.coreState = state;
     S.busy = !['STANDBY', 'ERROR'].includes(state);
     S.toolName = state === 'TOOL_RUNNING' && tool ? String(tool) : '';
+    S.toolInput = null; // the activity event right after this one carries the input
     if (state === 'STANDBY' || state === 'ERROR') S.toolRunning = false;
+    if (state === 'ERROR') taskStatus.finish(false);
     refreshState(state === 'TOOL_RUNNING' && tool ? `Claude กำลังใช้ ${tool}` : undefined);
   });
   api.on('app-state', applyAppState);
@@ -2090,6 +2113,7 @@ function wireEvents() {
     S.segSpoken = 0;
   });
   api.on('chat:item', onChatItem);
+  api.on('notice', (n) => notice(n.text, n.level, n.action, 0));
   api.on('activity', onActivity);
   api.on('todos', onTodos);
   api.on('terminal', ({ stream, text }) => term(text, stream));
@@ -2150,7 +2174,9 @@ function wireEvents() {
     orbBridge.set({ reply: (S.replyText || r.resultText || '').slice(0, 800), replyDone: true });
     curMsg = null;
     curText = null;
-    sfx.done();
+    taskStatus.finish(!r.isError);
+    if (r.isError) sfx.error();
+    else sfx.done();
   });
   api.on('tts:segment', ({ text }) => {
     if (S.muteThisTurn || S.voiceMuted) return;
