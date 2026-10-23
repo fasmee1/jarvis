@@ -174,7 +174,7 @@ class Sfx {
   /** The shared AudioContext (also used by TTS). Created on first use. */
   context() {
     const c = this._init();
-    if (c && c.state === 'suspended') c.resume().catch(() => {});
+    if (c && c.state === 'suspended' && !this.held) c.resume().catch(() => {}); // held: the voice is paused on purpose
     return c;
   }
 

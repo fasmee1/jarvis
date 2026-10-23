@@ -166,3 +166,46 @@ test('the popup opens on the project that needs you: approval, then running, the
   applyStatus(m, st('c', 'awaiting-approval', { startedAt: 0 }));
   assert.strictEqual(pickProject(m), 'c');
 });
+
+const memStorage = () => {
+  const d = new Map();
+  return { getItem: (k) => (d.has(k) ? d.get(k) : null), setItem: (k, v) => d.set(k, String(v)), removeItem: (k) => d.delete(k), d };
+};
+
+test('history: saved log comes back in front of the new one; running tools show as failed; tool input is dropped', async () => {
+  const { createModel, applyStatus, saveHistory, restoreHistory } = await load();
+  const s = memStorage();
+  const log = [
+    { kind: 'user', text: 'ทำหน้า login' },
+    { kind: 'tool', id: 't1', name: 'Bash', text: 'npm test', status: 'running', input: '{"x":1}', result: 'y'.repeat(2000) },
+    { kind: 'text', text: 'เสร็จแล้ว' },
+  ];
+  assert.ok(saveHistory(s, 'a', log));
+  assert.ok(!JSON.parse(s.getItem('jarvis.pjlog.a')).log[1].input);
+  const m = createModel();
+  applyStatus(m, st('a', 'idle'));
+  m.projects.get('a').log.push({ kind: 'sep', text: 'งานใหม่' });
+  assert.ok(restoreHistory(m, 'a', s));
+  const got = m.projects.get('a').log;
+  assert.deepStrictEqual(got.map((e) => e.kind), ['user', 'tool', 'text', 'sep']);
+  assert.strictEqual(got[1].status, 'err');
+  assert.strictEqual(got[1].result.length, 500);
+  assert.ok(!restoreHistory(m, 'a', s)); // only once per project
+});
+
+test('history: bad or missing data gives an empty log; clear removes it; no storage is fine', async () => {
+  const { loadHistory, saveHistory, clearHistory, packLog } = await load();
+  const s = memStorage();
+  assert.deepStrictEqual(loadHistory(s, 'a'), []);
+  s.setItem('jarvis.pjlog.a', '{nope');
+  assert.deepStrictEqual(loadHistory(s, 'a'), []);
+  s.setItem('jarvis.pjlog.a', JSON.stringify({ v: 1, log: [{ kind: 'bogus', text: 'x' }, null, { kind: 'text', text: 'ok' }, { kind: 'text' }] }));
+  assert.deepStrictEqual(loadHistory(s, 'a'), [{ kind: 'text', text: 'ok' }]);
+  clearHistory(s, 'a');
+  assert.strictEqual(s.getItem('jarvis.pjlog.a'), null);
+  assert.strictEqual(saveHistory(null, 'a', []), false);
+  assert.deepStrictEqual(loadHistory(null, 'a'), []);
+  const full = { setItem() { throw new Error('quota'); } };
+  assert.strictEqual(saveHistory(full, 'a', [{ kind: 'text', text: 'x' }]), false);
+  assert.strictEqual(packLog(Array.from({ length: 400 }, () => ({ kind: 'text', text: 'x' }))).length, 300);
+});

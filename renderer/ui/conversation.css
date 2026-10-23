@@ -68,6 +68,10 @@
 .cv .msg img.thumb { display: block; max-width: 240px; border-radius: 6px; margin-bottom: 8px; }
 .cv .msg .meta { font-size: 11px; color: var(--text-3); margin-top: 8px; font-family: var(--font-mono); white-space: normal; }
 .cv .msg .btn.small { margin: 4px 0; }
+.cv .msg .speech-ctl { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; white-space: normal; }
+.cv .msg .speech-ctl .btn.small { margin: 0; }
+.cv .msg .speech-ctl[hidden] { display: none; }
+.cv-ctl.danger { color: var(--red, #ff7b72); border-color: currentColor; }
 
 /* code blocks + copy button */
 .cv-code { position: relative; margin: 8px 0; white-space: normal; }
@@ -207,6 +211,12 @@
 .attach-chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
 .attach-chip button { border: none; background: transparent; color: var(--text-2); cursor: pointer; font: inherit; font-size: 12px; padding: 2px 6px; border-radius: 999px; }
 .attach-chip button:hover { color: var(--text-1); background: var(--surface-2); }
+.paste-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.paste-chips[hidden] { display: none; }
+.paste-thumb { position: relative; display: inline-flex; }
+.paste-thumb img { height: 64px; max-width: 120px; object-fit: cover; border-radius: 8px; border: 1px solid var(--accent-soft); }
+.paste-thumb button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; padding: 0; border: none; border-radius: 999px; background: var(--surface-2); color: var(--text-1); cursor: pointer; font-size: 11px; line-height: 20px; }
+.paste-thumb button:hover { background: var(--accent-soft); }
 .drop-overlay {
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; pointer-events: none;
   background: rgba(7, 9, 12, 0.72); border: 2px dashed var(--accent-soft); color: var(--accent); font-size: 18px;

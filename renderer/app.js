@@ -394,7 +394,11 @@ let curText = null;
 
 function addUserMsg(text, image, source = 'camera') {
   const m = el('div', { class: 'msg user' });
-  if (image) {
+  if (source === 'pasted') {
+    const list = [].concat(image || []);
+    m.append(el('div', { class: 'cam-badge', text: '📋 แนบภาพที่วาง' }));
+    for (const src of list) m.append(el('img', { class: 'thumb', src, alt: 'ภาพที่วาง' }));
+  } else if (image) {
     m.append(el('div', { class: 'cam-badge', text: source === 'screen' ? '🖥 แนบภาพหน้าจอ' : '📷 แนบภาพจากกล้อง' }));
     const img = el('img', { class: 'thumb', src: image, alt: 'ภาพที่ส่ง' });
     m.append(img);
@@ -455,6 +459,40 @@ function appendText(t) {
   curText._raw += t;
   linkedText(curText, curText._raw);
   scrollChat();
+}
+
+/** Cut text into short segments for the speaker (sentence ends and line breaks). */
+function speechSegments(text) {
+  const out = [];
+  for (const line of String(text).split(/\n+/)) {
+    for (const s of line.match(/[^.!?ฯ]+[.!?ฯ]*/g) || []) {
+      const t = s.trim();
+      if (t) out.push(t);
+    }
+  }
+  return out;
+}
+
+/** Row under a reply: pause / resume / replay its speech. */
+function speechControls(source, { copy = false } = {}) {
+  const text = typeof source === 'function' ? source : () => source;
+  const pauseBtn = el('button', { class: 'btn small', type: 'button', text: '⏸ หยุดอ่าน', title: 'หยุดอ่านชั่วคราว' });
+  const resumeBtn = el('button', { class: 'btn small', type: 'button', text: '▶ อ่านต่อ', title: 'อ่านต่อจากที่หยุด' });
+  const replayBtn = el('button', { class: 'btn small', type: 'button', text: '↻ อ่านซ้ำ', title: 'อ่านข้อความนี้ใหม่ตั้งแต่ต้น' });
+  const copyBtn = copy ? el('button', { class: 'btn small', type: 'button', text: 'คัดลอก', title: 'คัดลอกข้อความนี้' }) : null;
+  const row = el('div', { class: 'speech-ctl' }, pauseBtn, resumeBtn, replayBtn, copyBtn);
+  if (copyBtn) copyBtn.onclick = () => copyText(text(), copyBtn);
+  pauseBtn.onclick = () => { if (!speaker.pause()) notice('ตอนนี้ไม่ได้กำลังอ่านอยู่', 'info'); };
+  resumeBtn.onclick = () => { if (!speaker.resume()) notice('ไม่มีเสียงที่หยุดค้างอยู่', 'info'); };
+  replayBtn.onclick = () => {
+    if (speaker.engine === 'none') { notice('ยังไม่พบเสียงภาษาไทย', 'warn'); return; }
+    speaker.stop();
+    speaker.muted = false;
+    S.voiceMuted = false;
+    for (const seg of speechSegments(text())) speaker.enqueue(seg);
+    speaker.flush();
+  };
+  return row;
 }
 
 async function copyText(text, btn) {
@@ -716,6 +754,7 @@ const speaker = new Speaker({
   // share the sound engine's AudioContext (one context for the whole app)
   getContext: () => sfx.context(),
   voiceFx: (src) => sfx.voiceFx(src),
+  onPauseChange: (p) => { sfx.held = p; },
   onStart: () => {
     if (!S.speaking) {
       S.speaking = true;
@@ -857,26 +896,28 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
   text = (text || '').trim();
   let image = presetImage; // a queued message keeps the picture taken when it was said
   let imageSource = presetSource;
-  const winHint = !image && !text.startsWith('/') ? screenTarget(text) : null;
+  const pasted = pastedImages.slice(); // pictures the user pasted: they are the picture, so no camera/screen grab on top
+  const hold = image || pasted.length;
+  const winHint = !hold && !text.startsWith('/') ? screenTarget(text) : null;
   if (winHint) {
     // "ดู error ในหน้าต่าง terminal": that window, even when the camera is on
     const shot = await lookAtScreen({ windowHint: winHint });
     if (shot) { image = shot; imageSource = 'screen'; }
-  } else if (!image && vision.on && !text.startsWith('/')) {
+  } else if (!hold && vision.on && !text.startsWith('/')) {
     const wantLook = S.lookArmed || hasTrigger(text);
     if (wantLook) {
       image = (fromVoice && S.frameAtListenEnd) || vision.snapshot(S.settings.snapshotWidth, S.settings.snapshotHeight, S.settings.snapshotQuality);
       if (image) sfx.shutter();
     }
-  } else if (!image && !text.startsWith('/') && wantsScreenLook(text)) {
+  } else if (!hold && !text.startsWith('/') && wantsScreenLook(text)) {
     // camera off + "ดูนี่": JARVIS looks at the screen instead (its own windows are left out)
     const shot = await lookAtScreen();
     if (shot) { image = shot; imageSource = 'screen'; }
   }
   S.frameAtListenEnd = null;
   const attached = (S.app && S.app.attachments) || [];
-  if (!text && !image && !attached.length) return false;
-  if (!text && !image) text = 'ดูไฟล์ที่แนบมาให้หน่อย';
+  if (!text && !image && !pasted.length && !attached.length) return false;
+  if (!text && !image && !pasted.length) text = 'ดูไฟล์ที่แนบมาให้หน่อย';
   orbBridge.set({ transcript: (text || '(ดูภาพนี้)').slice(0, 500), reply: '', replyDone: false, result: false });
   // ask for the folder first, so cancelling the popup leaves the running answer alone
   if (text.startsWith('/') && !image && await api.invoke('folder:needs', text).catch(() => false)) {
@@ -902,20 +943,29 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
   S.muteThisTurn = false;
   speaker.muted = false;
   showLatency();
+  if (pasted.length) {
+    image = pasted;
+    imageSource = 'pasted';
+    pastedImages = [];
+    paintPasted();
+  }
   addUserMsg(text || '(ดูภาพนี้)', image, imageSource);
   setLook(false);
   sfx.send();
-  const payload = { text, images: image ? [image] : [], imageSource, t0 };
+  const payload = { text, images: pasted.length ? pasted : image ? [image] : [], imageSource, t0 };
+  const keepPasted = () => { if (pasted.length) { pastedImages = pasted; paintPasted(); } };
   let r = await api.invoke('chat:send', payload);
   if (!r.ok && (r.code === 'PICK_FOLDER' || r.code === 'NO_CWD')) {
     // no folder picked in this conversation yet: ask in a popup, then send the same message
     if (await pickFolder(text)) r = await api.invoke('chat:send', payload);
     else {
+      keepPasted();
       notice('ยกเลิกแล้ว — ยังไม่ได้เลือกโฟลเดอร์', 'info', null, 4000);
       return false;
     }
   }
   if (!r.ok) {
+    keepPasted();
     notice(r.error, r.code === 'NO_CWD' ? 'warn' : 'error');
     if (r.code === 'NO_CWD' && talk.isFront) $('btn-folder').focus();
     return false;
@@ -1224,6 +1274,8 @@ const projectSlash = new SlashMenu({
 const projectsPanel = new ProjectsPanel({
   api,
   slash: projectSlash,
+  replyControls: (getText) => speechControls(getText, { copy: true }),
+  linkify: linkedText,
   el,
   notice: (text, level) => notice(text, level || 'info', null, 7000),
   viewer,
@@ -2037,7 +2089,68 @@ function renderAttachments(list) {
   box.hidden = !box.childElementCount;
 }
 
+// ---------------- pasted pictures (Ctrl+V in the message box) ----------------
+
+const MAX_PASTED = 4; // same limit the main process enforces
+const MAX_PASTED_BYTES = 4 * 1024 * 1024; // bigger pictures are shrunk so they stay under the 6 MB limit
+let pastedImages = []; // data URLs waiting to be sent with the next message
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(blob);
+  });
+}
+
+/** png/jpeg/webp that are small enough go as they are; anything else (gif, bmp, huge) is redrawn smaller as jpeg. */
+async function pastedToDataUrl(blob) {
+  if (/^image\/(png|jpeg|webp)$/.test(blob.type) && blob.size <= MAX_PASTED_BYTES) return blobToDataUrl(blob);
+  const bmp = await createImageBitmap(blob);
+  const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bmp.width * scale));
+  canvas.height = Math.max(1, Math.round(bmp.height * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; // transparent parts would turn black in a jpeg
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close();
+  return canvas.toDataURL('image/jpeg', 0.85);
+}
+
+function paintPasted() {
+  const box = $('paste-chips');
+  box.replaceChildren();
+  pastedImages.forEach((src, i) => {
+    box.append(el('span', { class: 'paste-thumb' },
+      el('img', { src, alt: `ภาพที่วาง ${i + 1}` }),
+      el('button', { type: 'button', text: '✕', 'aria-label': `เอาภาพที่ ${i + 1} ออก`, onclick: () => { pastedImages.splice(i, 1); paintPasted(); } })));
+  });
+  box.hidden = !pastedImages.length;
+}
+
+async function onPasteImages(e) {
+  const files = [...(e.clipboardData?.items || [])]
+    .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+    .map((it) => it.getAsFile())
+    .filter(Boolean);
+  if (!files.length) return; // plain text: let the box paste it as usual
+  e.preventDefault();
+  for (const f of files) {
+    if (pastedImages.length >= MAX_PASTED) return notice(`วางภาพได้ไม่เกิน ${MAX_PASTED} ภาพต่อข้อความ`, 'warn', null, 4000);
+    try {
+      pastedImages.push(await pastedToDataUrl(f));
+    } catch {
+      notice('อ่านภาพที่วางไม่ได้ ลองรูปแบบอื่นดูครับ', 'warn', null, 4000);
+    }
+  }
+  paintPasted();
+}
+
 function wireAttachments() {
+  $('input').addEventListener('paste', onPasteImages);
   const menu = $('attach-menu');
   const closeMenu = () => { menu.hidden = true; };
   $('btn-attach').onclick = (e) => {
@@ -2160,6 +2273,8 @@ function wireEvents() {
     // tool / permission rows are not an answer: fall back to the result text when nothing else was said
     const said = [...m.childNodes].some((n) => (n.nodeType === 3 || !n.matches('.cv-tool, .cv-perm')) && n.textContent.trim());
     if (!said && r.resultText) appendText(r.resultText);
+    const spokenText = [...m.children].filter((n) => n._raw).map((n) => n._raw).join('\n').trim();
+    if (spokenText && !r.isError) m.append(speechControls(spokenText));
     if (r.latency) Object.assign(S.lat, { t1: r.latency.t1, t2: r.latency.t2, awaitingMs: r.latency.awaitingMs });
     showLatency();
     const slow = slowestStage();

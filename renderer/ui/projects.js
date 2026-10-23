@@ -131,6 +131,66 @@ export function applyEvent(model, e) {
   return r && r.op ? r.proj : null;
 }
 
+// ---------------- history: each project's log kept across app restarts ----------------
+
+const HIST_PREFIX = 'jarvis.pjlog.';
+const HIST_RESULT = 500; // tool output kept per entry (the live log keeps more)
+const HIST_KINDS = new Set(['sep', 'user', 'text', 'tool', 'info', 'ok', 'err']);
+
+/** The log as stored: newest MAX_LOG entries, tool input and long output dropped. */
+export function packLog(log) {
+  return log.slice(-MAX_LOG).map((e) => {
+    if (e.kind !== 'tool') return e;
+    const { input, result, ...rest } = e;
+    return result ? { ...rest, result: String(result).slice(0, HIST_RESULT) } : rest;
+  });
+}
+
+/** Save one project's log. false when storage is missing or full. */
+export function saveHistory(storage, projectId, log) {
+  if (!storage) return false;
+  try {
+    storage.setItem(HIST_PREFIX + projectId, JSON.stringify({ v: 1, log: packLog(log) }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A saved log, checked entry by entry; a tool that was running when the app closed shows as failed. */
+export function loadHistory(storage, projectId) {
+  if (!storage) return [];
+  try {
+    const d = JSON.parse(storage.getItem(HIST_PREFIX + projectId));
+    if (!d || d.v !== 1 || !Array.isArray(d.log)) return [];
+    return d.log
+      .filter((e) => e && HIST_KINDS.has(e.kind) && typeof e.text === 'string')
+      .slice(-MAX_LOG)
+      .map((e) => (e.kind === 'tool' && e.status === 'running' ? { ...e, status: 'err' } : e));
+  } catch {
+    return [];
+  }
+}
+
+export function clearHistory(storage, projectId) {
+  if (!storage) return;
+  try { storage.removeItem(HIST_PREFIX + projectId); } catch { /* storage unavailable */ }
+}
+
+/**
+ * Put a project's saved log in front of what it has now (once per project).
+ * @returns {boolean} true when the log changed
+ */
+export function restoreHistory(model, projectId, storage) {
+  const proj = model.projects.get(projectId);
+  if (!proj || proj.restored) return false;
+  proj.restored = true;
+  const old = loadHistory(storage, projectId);
+  if (!old.length) return false;
+  proj.log = [...old, ...proj.log].slice(-MAX_LOG);
+  return true;
+}
+
 /** HUD chip text, '' when there is nothing to show. */
 export function chipText(model) {
   const list = [...model.projects.values()].map((x) => x.info);
@@ -188,13 +248,23 @@ export function fmtElapsed(ms) {
 
 // ---------------- DOM ----------------
 
+function defaultStorage() {
+  try { return window.localStorage; } catch { return null; }
+}
+
 export class ProjectsPanel {
   /**
    * The popup (#pj) is a surface of the shared large viewer, like the conversation.
    * @param {{api: any, el: Function, notice: Function, viewer: any, canKey?: () => boolean, isHomeVisible?: () => boolean, onPromoted?: Function, slash?: any}} o
    *   slash: the "/" menu of the message box (#proj-input), if any (to repaint its highlight after code changes the text)
    */
-  constructor({ api, el, notice, viewer, canKey = () => true, isHomeVisible = () => false, onPromoted = () => {}, slash = null }) {
+  constructor({ api, el, notice, viewer, canKey = () => true, isHomeVisible = () => false, onPromoted = () => {}, slash = null, replyControls = null, linkify = null, storage = defaultStorage() }) {
+    this.replyControls = replyControls; // (getText) => row of read-aloud / copy buttons under a reply
+    this.linkify = linkify; // (node, text) => fills node with text, URLs as links
+    this.storage = storage;
+    this.dirty = new Set(); // projects whose log is waiting to be saved
+    this.saveTimer = null;
+    this.armed = null; // project whose "clear history" button was pressed once
     this.onPromoted = onPromoted;
     this.slash = slash;
     this.api = api;
@@ -256,14 +326,61 @@ export class ProjectsPanel {
     api.on('project:status', (p) => this._onStatus(p));
     api.on('project:event', (e) => this._onEvent(e));
     this.timer = setInterval(() => this._tick(), 1000);
+    addEventListener('pagehide', () => this._flushHistory());
     this.refresh();
   }
 
   async refresh() {
     const r = await this.api.invoke('project:list').catch(() => null);
     if (!r || !r.ok) return;
-    for (const p of r.projects) applyStatus(this.model, p);
+    let rebuild = false;
+    for (const p of r.projects) {
+      applyStatus(this.model, p);
+      if (restoreHistory(this.model, p.projectId, this.storage) && this.sel === p.projectId) rebuild = true;
+    }
+    if (rebuild) this._buildChat();
     this.render();
+  }
+
+  // ---------- history ----------
+
+  /** Save a project's log soon (events come in bursts). */
+  _persist(projectId) {
+    this.dirty.add(projectId);
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => this._flushHistory(), 600);
+  }
+
+  _flushHistory() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    for (const id of this.dirty) {
+      const proj = this.model.projects.get(id);
+      if (proj && !saveHistory(this.storage, id, proj.log)) {
+        // storage full: keep half as many lines rather than losing the whole history
+        saveHistory(this.storage, id, proj.log.slice(-Math.floor(MAX_LOG / 2)));
+      }
+    }
+    this.dirty.clear();
+  }
+
+  /** "Clear history" asks twice: the first press arms it, the second one deletes. */
+  _clearHistory(projectId) {
+    if (this.armed !== projectId) {
+      this.armed = projectId;
+      clearTimeout(this.armTimer);
+      this.armTimer = setTimeout(() => { this.armed = null; this._renderView(); }, 4000);
+      return this._renderView();
+    }
+    this.armed = null;
+    clearTimeout(this.armTimer);
+    const proj = this.model.projects.get(projectId);
+    if (!proj) return;
+    proj.log = [];
+    this.dirty.delete(projectId);
+    clearHistory(this.storage, projectId);
+    if (this.sel === projectId) this._buildChat();
+    this.notice('ล้างประวัติของโปรเจกต์นี้แล้ว', 'info');
   }
 
   /** Requested open (it may sit behind the viewer for a moment). */
@@ -393,22 +510,30 @@ export class ProjectsPanel {
   _onStatus(p) {
     const had = this.model.projects.get(p.projectId);
     const before = had ? had.log.length : 0;
-    applyStatus(this.model, p);
+    const now = applyStatus(this.model, p);
     if (p.announce) this.notice(p.announce, p.status === 'error' ? 'error' : 'info');
+    if (p.status === 'removed') {
+      this.dirty.delete(p.projectId);
+      clearHistory(this.storage, p.projectId); // closing a project also drops its saved history
+    }
     if (p.status === 'removed' && this.sel === p.projectId) {
       this.drafts.delete(p.projectId);
       this.sel = pickProject(this.model);
       return this.select(this.sel, { focus: false });
     }
+    const restored = !!now && restoreHistory(this.model, p.projectId, this.storage);
+    if (now && now.log.length !== before) this._persist(p.projectId);
     this.render();
-    if (this.sel === p.projectId) {
-      const now = this.model.projects.get(p.projectId);
-      if (now && now.log.length !== before) this._syncChat(now);
+    if (this.sel === p.projectId && now) {
+      if (restored) this._buildChat();
+      else if (now.log.length !== before) this._syncChat(now);
+      else this._refreshCtl(now);
     }
   }
 
   _onEvent(e) {
     const ch = applyEventChange(this.model, e);
+    if (ch && ch.op) this._persist(e.projectId);
     if (ch && ch.op && this.sel === e.projectId && this.isOpen) this._syncChat(ch.proj, ch.entry);
   }
 
@@ -505,6 +630,7 @@ export class ProjectsPanel {
         el('span', { class: 'proj-time mono dim', 'data-time': '' })),
       el('div', { class: 'pj-bar-act' },
         !busy && p.resumable ? btn('', '⇱ ทำต่อในแชทหลัก', 'ย้ายบทสนทนาของโปรเจกต์นี้ไปคุยต่อในหน้าหลัก', () => this.promote(p.projectId)) : null,
+        !busy && proj.log.length ? btn(this.armed === p.projectId ? 'danger' : '', this.armed === p.projectId ? 'กดอีกครั้งเพื่อลบประวัติ' : '🗑 ล้างประวัติ', 'ลบบทสนทนาที่เก็บไว้ของโปรเจกต์นี้ในแอป (ไม่กระทบไฟล์ในโฟลเดอร์)', () => this._clearHistory(p.projectId)) : null,
         !busy ? btn('', '✕ ปิดโปรเจกต์', 'ปิดโปรเจกต์นี้ (บทสนทนาของ Claude ยังอยู่ในประวัติของโฟลเดอร์)', () => this._call('project:remove', p.projectId)) : null));
     this._time(bar, p);
 
@@ -566,7 +692,7 @@ export class ProjectsPanel {
   }
 
   _emptyChat(proj) {
-    this.chat.append(this.el('div', { class: 'msg system pj-nolog', text: proj.info.status === 'idle' ? 'ยังไม่มีบทสนทนา — พิมพ์งานด้านล่างเพื่อเริ่ม' : 'บันทึกเริ่มเมื่อเปิดแอปรอบนี้ — บทสนทนาเดิมของ Claude ยังอยู่ พิมพ์ต่อได้เลย' }));
+    this.chat.append(this.el('div', { class: 'msg system pj-nolog', text: proj.info.status === 'idle' ? 'ยังไม่มีบทสนทนา — พิมพ์งานด้านล่างเพื่อเริ่ม' : 'ไม่มีประวัติที่บันทึกไว้ — บทสนทนาเดิมของ Claude ยังอยู่ พิมพ์ต่อได้เลย' }));
   }
 
   /** Bring #proj-chat up to date with the project's log; `touched` = an entry that changed in place. */
@@ -583,6 +709,7 @@ export class ProjectsPanel {
       this.inDom.push(entry);
     }
     if (touched && known.has(touched)) this._paint(touched);
+    this._refreshCtl(proj);
     while (this.inDom.length && this.inDom[0] !== proj.log[0]) { // the log keeps its newest lines only
       const old = this.inDom.shift();
       const n = this.nodes.get(old);
@@ -596,7 +723,18 @@ export class ProjectsPanel {
     switch (entry.kind) {
       case 'sep': return el('div', { class: 'cv-new-mark', text: entry.text });
       case 'user': return el('div', { class: 'msg user', text: entry.text });
-      case 'text': return el('div', { class: 'msg assistant', text: entry.text });
+      case 'text': {
+        const body = el('span', { class: 'pj-txt' });
+        const n = el('div', { class: 'msg assistant' }, body);
+        n._body = body;
+        if (this.replyControls) {
+          n._ctl = this.replyControls(() => entry.text);
+          n.append(n._ctl);
+        }
+        this.nodes.set(entry, n);
+        this._paint(entry);
+        return n;
+      }
       case 'tool': {
         const st = el('span', { class: 'cv-tool-st' });
         const d = el('details', { class: 'cv-tool' },
@@ -620,12 +758,27 @@ export class ProjectsPanel {
     }
   }
 
+  /** Read-aloud / copy buttons show once a turn is over, not while its text is still coming in. */
+  _refreshCtl(proj) {
+    const busy = BUSY.has(proj.info.status);
+    for (let i = proj.log.length - 1; i >= 0; i--) {
+      const e = proj.log[i];
+      if (e.kind === 'text') {
+        const n = this.nodes.get(e);
+        if (n && n._ctl) n._ctl.hidden = busy;
+      }
+      if (e.kind === 'sep') break;
+    }
+  }
+
   /** Redraw the parts of an entry's node that change after it was created. */
   _paint(entry) {
     const n = this.nodes.get(entry);
     if (!n) return;
-    if (entry.kind === 'text') n.textContent = entry.text;
-    else if (entry.kind === 'tool') {
+    if (entry.kind === 'text') {
+      if (this.linkify) this.linkify(n._body, entry.text);
+      else n._body.textContent = entry.text;
+    } else if (entry.kind === 'tool') {
       n.classList.remove('running', 'ok', 'err');
       n.classList.add(entry.status);
       n._st.textContent = entry.status === 'running' ? '● กำลังทำงาน' : entry.status === 'err' ? (entry.rejected ? '✕ ถูกปฏิเสธ' : '✕ ผิดพลาด') : '✓ เสร็จ';

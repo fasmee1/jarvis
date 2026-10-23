@@ -73,7 +73,8 @@ export class Speaker {
    * getContext: returns the app's shared AudioContext (falls back to a private one)
    * voiceFx(src): optional voice color chain → { out, dispose } (used when an item has fx)
    */
-  constructor({ onStart, onIdle, onLevel, onProblem, getContext, voiceFx }) {
+  constructor({ onStart, onIdle, onLevel, onProblem, onPauseChange, getContext, voiceFx }) {
+    this.onPauseChange = onPauseChange || (() => {});
     this.getContext = getContext || null;
     this.voiceFx = voiceFx || null;
     this.onStart = onStart || (() => {});
@@ -86,6 +87,7 @@ export class Speaker {
     this.speaking = false;
     this.gen = 0; // increments on stop() to drop in-flight work
     this.muted = false;
+    this.paused = false;
     // WinRT scheduler state
     this.sources = new Set(); // scheduled/playing buffer sources
     this.timers = new Set();
@@ -173,6 +175,14 @@ export class Speaker {
 
   /** fadeMs > 0: fade the voice out (barge-in) instead of cutting it. */
   stop(fadeMs = 0) {
+    if (this.paused) {
+      // a paused context would never run the stop/fade: wake it first
+      this.paused = false;
+      this.onPauseChange(false);
+      fadeMs = 0;
+      if (this.engine === 'winrt') this._ctx().resume().catch(() => {});
+      else if (window.speechSynthesis) speechSynthesis.resume();
+    }
     this.gen++;
     this.queue = [];
     const out = this.out;
@@ -206,6 +216,34 @@ export class Speaker {
       this.onLevel(0);
       this.onIdle();
     }
+  }
+
+  /** Pause the voice where it is; resume() continues from the same spot. */
+  pause() {
+    if (!this.speaking || this.paused) return false;
+    this.paused = true;
+    this.onPauseChange(true); // before suspend: nothing may wake the shared context meanwhile
+    if (this.engine === 'winrt') {
+      const c = this.out ? this.out.context : null;
+      if (c) c.suspend().catch(() => {});
+    } else if (window.speechSynthesis) {
+      clearInterval(this.keepAlive);
+      speechSynthesis.pause();
+    }
+    return true;
+  }
+
+  resume() {
+    if (!this.paused) return false;
+    this.paused = false;
+    this.onPauseChange(false);
+    if (this.engine === 'winrt') {
+      const c = this.out ? this.out.context : this._ctx();
+      c.resume().catch(() => {});
+    } else if (window.speechSynthesis) {
+      speechSynthesis.resume();
+    }
+    return true;
   }
 
   /** Duck the voice (1 = normal, e.g. 0.6 while a video plays). */

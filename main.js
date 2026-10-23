@@ -446,7 +446,7 @@ function registerIpc() {
     if (!Array.isArray(images) || images.length > 4) throw new Error('แนบภาพได้ไม่เกิน 4 ภาพ');
     images.forEach((x, i) => v.str(x, 9 * 1024 * 1024, `images[${i}]`));
     const t0 = v.num(p.t0, 't0', { optional: true, min: 0 });
-    const imageSource = p.imageSource === undefined ? 'camera' : v.oneOf(p.imageSource, ['camera', 'screen'], 'imageSource');
+    const imageSource = p.imageSource === undefined ? 'camera' : v.oneOf(p.imageSource, ['camera', 'screen', 'pasted'], 'imageSource');
     try {
       const turnId = core.send({ text, images, imageSource, t0 });
       return { ok: true, turnId };
