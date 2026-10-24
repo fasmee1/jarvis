@@ -12,7 +12,7 @@ const { PttTracker } = require('./lib/ptt');
 const { ScreenWatcher, matchWindows, grayThumb, THUMB_W, THUMB_H } = require('./lib/screen-watch');
 const { SerialMonitor, listPorts } = require('./lib/serial/monitor');
 const { ProjectManager } = require('./lib/projects');
-const { listSessions, readSession } = require('./lib/history');
+const { listSessions, readSession, deleteSession } = require('./lib/history');
 const { AwayDigest } = require('./lib/away-digest');
 const { UsageService } = require('./lib/usage/service');
 const { resolveClaudeCommand } = require('./lib/claude/resolve');
@@ -535,7 +535,7 @@ function registerIpc() {
     return { ...r, snapshot: usage.snapshot() };
   });
 
-  // ---- conversation history (Claude Code's own transcripts, read-only) ----
+  // ---- conversation history (Claude Code's own transcripts; delete = Recycle Bin) ----
   const sessionId = (x) => {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(x))) throw new Error('session id ไม่ถูกต้อง');
     return x;
@@ -548,6 +548,17 @@ function registerIpc() {
   handle('history:read', (p) => {
     const messages = readSession(core.cwd, sessionId(p));
     return messages ? { ok: true, messages } : { ok: false, error: 'ไม่พบบทสนทนานี้' };
+  });
+  handle('history:delete', async (p) => {
+    const id = sessionId(p);
+    if (id === core.snapshot().sessionId) return { ok: false, error: 'ลบบทสนทนาที่ใช้อยู่ตอนนี้ไม่ได้' };
+    try {
+      return await deleteSession(core.cwd, id, { trash: (f) => shell.trashItem(f) })
+        ? { ok: true }
+        : { ok: false, error: 'ไม่พบบทสนทนานี้' };
+    } catch (err) {
+      return { ok: false, error: `ลบไม่ได้: ${err.message}` };
+    }
   });
   handle('history:resume', (p) => {
     const id = sessionId(p);

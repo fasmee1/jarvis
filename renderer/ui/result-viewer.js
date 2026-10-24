@@ -110,6 +110,12 @@ export class ResultViewer {
     this._openPayload(data, null);
   }
 
+  /** Open an old result (from the history) right away, even with the conversation in front. */
+  reopen(data) {
+    this.last = data;
+    this._openPayload(data, null);
+  }
+
   reopenLast() {
     if (this.last) this._openPayload(this.last, null);
   }

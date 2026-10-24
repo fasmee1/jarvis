@@ -14,7 +14,7 @@
   --del: #FF7B72;
   --kind: var(--accent);
   --kind-rgb: 91, 225, 240;
-  --font-ui: 'IBM Plex Sans Thai', 'Segoe UI', system-ui, sans-serif;
+  --font-ui: 'IBM Plex Sans Thai Looped', 'IBM Plex Sans Thai', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', Consolas, 'Cascadia Mono', monospace;
 }
 #ap[data-kind="shell"] { --kind: #FF9A3D; --kind-rgb: 255, 154, 61; }

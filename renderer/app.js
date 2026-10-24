@@ -26,6 +26,7 @@ import { checkReport, diffReport, undoLines } from './ui/code-report.js';
 import { ProjectsPanel } from './ui/projects.js';
 import { TaskStatus } from './ui/task-status.js';
 import { toolPhase } from './ui/task-phase.js';
+import { buildToolRow, finishRow, diffDetails, historyToolRow, historyResultRow } from './ui/tool-row.js';
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
@@ -569,13 +570,9 @@ function addToolRow(a) {
   if (a.name === 'TodoWrite') return;
   const m = ensureAssistant();
   curText = null;
-  const status = el('span', { class: 'cv-tool-st', text: '● กำลังทำงาน' });
-  const d = el('details', { class: `cv-tool running${a.parent ? ' sub' : ''}` },
-    el('summary', {}, el('span', { class: 'cv-tool-n', text: a.name }), el('span', { class: 'cv-tool-s', text: a.summary || '' }), status));
-  if (a.preview && a.preview.diff) d.append(diffDetails(a.preview));
-  else d.append(el('pre', { class: 'cv-tool-io mono', text: JSON.stringify(a.input, null, 2) }));
-  m.append(d);
-  toolRows.set(a.id, { d, status });
+  const row = buildToolRow(a);
+  m.append(row.d);
+  toolRows.set(a.id, row);
   if (toolRows.size > 400) toolRows.delete(toolRows.keys().next().value);
   scrollChat();
 }
@@ -584,10 +581,7 @@ function finishToolRow(a) {
   const r = toolRows.get(a.id);
   if (!r) return;
   toolRows.delete(a.id);
-  r.d.classList.remove('running');
-  r.d.classList.add(a.isError ? 'err' : 'ok');
-  r.status.textContent = a.isError ? (a.decision === 'reject' || /denied|ปฏิเสธ/i.test(a.text) ? '✕ ถูกปฏิเสธ' : '✕ ผิดพลาด') : '✓ เสร็จ';
-  if (a.text) r.d.append(el('div', { class: 'cv-tool-lbl', text: 'ผลลัพธ์' }), el('pre', { class: 'cv-tool-io mono', text: a.text.slice(0, 3000) }));
+  finishRow(r, a);
 }
 
 function onChatItem(item) {
@@ -689,15 +683,6 @@ function onActivity(a) {
     status.textContent = a.isError ? (a.decision === 'reject' || /denied|ปฏิเสธ/i.test(a.text) ? '✕ ถูกปฏิเสธ' : '✕ ผิดพลาด') : '✓ เสร็จ';
     if (a.text) card.append(el('details', {}, el('summary', { text: 'ผลลัพธ์' }), el('pre', { class: 'mono', text: a.text.slice(0, 3000) })));
   }
-}
-
-function diffDetails(preview) {
-  const box = el('div', { class: 'diff mono' });
-  for (const d of preview.diff.slice(0, 400)) {
-    const cls = d.op === '+' ? 'add' : d.op === '-' ? 'del' : d.op === '@' || d.op === '!' ? 'hdr' : '';
-    box.append(el('div', { class: cls, text: `${d.op === '@' || d.op === '!' ? '' : d.op} ${d.line}` }));
-  }
-  return el('details', { open: '' }, el('summary', { text: `diff ${preview.file || ''}${preview.isNew ? ' (ไฟล์ใหม่)' : ''}` }), box);
 }
 
 const AGENT_ST = { running: ['● กำลังทำงาน', ''], completed: ['✓ เสร็จ', 'ok'], failed: ['✕ ผิดพลาด', 'err'], killed: ['■ ถูกหยุด', 'err'], stopped: ['■ ถูกหยุด', 'err'] };
@@ -1387,13 +1372,25 @@ const projectsPanel = new ProjectsPanel({
   onPromoted: (messages, title) => showResumed(messages, title),
 });
 /** A past conversation became the HUD's chat (history panel, or a background project taken over). */
+/** An old reply: its words and tool rows in the order they happened, like the live chat. */
+function assistantFromHistory(m) {
+  const box = el('div', { class: 'msg assistant' });
+  if (!m.parts) return linkedText(box, m.text);
+  for (const p of m.parts) {
+    if (p.type === 'tool') box.append(historyToolRow(p));
+    else if (p.type === 'result') box.append(historyResultRow(p, (d) => resultViewer.reopen(d)));
+    else box.append(linkedText(el('div'), p.text));
+  }
+  return box;
+}
+
 function showResumed(messages, title) {
   curMsg = null;
   curText = null;
   $('chat').replaceChildren();
   for (const m of messages) {
     if (m.role === 'user') addUserMsg(m.text);
-    else $('chat').append(linkedText(el('div', { class: 'msg assistant' }), m.text));
+    else $('chat').append(assistantFromHistory(m));
   }
   addSystemMsg(`ทำต่อจากบทสนทนา "${title}" — JARVIS จำเนื้อหาเดิมได้ พิมพ์หรือพูดต่อได้เลย`);
 }
@@ -1402,6 +1399,7 @@ const historyPanel = new HistoryPanel({
   api,
   notice: (text, level) => notice(text, level || 'info', null, 5000),
   onResumed: (messages, item) => showResumed(messages, item.title),
+  openResult: (data) => resultViewer.reopen(data),
 });
 
 /** "เปิดบทสนทนา" / "ปิดบทสนทนา" (voice, push-to-talk or hands-free). */

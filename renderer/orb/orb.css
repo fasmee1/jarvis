@@ -13,7 +13,7 @@
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --s: 88px; /* orb diameter (S 64 · M 88 · L 120) */
   --lv: 0; /* live level 0..1 (mic or voice) */
-  --font-ui: 'IBM Plex Sans Thai', 'Segoe UI', system-ui, sans-serif;
+  --font-ui: 'IBM Plex Sans Thai Looped', 'IBM Plex Sans Thai', 'Segoe UI', system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }

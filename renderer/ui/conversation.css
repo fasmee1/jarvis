@@ -180,6 +180,16 @@
   display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; width: 100%; text-align: left; padding: 10px 12px; margin: 0 0 4px;
   border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--text-1); font: inherit; cursor: pointer;
 }
+.cv-hist-row { position: relative; }
+.cv-hist-row .cv-hist-item { padding-right: 44px; }
+.cv-hist-del {
+  position: absolute; top: 8px; right: 8px; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 8px; border: 1px solid transparent;
+  background: transparent; color: var(--text-3); font: inherit; font-size: 12px; cursor: pointer; opacity: 0;
+}
+.cv-hist-row:hover .cv-hist-del, .cv-hist-del:focus-visible, .cv-hist-del.armed { opacity: 1; }
+.cv-hist-del:hover, .cv-hist-del.armed, .cv-ctl.danger.armed { color: var(--error); border-color: var(--error); }
+.cv-ctl.danger { color: var(--text-2); }
+.cv-ctl.danger:hover { color: var(--error); }
 .cv-hist-item:hover, .cv-hist-item:focus-visible { background: var(--surface-2); border-color: var(--line); outline: none; }
 .cv-hist-item .t { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-hist-item .d { font-size: 12px; color: var(--text-3); white-space: nowrap; }

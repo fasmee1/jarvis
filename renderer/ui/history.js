@@ -3,6 +3,7 @@
 // "ทำต่อจากบทสนทนานี้" which continues one with --resume.
 
 import { linkParts } from './result-utils.js';
+import { historyToolRow, historyResultRow } from './tool-row.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -33,7 +34,7 @@ function dayLabel(d) {
 
 export class HistoryPanel {
   /**
-   * @param {{api: object, onResumed: (messages: object[], item: object) => void, notice: (text: string, level?: string) => void}} o
+   * @param {{api: object, onResumed: (messages: object[], item: object) => void, openResult: (data: object) => void, notice: (text: string, level?: string) => void}} o
    */
   constructor(o) {
     this.o = o;
@@ -48,6 +49,7 @@ export class HistoryPanel {
     $('cv-hist-close').addEventListener('click', () => this.close());
     $('cv-hist-back').addEventListener('click', () => this.showList());
     $('cv-hist-resume').addEventListener('click', () => this.resume());
+    $('cv-hist-delete').addEventListener('click', (e) => this.viewing && this.confirmDelete(e.currentTarget, this.viewing, 'ลบ'));
     this.search.addEventListener('input', () => this.renderList());
   }
 
@@ -101,6 +103,7 @@ export class HistoryPanel {
     this.viewing = null;
     $('cv-hist-back').hidden = true;
     $('cv-hist-resume').hidden = true;
+    $('cv-hist-delete').hidden = true;
     this.search.hidden = false;
     $('cv-hist-title').textContent = 'ประวัติการสนทนา';
     this.renderList();
@@ -124,9 +127,49 @@ export class HistoryPanel {
       const item = el('button', { class: 'cv-hist-item', type: 'button', title: s.title, onclick: () => this.preview(s) },
         el('span', { class: 't', text: s.title }),
         el('span', { class: 'd', text: TIME.format(d) }));
+      const row = el('div', { class: 'cv-hist-row' }, item);
       if (s.id === this.current) item.append(el('span', { class: 'now', text: '● บทสนทนาที่ใช้อยู่ตอนนี้' }));
-      this.body.append(item);
+      else {
+        const del = el('button', { class: 'cv-hist-del', type: 'button', title: 'ลบบทสนทนานี้', 'aria-label': `ลบ ${s.title}`, text: '🗑' });
+        del.addEventListener('click', () => this.confirmDelete(del, s, '🗑'));
+        row.append(del);
+      }
+      this.body.append(row);
     }
+  }
+
+  /** Two clicks to delete: the first turns the button into "ยืนยันลบ", the second deletes. */
+  confirmDelete(btn, s, idle) {
+    if (btn.dataset.armed) {
+      clearTimeout(btn._t);
+      return this.remove(s);
+    }
+    btn.dataset.armed = '1';
+    btn.textContent = 'ยืนยันลบ';
+    btn.classList.add('armed');
+    btn._t = setTimeout(() => {
+      delete btn.dataset.armed;
+      btn.textContent = idle;
+      btn.classList.remove('armed');
+    }, 3500);
+  }
+
+  async remove(s) {
+    const r = await this.o.api.invoke('history:delete', s.id).catch((err) => ({ ok: false, error: err.message }));
+    if (!r.ok) return this.o.notice(r.error || 'ลบไม่ได้', 'warn');
+    this.items = this.items.filter((x) => x.id !== s.id);
+    this.o.notice('ย้ายบทสนทนาไปที่ถังขยะแล้ว (กู้คืนจาก Recycle Bin ได้)', 'info');
+    this.showList();
+  }
+
+  /** The delete button in the preview header; the conversation in use can't be deleted. */
+  resetDeleteBtn(hidden) {
+    const b = $('cv-hist-delete');
+    clearTimeout(b._t);
+    delete b.dataset.armed;
+    b.classList.remove('armed');
+    b.textContent = 'ลบ';
+    b.hidden = hidden;
   }
 
   async preview(s) {
@@ -135,6 +178,7 @@ export class HistoryPanel {
     this.search.hidden = true;
     $('cv-hist-title').textContent = s.title;
     $('cv-hist-resume').hidden = s.id === this.current;
+    this.resetDeleteBtn(s.id === this.current);
     this.body.replaceChildren(el('div', { class: 'cv-hist-empty', text: 'กำลังโหลด…' }));
     const r = await this.o.api.invoke('history:read', s.id).catch((err) => ({ ok: false, error: err.message }));
     if (this.viewing !== s) return;
@@ -142,10 +186,19 @@ export class HistoryPanel {
     if (!r.ok) return this.body.append(el('div', { class: 'cv-hist-empty', text: r.error }));
     if (s.startedAt) this.body.append(el('div', { class: 'cv-hist-day', text: `เริ่มเมื่อ ${FULL.format(new Date(s.startedAt))} · ${r.messages.length} ข้อความ` }));
     // URLs become a.cv-link; app.js opens them in the browser
+    const words = (text) => linkParts(text).map((p) => (p.url
+      ? el('a', { class: 'cv-link', href: p.url, title: p.url, text: p.text })
+      : document.createTextNode(p.text)));
     for (const m of r.messages) {
-      this.body.append(el('div', { class: `msg ${m.role}` }, ...linkParts(m.text).map((p) => (p.url
-        ? el('a', { class: 'cv-link', href: p.url, title: p.url, text: p.text })
-        : document.createTextNode(p.text)))));
+      // an assistant reply keeps its tool rows (read, edit, search …) between the words
+      const kids = m.parts
+        ? m.parts.map((p) => {
+          if (p.type === 'tool') return historyToolRow(p);
+          if (p.type === 'result') return historyResultRow(p, (d) => this.o.openResult(d));
+          return el('div', {}, ...words(p.text));
+        })
+        : words(m.text);
+      this.body.append(el('div', { class: `msg ${m.role}` }, ...kids));
     }
     $('cv-hist-back').focus();
   }

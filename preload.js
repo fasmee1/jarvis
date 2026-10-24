@@ -29,6 +29,7 @@ const INVOKE = [
   'skills:list',
   'history:read',
   'history:resume',
+  'history:delete',
   'attach:add',
   'attach:choose',
   'attach:remove',

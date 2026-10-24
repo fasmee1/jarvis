@@ -34,7 +34,7 @@
   --teal-ghost: var(--accent-ghost);
   --orange-hot: var(--orange);
 
-  --font-ui: 'IBM Plex Sans Thai', 'Segoe UI', system-ui, sans-serif;
+  --font-ui: 'IBM Plex Sans Thai Looped', 'IBM Plex Sans Thai', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace;
   --font-display: var(--font-ui);
   --font-th: var(--font-ui);

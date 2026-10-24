@@ -6,7 +6,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { listSessions, readSession, encode, cleanUserText } = require('../lib/history');
+const { listSessions, readSession, deleteSession, encode, cleanUserText } = require('../lib/history');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-hist-'));
 const ID1 = '11111111-1111-4111-8111-111111111111';
@@ -60,6 +60,61 @@ test('readSession: text only, one reply joined, JARVIS prefixes and screen block
   ]);
   assert.strictEqual(readSession(cwd, '../../etc/passwd', { base }), null);
   assert.strictEqual(readSession(cwd, ID3.replace('3333', '9999'), { base }), null);
+});
+
+test('readSession: tool calls keep their order, summary, diff and result', () => {
+  const base = tmp();
+  const cwd = path.resolve('/work/tools');
+  const dir = path.join(base, encode(cwd));
+  fs.mkdirSync(dir, { recursive: true });
+  const line = (o) => JSON.stringify(o) + '\n';
+  const asst = (content) => line({ type: 'assistant', message: { role: 'assistant', content } });
+  const result = (id, content, is_error) => line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error }] } });
+  fs.writeFileSync(path.join(dir, `${ID1}.jsonl`),
+    line({ type: 'user', timestamp: '2026-10-19T10:00:00Z', message: { role: 'user', content: 'แก้ a.js' } }) +
+    asst([{ type: 'text', text: 'ขออ่านก่อน' }, { type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: 'a.js' } }]) +
+    result('r1', [{ type: 'text', text: 'let a = 1' }]) +
+    asst([{ type: 'tool_use', id: 'e1', name: 'Edit', input: { file_path: 'a.js', old_string: 'a = 1', new_string: 'a = 2' } }]) +
+    result('e1', 'denied', true) +
+    asst([{ type: 'tool_use', id: 'td', name: 'TodoWrite', input: {} }]) +
+    asst([{ type: 'text', text: 'เสร็จ' }]));
+  const [, reply] = readSession(cwd, ID1, { base });
+  assert.deepStrictEqual(reply.parts.map((p) => p.type === 'tool' ? p.name : p.text), ['ขออ่านก่อน', 'Read', 'Edit', 'เสร็จ']);
+  const [, read, edit] = reply.parts;
+  assert.match(read.summary, /อ่านไฟล์ a\.js/);
+  assert.deepStrictEqual(read.result, { text: 'let a = 1', isError: false });
+  assert.ok(edit.preview.diff.some((d) => d.op === '+' && /a = 2/.test(d.line)));
+  assert.strictEqual(edit.result.isError, true);
+  assert.strictEqual(reply.text, 'ขออ่านก่อน\n\nเสร็จ');
+});
+
+test('readSession: a jarvis-result block is kept whole so it can be opened again', () => {
+  const base = tmp();
+  const cwd = path.resolve('/work/results');
+  const dir = path.join(base, encode(cwd));
+  fs.mkdirSync(dir, { recursive: true });
+  const line = (o) => JSON.stringify(o) + '\n';
+  const data = { type: 'text', title: 'สรุป', spokenSummary: 'ครับ', markdown: 'เนื้อหา' };
+  const reply = 'นี่ครับ\n```jarvis-result\n' + JSON.stringify(data) + '\n```\nเสร็จ';
+  fs.writeFileSync(path.join(dir, `${ID1}.jsonl`),
+    line({ type: 'user', timestamp: '2026-10-19T10:00:00Z', message: { role: 'user', content: 'ขอสรุป' } }) +
+    line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: reply }] } }));
+  const [, a] = readSession(cwd, ID1, { base });
+  assert.deepStrictEqual(a.parts.map((p) => p.type), ['text', 'result', 'text']);
+  assert.deepStrictEqual(a.parts[1].data, data);
+  assert.match(a.text, /\[แสดงบนจอ: result\]/);
+});
+
+test('deleteSession: trashes only that transcript, nothing for bad ids', async () => {
+  const { base, cwd } = fixture();
+  const trashed = [];
+  const trash = (f) => { trashed.push(f); fs.rmSync(f); };
+  assert.strictEqual(await deleteSession(cwd, '../../etc/passwd', { base, trash }), false);
+  assert.strictEqual(await deleteSession(cwd, ID3.replace('3333', '9999'), { base, trash }), false);
+  assert.strictEqual(await deleteSession(cwd, ID2, { base }), false); // no trash function: refuse
+  assert.strictEqual(await deleteSession(cwd, ID2, { base, trash }), true);
+  assert.deepStrictEqual(trashed.map((f) => path.basename(f)), [`${ID2}.jsonl`]);
+  assert.deepStrictEqual(listSessions(cwd, { base }).map((x) => x.id), [ID1]);
 });
 
 test('cleanUserText removes carried-over context and image notes', () => {
