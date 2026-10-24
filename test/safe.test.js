@@ -183,3 +183,67 @@ test('attach: refuses drives, system folders, home, AppData, secrets, programs',
   assert.strictEqual(attachProblem(home + '\\Desktop\\me.md', false, home), null);
   assert.strictEqual(attachProblem('D:\\photos\\cover.png', false, home), null);
 });
+
+test('core: a plan from plan mode waits for the user, shows the plan, has no "always", and approval leaves plan mode', async () => {
+  const fs = require('fs');
+  const os = require('os');
+  const { SettingsStore } = require('../lib/settings');
+  const { JarvisCore } = require('../lib/jarvis-core');
+  const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-plan-')));
+  const proj = tmp();
+  const settings = new SettingsStore(tmp());
+  const events = [];
+  const core = new JarvisCore({ settings, tempDir: tmp(), ui: (c, p) => events.push([c, p]), appRoot: tmp(), logDir: tmp() });
+  core.warm = () => {};
+  core.restartKeepingContext = () => {};
+  core.nodeCmd = { command: 'node', env: {} };
+  core.broker = { timeoutSec: 60 };
+  core.setCwd(proj);
+  assert.ok(core.setPermissionMode('plan').ok);
+
+  const ask = () => core._onPermissionRequest({ id: 'p' + Math.random(), kind: 'permission', tool_name: 'ExitPlanMode', input: { plan: '1. แก้ A\n2. รันเทสต์' } });
+  // not auto-approved, not blocked by plan mode; the plan text and no rule reach the dialog
+  let pending = ask();
+  const req = events.filter(([c]) => c === 'approval:request').at(-1)[1];
+  assert.strictEqual(req.preview.plan, '1. แก้ A\n2. รันเทสต์');
+  assert.strictEqual(req.rule, null);
+  // "always" must not turn into a standing approval
+  core.respondApproval({ id: req.id, decision: 'always' });
+  assert.strictEqual((await pending).behavior, 'allow');
+  assert.strictEqual(core.sessionRules.size, 0);
+  assert.strictEqual(settings.get().permissionMode, 'default');
+  assert.ok(!fs.existsSync(path.join(proj, '.claude', 'settings.local.json')), 'no rule file written');
+
+  // sent back with notes: stays in plan mode and Claude gets the notes
+  core.setPermissionMode('plan');
+  pending = ask();
+  const [id] = core.pending.keys();
+  core.respondApproval({ id, decision: 'deny-reason', reason: 'ไม่ต้องแก้ A' });
+  const denied = await pending;
+  assert.strictEqual(denied.behavior, 'deny');
+  assert.match(denied.message, /ไม่ต้องแก้ A/);
+  assert.strictEqual(settings.get().permissionMode, 'plan');
+});
+
+test('core: ExitPlanMode with an empty input (real CLI) shows the drafted plan file, else the turn text', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const { SettingsStore } = require('../lib/settings');
+  const { JarvisCore } = require('../lib/jarvis-core');
+  const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-plan2-')));
+  const settings = new SettingsStore(tmp());
+  const events = [];
+  const core = new JarvisCore({ settings, tempDir: tmp(), ui: (c, p) => events.push([c, p]), appRoot: tmp(), logDir: tmp() });
+  core.broker = { timeoutSec: 60 };
+  const shown = () => events.filter(([c]) => c === 'approval:request').at(-1)[1].preview;
+  core.turnText = 'ขอเสนอแผนครับ';
+  core._onPermissionRequest({ id: 'a', kind: 'permission', tool_name: 'ExitPlanMode', input: {} });
+  assert.deepStrictEqual(shown(), { plan: 'ขอเสนอแผนครับ' });
+  core.planDraft = '# Plan\n1. A';
+  core._onPermissionRequest({ id: 'b', kind: 'permission', tool_name: 'ExitPlanMode', input: {} });
+  assert.deepStrictEqual(shown(), { plan: '# Plan\n1. A' });
+  core.planDraft = '';
+  core.turnText = '';
+  core._onPermissionRequest({ id: 'c', kind: 'permission', tool_name: 'ExitPlanMode', input: {} });
+  assert.strictEqual(shown(), null);
+});

@@ -208,9 +208,39 @@ async function showProjectDiff() {
     return;
   }
   const rep = diffReport(d);
-  if (!rep.empty) resultViewer.display({ type: 'text', title: rep.title, spokenSummary: rep.speak, markdown: rep.markdown });
+  if (!rep.empty) resultViewer.display({ type: 'diff', title: rep.title, spokenSummary: rep.speak, ...d });
   else addSystemMsg(rep.speak);
   say(rep.speak);
+}
+
+/** "/mcp": the project's MCP servers and whether each one connected (names and status only). */
+async function showMcp() {
+  const r = await api.invoke('mcp:info').catch(failed);
+  if (!r.ok) {
+    notice(r.error, 'warn');
+    return;
+  }
+  resultViewer.display({ type: 'mcp', title: 'MCP servers', spokenSummary: '', ...r });
+}
+
+/** Restart the CLI so every MCP server connects again; the new status shows after the next message. */
+async function reconnectMcp() {
+  const r = await api.invoke('mcp:reconnect').catch(failed);
+  if (!r.ok) return { ok: false, reason: r.error };
+  addSystemMsg('เชื่อมต่อ MCP ใหม่แล้ว — สถานะจะอัปเดตหลังข้อความถัดไป');
+  return { ok: true };
+}
+
+/** Undo just the given files of the turn shown in the diff view (the view asks for a second click first). */
+async function revertDiffFiles(token, files) {
+  const p = await api.invoke('code:undo-preview', { files }).catch(failed);
+  if (!p.ok) return { ok: false, reason: p.reason || p.error };
+  if (p.token !== token) return { ok: false, reason: 'ไฟล์เปลี่ยนไปแล้ว เปิด diff ใหม่อีกครั้ง' };
+  const r = await api.invoke('code:undo', { token, files }).catch(failed);
+  if (!r.ok) return { ok: false, reason: r.reason || r.error };
+  addSystemMsg(`↩ ย้อน ${files.join(', ')} แล้ว${r.safety ? ` — ถ้าต้องการกลับไปแบบก่อนย้อน: git restore --source=${r.safety} -- .` : ''}`);
+  if (r.failed.length) notice(`ลบบางไฟล์ไม่ได้: ${r.failed.join(' · ')}`, 'warn');
+  return { ok: true };
 }
 
 /** Undo is destructive: the file list is shown and only a click confirms it. */
@@ -651,6 +681,40 @@ function diffDetails(preview) {
   return el('details', { open: '' }, el('summary', { text: `diff ${preview.file || ''}${preview.isNew ? ' (ไฟล์ใหม่)' : ''}` }), box);
 }
 
+const AGENT_ST = { running: ['● กำลังทำงาน', ''], completed: ['✓ เสร็จ', 'ok'], failed: ['✕ ผิดพลาด', 'err'], killed: ['■ ถูกหยุด', 'err'], stopped: ['■ ถูกหยุด', 'err'] };
+
+/** Subagents Claude started this turn: what each is doing, how many tools it used. */
+function onSubagents({ agents: list }) {
+  const box = $('subagents');
+  box.hidden = !list.length;
+  box.replaceChildren();
+  if (!list.length) return;
+  const running = list.filter((a) => a.status === 'running').length;
+  box.append(el('div', { class: 'accent', text: `Subagent ${list.length} ตัว${running ? ` · กำลังทำงาน ${running}` : ''}` }));
+  for (const a of list) {
+    const [label, cls] = AGENT_ST[a.status] || [a.status, ''];
+    const detail = [a.type, a.tools ? `${a.tools} เครื่องมือ` : '', a.tokens ? `${Math.round(a.tokens / 1000)}k โทเคน` : '', a.status === 'running' ? a.lastTool : ''].filter(Boolean).join(' · ');
+    box.append(el('div', { class: `todo agent ${cls}` },
+      el('div', {}, el('span', { text: a.title || a.type || 'subagent' }), el('span', { class: 'dim', text: ` ${label}` })),
+      detail ? el('div', { class: 'dim mono', text: detail }) : null));
+  }
+}
+
+/** How full the conversation is; a click compacts it. */
+function paintContext(c) {
+  const b = $('ctx-meter');
+  if (!c || !c.used) {
+    b.hidden = true;
+    return;
+  }
+  const pct = Math.min(100, Math.round((c.used / c.window) * 100));
+  b.hidden = false;
+  b.textContent = c.compacting ? 'กำลังบีบอัด…' : `บริบท ${pct}%`;
+  b.dataset.level = pct >= 90 ? 'high' : pct >= 70 ? 'mid' : 'low';
+  b.disabled = !!c.compacting;
+  b.title = `${c.used.toLocaleString()} / ${c.window.toLocaleString()} โทเคน — กดเพื่อบีบอัดบทสนทนา (/compact)`;
+}
+
 function onTodos({ todos }) {
   const box = $('todos');
   box.hidden = !todos.length;
@@ -707,8 +771,13 @@ function showApproval() {
   $('ap-reason').hidden = !req.reason;
   $('ap-reason').textContent = req.reason ? `ตัวกันพลาด: ${req.reason}` : '';
   const i = req.input || {};
-  const detail = i.command ?? i.url ?? i.file_path ?? i.notebook_path ?? JSON.stringify(i, null, 2);
+  const plan = req.preview && typeof req.preview.plan === 'string' ? req.preview.plan : '';
+  const detail = plan || (i.command ?? i.url ?? i.file_path ?? i.notebook_path ?? JSON.stringify(i, null, 2));
   $('ap-detail').textContent = typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2);
+  // a plan is approved to start the work, or sent back with notes (it has no "always")
+  $('ap-once').textContent = plan ? 'อนุมัติแผน — เริ่มลงมือ' : 'อนุญาตครั้งนี้';
+  $('ap-deny').textContent = plan ? 'ไม่อนุมัติ' : 'ปฏิเสธ';
+  $('ap-deny-why').textContent = plan ? 'ขอแก้แผน' : 'ปฏิเสธพร้อมบอกเหตุผล';
   const diff = $('ap-diff');
   if (req.preview && req.preview.diff) {
     diff.hidden = false;
@@ -918,6 +987,11 @@ async function send(text, { fromVoice = false, latency = {}, image: presetImage 
   const attached = (S.app && S.app.attachments) || [];
   if (!text && !image && !pasted.length && !attached.length) return false;
   if (!text && !image && !pasted.length) text = 'ดูไฟล์ที่แนบมาให้หน่อย';
+  // JARVIS's own versions of two terminal-only commands: no Claude turn
+  if (!image && !pasted.length && /^\/(resume|mcp)\s*$/i.test(text)) {
+    if (/resume/i.test(text)) { talk.open(); historyPanel.open(); } else showMcp();
+    return true;
+  }
   orbBridge.set({ transcript: (text || '(ดูภาพนี้)').slice(0, 500), reply: '', replyDone: false, result: false });
   // ask for the folder first, so cancelling the popup leaves the running answer alone
   if (text.startsWith('/') && !image && await api.invoke('folder:needs', text).catch(() => false)) {
@@ -1326,6 +1400,8 @@ resultViewer = new ResultViewer({
   speaker,
   sfx,
   web: webViewer,
+  revertFiles: revertDiffFiles,
+  reconnectMcp,
   retry: () => { if (S.lastUserText) send(S.lastUserText); },
   // the conversation is open: the result opens in the viewer right away and also
   // leaves a "เปิดดู" card in the chat to open it again later
@@ -1733,9 +1809,23 @@ async function newFromSummary() {
   else if (!r.empty) addSystemMsg('กำลังให้ Claude สรุปความคืบหน้า เพื่อเริ่ม session ใหม่…');
 }
 
+let wasPreparing = false;
+let prepCwd = null;
 function applyAppState(snap) {
   S.app = snap;
   talk.setCwd(snap.cwd); // middle-ellipsized on the button, full path in its tooltip
+  paintContext(snap.context);
+  const prep = !!snap.preparing; // spinner while a freshly opened folder's environment is being set up
+  if (snap.cwd !== prepCwd) { // another project's state is not a change of this one
+    prepCwd = snap.cwd;
+    wasPreparing = false;
+  }
+  if (prep !== wasPreparing) {
+    wasPreparing = prep;
+    if (prep) notice('กำลังเตรียมสภาพแวดล้อมของโฟลเดอร์…', 'info', null, 20000);
+    else if (snap.prepareOk) notice('โฟลเดอร์พร้อมใช้งาน ใช้ / ได้แล้ว', 'info', null, 3000);
+  }
+  $('cwd-prep').hidden = !prep;
   $('menu-project').textContent = `${snap.cwd || 'ยังไม่ได้เลือกโฟลเดอร์'} · ${snap.permissionMode}`;
   $('session-id').textContent = snap.sessionId ? `· ${snap.sessionId.slice(0, 8)}` : '';
   $('btn-teach').classList.toggle('on', !!snap.teachMode);
@@ -2229,6 +2319,8 @@ function wireEvents() {
   api.on('notice', (n) => notice(n.text, n.level, n.action, 0));
   api.on('activity', onActivity);
   api.on('todos', onTodos);
+  api.on('subagents', onSubagents);
+  $('ctx-meter').onclick = () => { if (!S.busy) send('/compact'); };
   api.on('terminal', ({ stream, text }) => term(text, stream));
   api.on('notice', ({ level, text, action }) => notice(text, level, action));
   api.on('error', ({ code, message, stderr }) => {

@@ -54,12 +54,19 @@ function render(r) {
     $('file-new').hidden = !r.isNew;
   }
 
-  // the raw command / URL / input, in full
-  $('detail-sec').hidden = !r.detail;
-  if (r.detail) {
-    $('detail-h').textContent = r.detailKind === 'command' ? 'คำสั่งที่จะรัน' : r.detailKind === 'url' ? 'ที่อยู่ที่จะเปิด' : 'ข้อมูลที่ส่งให้เครื่องมือ';
-    $('detail').textContent = r.detail + (r.detailCut ? '\n… (ตัดส่วนที่ยาวเกิน)' : '');
+  // the raw command / URL / input, in full; for a plan, the plan text
+  const text = r.plan || r.detail;
+  $('detail-sec').hidden = !text;
+  if (text) {
+    $('detail-h').textContent = r.plan ? 'แผนงานที่เสนอ' : r.detailKind === 'command' ? 'คำสั่งที่จะรัน' : r.detailKind === 'url' ? 'ที่อยู่ที่จะเปิด' : 'ข้อมูลที่ส่งให้เครื่องมือ';
+    $('detail').textContent = text + (r.planCut || r.detailCut ? '\n… (ตัดส่วนที่ยาวเกิน)' : '');
   }
+  // a plan is approved to start the work, or sent back with notes (it has no "always")
+  $('allow').textContent = r.plan ? 'อนุมัติแผน — เริ่มลงมือ' : 'อนุญาต';
+  $('deny').textContent = r.plan ? 'ไม่อนุมัติ' : 'ปฏิเสธ';
+  $('deny-why').textContent = r.plan ? 'ขอแก้แผน…' : 'ปฏิเสธพร้อมเหตุผล…';
+  $('deny-reason').placeholder = r.plan ? 'บอกว่าอยากให้แก้แผนตรงไหน (Claude จะเห็นข้อความนี้และเสนอแผนใหม่)' : 'บอกเหตุผลที่ปฏิเสธ (Claude จะเห็นข้อความนี้)';
+  $('deny-send').textContent = r.plan ? 'ส่งข้อแก้และขอแผนใหม่' : 'ส่งเหตุผลและปฏิเสธ';
 
   const diff = $('diff');
   $('diff-sec').hidden = !r.diff.length;

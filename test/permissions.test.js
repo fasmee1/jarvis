@@ -202,3 +202,12 @@ test('buildClaudeArgs passes disallowedTools', () => {
   const a = buildClaudeArgs({ permissionMode: 'plan', disallowedTools: ['Write', 'Edit'] });
   assert.ok(a.includes('--disallowedTools') && a.includes('Write,Edit'));
 });
+
+test('ExitPlanMode: a plan is shown to the user and can never be "always allowed"', async () => {
+  const { ruleFor } = require('../lib/permissions/rules');
+  const { toolSummary, previewFor } = require('../lib/jarvis-core');
+  assert.strictEqual(ruleFor('ExitPlanMode', { plan: 'x' }, process.cwd()), null);
+  assert.match(toolSummary('ExitPlanMode', {}), /แผน/);
+  assert.deepStrictEqual(previewFor('ExitPlanMode', { plan: '1. ทำ A' }), { plan: '1. ทำ A' });
+  assert.strictEqual(previewFor('ExitPlanMode', {}), null);
+});

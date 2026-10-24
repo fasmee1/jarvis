@@ -27,6 +27,10 @@
 .cv-folder { color: var(--text-1); border-color: var(--line); }
 .cv-folder .cv-i { color: var(--text-2); }
 .cv-cwd { font-size: 12px; letter-spacing: 0; }
+.cv-prep { width: 12px; height: 12px; margin-left: 6px; flex: none; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: cv-prep-spin .8s linear infinite; }
+.cv-prep[hidden] { display: none; }
+@keyframes cv-prep-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cv-prep { animation-duration: 2.4s; } }
 .cv-select { height: 32px; padding: 0 8px; font-size: 13px; border-radius: 8px; cursor: pointer; max-width: 240px; }
 .cv-sid { font-size: 11px; color: var(--text-3); padding: 0 4px; }
 .cv-sid:empty { display: none; }
@@ -262,3 +266,13 @@
   color: transparent; background: rgba(91, 225, 240, 0.16); border-radius: 4px;
   box-shadow: 0 0 0 2px rgba(91, 225, 240, 0.16), inset 0 -1px 0 var(--accent);
 }
+
+/* ----- context meter and subagents ----- */
+.ctx-meter { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; cursor: pointer; color: var(--text-2); }
+.ctx-meter[data-level="mid"] { color: #D29922; border-color: #D29922; }
+.ctx-meter[data-level="high"] { color: #E5534B; border-color: #E5534B; }
+.ctx-meter:disabled { opacity: 0.6; cursor: default; }
+.subagents { margin-bottom: 12px; }
+.todo.agent { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; }
+.todo.agent.ok { color: var(--text-2); }
+.todo.agent.err { color: #E5534B; }

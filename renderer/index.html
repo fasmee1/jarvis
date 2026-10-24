@@ -50,6 +50,7 @@
               <button id="btn-folder" class="cv-ctl cv-folder" type="button" title="โฟลเดอร์งาน — คลิกเพื่อเปลี่ยน">
                 <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
                 <span id="cwd-path" class="mono cv-cwd"></span>
+                <span id="cwd-prep" class="cv-prep" role="status" aria-label="กำลังเตรียมโฟลเดอร์" hidden></span>
               </button>
               <select id="perm-mode" class="cv-select" title="Permission mode — โหมดสิทธิ์ของ Claude (bypassPermissions เปิดได้จาก Settings เท่านั้น)" aria-label="Permission mode">
                 <option value="default">default — ถามทุกครั้ง</option>
@@ -58,6 +59,7 @@
                 <option value="bypassPermissions">bypassPermissions — ไม่ถาม</option>
               </select>
               <span id="session-id" class="mono cv-sid" title="Session ของ Claude Code"></span>
+              <button id="ctx-meter" class="mono cv-sid ctx-meter" type="button" hidden></button>
             </div>
             <div class="cv-grp cv-mid">
               <button id="btn-teach" class="cv-pill toggle" type="button" title="โหมดสอนประดิษฐ์ — JARVIS สอนทีละขั้น">โหมดสอน</button>
@@ -321,6 +323,7 @@
       <h1>ACTIVITY <span class="th">เครื่องมือที่ Claude ใช้</span> <span id="activity-count" class="mono dim"></span></h1>
     </header>
     <div class="view-body activity-body">
+      <div id="subagents" class="todos cut subagents" hidden></div>
       <div id="todos" class="todos cut" hidden></div>
       <div id="activity" class="activity"></div>
     </div>

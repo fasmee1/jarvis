@@ -552,6 +552,9 @@ function registerIpc() {
     return { ok: true, messages };
   });
 
+  handle('mcp:info', () => local(() => core.mcpInfo()));
+  handle('mcp:reconnect', () => local(() => core.mcpReconnect()));
+
   handle('build:reset', () => {
     core.resetBuildTime();
     return { ok: true };
@@ -571,11 +574,15 @@ function registerIpc() {
   }));
   handle('code:cancel', () => ({ ok: core.tools.cancel() }));
   handle('code:diff', () => local(() => core.projectDiff()));
-  handle('code:undo-preview', () => local(() => core.undoPreview()));
+  handle('code:undo-preview', (p) => local(() => {
+    const files = p && p.files !== undefined ? v.strArray(p.files, 200, 1000, 'files') : undefined;
+    return core.undoPreview(files);
+  }));
   handle('code:undo', (p) => local(() => {
     v.obj(p);
     v.str(p.token, 200, 'token');
-    return core.undoApply(p.token);
+    const files = p.files === undefined ? undefined : v.strArray(p.files, 200, 1000, 'files'); // only these paths
+    return core.undoApply(p.token, files);
   }));
   handle('session:coding-mode', (p) => {
     core.setCodingMode(v.bool(p, 'coding'));
@@ -987,6 +994,7 @@ function approvalPayload(r, queue) {
   const raw = text(input.command ?? input.url ?? input);
   const diff = r.preview && Array.isArray(r.preview.diff) ? r.preview.diff : [];
   const hasDiff = diff.length > 0;
+  const plan = r.preview && typeof r.preview.plan === 'string' ? r.preview.plan : ''; // ExitPlanMode: the plan to approve
   return {
     id: r.id,
     projectId: r.projectId || 'main',
@@ -1001,7 +1009,9 @@ function approvalPayload(r, queue) {
     file: String((r.preview && r.preview.file) || input.file_path || input.notebook_path || ''),
     isNew: !!(r.preview && r.preview.isNew),
     // the raw input is only repeated when the diff doesn't already say it all
-    detail: hasDiff && kind === 'input' ? '' : raw.slice(0, APPROVAL_TEXT_MAX),
+    plan: plan.slice(0, APPROVAL_TEXT_MAX),
+    planCut: plan.length > APPROVAL_TEXT_MAX,
+    detail: plan || (hasDiff && kind === 'input') ? '' : raw.slice(0, APPROVAL_TEXT_MAX),
     detailKind: kind,
     detailCut: raw.length > APPROVAL_TEXT_MAX,
     diff: diff.slice(0, APPROVAL_DIFF_MAX).map((d) => ({ op: d.op, line: String(d.line ?? '').slice(0, 500) })),
@@ -1236,6 +1246,7 @@ app.whenReady().then(async () => {
     logDir: userData,
     ui: coreUi,
     onCwd: (dir) => stt.setProject(path.basename(dir)),
+    prepareFolders: true,
     onRateLimit: (info) => usage && usage.onRateLimit(info),
     onTurnEnd: () => usage && setTimeout(() => usage.refresh(), 1500), // the transcript line lands just after the result
     trash: (p) => shell.trashItem(p), // undo moves files Claude created to the Recycle Bin

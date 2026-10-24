@@ -71,3 +71,18 @@ test('slash command cache is kept per project folder', () => {
   again.setCwd(a, { silent: true });
   assert.deepStrictEqual(again.slashCache, ['only-in-a']);
 });
+
+test('a never-run folder lists the commands every known folder shares', () => {
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-slash-'));
+  const logDir = tmp();
+  const core = new JarvisCore({ settings: new SettingsStore(tmp()), tempDir: tmp(), ui: () => {}, appRoot: tmp(), logDir });
+  core.warm = () => {};
+  core.setCwd(tmp(), { silent: true });
+  core._writeSlashCache(['code-review', 'simplify', 'only-in-a']);
+  core.setCwd(tmp(), { silent: true });
+  core._writeSlashCache(['code-review', 'simplify', 'only-in-b']);
+  core.setCwd(tmp(), { silent: true }); // freshly added folder, no init event yet
+  const names = core.listCommands({ home: tmp() }).map((c) => c.name);
+  assert.ok(names.includes('code-review') && names.includes('simplify'));
+  assert.ok(!names.includes('only-in-a') && !names.includes('only-in-b'));
+});
