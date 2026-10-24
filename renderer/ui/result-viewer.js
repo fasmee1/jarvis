@@ -186,6 +186,8 @@ export class ResultViewer {
       retry: () => this.o.retry(),
       reveal: (el) => this.viewer.reveal(el),
       onVideo: (state) => this._video(tab.id, state),
+      revertFiles: this.o.revertFiles,
+      reconnectMcp: this.o.reconnectMcp,
     };
   }
 

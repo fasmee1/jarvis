@@ -841,8 +841,122 @@ function renderModel(root, data) {
   };
 }
 
+// ---------- diff (opened by the app itself, never by a jarvis-result block) ----------
+// data: {scope, token, files:[{file,add,del}], created:[path], patches:{path: patch}}
+// ctx.revertFiles(token, [path]) → Promise<{ok, reason?}> undoes just those files.
+function renderDiff(root, data, ctx) {
+  const wrap = h('div', 'df-wrap sv-item');
+  const canRevert = !!(data.token && ctx.revertFiles);
+  const total = h('div', 'df-total', `แก้ ${data.files.length} ไฟล์ · +${data.add || 0} −${data.del || 0}${data.created.length ? ` · ไฟล์ใหม่ ${data.created.length}` : ''}`);
+  wrap.append(total);
+  const row = (file, stat, patch, isNew) => {
+    const box = h('div', 'df-file');
+    const head = h('div', 'df-head');
+    const name = h('span', 'df-name', file);
+    name.title = file;
+    head.append(name, h('span', 'df-stat', stat));
+    const status = h('span', 'df-status');
+    let body = null;
+    if (patch) {
+      const toggle = h('button', 'df-btn', 'ดู diff');
+      toggle.type = 'button';
+      toggle.onclick = () => {
+        if (!body) {
+          body = h('pre', 'df-patch');
+          for (const line of patch.split(String.fromCharCode(10))) {
+            if (/^(diff --git|index |--- |\+\+\+ |new file|deleted file|old mode|new mode)/.test(line)) continue;
+            const c = line[0] === '+' ? 'add' : line[0] === '-' ? 'del' : line[0] === '@' ? 'hunk' : '';
+            body.append(h('div', `df-line ${c}`, line || ' '));
+          }
+          box.append(body);
+        } else {
+          body.hidden = !body.hidden;
+        }
+        toggle.textContent = body.hidden ? 'ดู diff' : 'ซ่อน diff';
+      };
+      head.append(toggle);
+    }
+    if (canRevert) {
+      const rev = h('button', 'df-btn danger', isNew ? 'ลบไฟล์นี้' : 'ย้อนไฟล์นี้');
+      rev.type = 'button';
+      let armed = null;
+      rev.onclick = async () => {
+        if (!armed) { // destructive: a second click within 4 s confirms
+          rev.textContent = isNew ? 'ยืนยันลบ?' : 'ยืนยันย้อน?';
+          armed = setTimeout(() => { armed = null; rev.textContent = isNew ? 'ลบไฟล์นี้' : 'ย้อนไฟล์นี้'; }, 4000);
+          return;
+        }
+        clearTimeout(armed);
+        rev.disabled = true;
+        let r;
+        try { r = await ctx.revertFiles(data.token, [file]); } catch (err) { r = { ok: false, reason: err.message }; }
+        if (r && r.ok) {
+          box.classList.add('reverted');
+          status.textContent = isNew ? 'ย้ายไปถังขยะแล้ว' : 'ย้อนแล้ว';
+          rev.remove();
+        } else {
+          status.textContent = (r && (r.reason || r.error)) || 'ย้อนไม่สำเร็จ';
+          rev.disabled = false;
+          armed = null;
+          rev.textContent = isNew ? 'ลบไฟล์นี้' : 'ย้อนไฟล์นี้';
+        }
+      };
+      head.append(rev);
+    }
+    head.append(status);
+    box.prepend(head);
+    return box;
+  };
+  for (const f of data.files) wrap.append(row(f.file, f.add == null ? 'ไบนารี' : `+${f.add} −${f.del}`, data.patches[f.file], false));
+  if (data.created.length) {
+    wrap.append(h('div', 'df-sub', 'ไฟล์ใหม่ (ยังไม่อยู่ใน git)'));
+    for (const f of data.created.slice(0, 100)) wrap.append(row(f, 'ใหม่', null, true));
+  }
+  if (data.truncated) wrap.append(h('div', 'df-sub', 'diff ยาวเกิน จึงตัดบางไฟล์ออก'));
+  root.append(wrap);
+  return { items: [] };
+}
+
+// ---------- mcp (opened by the app itself, never by a jarvis-result block) ----------
+// data: {servers:[{name, source, transport, status|null}], liveAt}
+const MCP_SOURCE = { user: 'ผู้ใช้', local: 'โปรเจกต์นี้ (ส่วนตัว)', project: '.mcp.json', settings: 'Settings ของ JARVIS', other: 'ปลั๊กอิน / อื่นๆ' };
+const MCP_STATUS = { connected: ['เชื่อมต่อแล้ว', 'ok'], failed: ['เชื่อมต่อไม่ได้', 'bad'], pending: ['กำลังเชื่อมต่อ', 'wait'], 'needs-auth': ['ต้องล็อกอิน', 'wait'], disabled: ['ปิดอยู่', ''] };
+function renderMcp(root, data, ctx) {
+  const wrap = h('div', 'mc-wrap sv-item');
+  const servers = data.servers || [];
+  const when = data.liveAt ? new Date(data.liveAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '';
+  wrap.append(h('div', 'mc-total', servers.length
+    ? `${servers.length} เซิร์ฟเวอร์${when ? ` · สถานะจากรอบล่าสุดเมื่อ ${when}` : ' · ยังไม่มีสถานะ (ส่งข้อความหนึ่งครั้งก่อน)'}`
+    : 'ยังไม่พบ MCP server ของโปรเจกต์นี้'));
+  for (const s of servers) {
+    const [label, cls] = s.status ? MCP_STATUS[s.status] || [s.status, ''] : ['ยังไม่ทราบสถานะ', ''];
+    const row = h('div', 'mc-row');
+    row.append(h('span', 'mc-name', s.name), h('span', 'mc-src', `${MCP_SOURCE[s.source] || s.source}${s.transport ? ` · ${s.transport}` : ''}`), h('span', `mc-st ${cls}`, label));
+    wrap.append(row);
+  }
+  if (ctx.reconnectMcp) {
+    const btn = h('button', 'df-btn', 'เชื่อมต่อใหม่');
+    btn.type = 'button';
+    const msg = h('span', 'df-status');
+    btn.onclick = async () => {
+      btn.disabled = true;
+      let r;
+      try { r = await ctx.reconnectMcp(); } catch (err) { r = { ok: false, reason: err.message }; }
+      msg.textContent = r && r.ok ? 'รีสตาร์ตแล้ว — สถานะใหม่จะขึ้นหลังข้อความถัดไป' : (r && r.reason) || 'ไม่สำเร็จ';
+      btn.disabled = false;
+    };
+    const bar = h('div', 'mc-bar');
+    bar.append(btn, msg);
+    wrap.append(bar);
+  }
+  root.append(wrap);
+  return { items: [] };
+}
+
 // ---------- registry ----------
 const RENDERERS = {
+  mcp: renderMcp,
+  diff: renderDiff,
   search: renderSearch,
   news: renderNews,
   youtube: renderYoutube,
@@ -867,6 +981,8 @@ export const TYPE_META = {
   text: { icon: 'text', label: 'คำตอบ' },
   map: { icon: 'map', label: 'แผนที่' },
   model: { icon: 'step', label: 'โมเดล 3D' },
+  diff: { icon: 'step', label: 'การแก้ไฟล์' },
+  mcp: { icon: 'step', label: 'MCP' },
 };
 
 /** Has this payload anything to show? */
@@ -876,6 +992,8 @@ export function isEmptyResult(data) {
     case 'weather': return !data.current;
     case 'table': return !(data.rows && data.rows.length);
     case 'chart': return !(data.series && data.series.length);
+    case 'mcp': return false;
+    case 'diff': return !(data.files && data.files.length) && !(data.created && data.created.length);
     case 'text': return !(data.markdown || (data.items && data.items.length));
     case 'map': return typeof data.lat !== 'number';
     case 'model': return !(data.glb || (Array.isArray(data.parts) && data.parts.length));
