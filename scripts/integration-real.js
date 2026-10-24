@@ -17,7 +17,8 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-it-'));
 const proj = path.join(work, 'proj');
 fs.mkdirSync(proj);
 const settings = new SettingsStore(path.join(work, 'userdata'));
-settings.update({ model: 'haiku', approvalTimeoutSec: 60 });
+// autoApproveSafe off: the steps below test the approval popup, which safe edits would skip
+settings.update({ model: 'haiku', approvalTimeoutSec: 60, autoApproveSafe: false });
 
 const events = [];
 let onApproval = null;

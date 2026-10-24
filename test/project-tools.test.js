@@ -134,3 +134,42 @@ test('undo goes to the newest snapshot that differs from now', async () => {
   pt.reset();
   assert.strictEqual(pt.snapshots.length, 0);
 });
+
+test('diff splits the patch per file and gives a token for a turn', () => {
+  const d = repo();
+  const pt = new ProjectTools();
+  pt.snapshot(d);
+  fs.writeFileSync(path.join(d, 'a.txt'), 'changed\n');
+  fs.writeFileSync(path.join(d, 'b.txt'), 'bee2\n');
+  const r = pt.diff(d);
+  assert.ok(r.token);
+  assert.deepStrictEqual(Object.keys(r.patches).sort(), ['a.txt', 'b.txt']);
+  assert.match(r.patches['a.txt'], /\+changed/);
+  assert.ok(!r.patches['a.txt'].includes('bee2'));
+});
+
+test('undo of chosen files leaves the other changes and keeps the snapshot', async () => {
+  const d = repo();
+  const trashed = [];
+  const pt = new ProjectTools({ trash: (p) => { trashed.push(path.basename(p)); fs.rmSync(p); } });
+  pt.snapshot(d);
+  fs.writeFileSync(path.join(d, 'a.txt'), 'changed a\n');
+  fs.writeFileSync(path.join(d, 'b.txt'), 'changed b\n');
+  fs.writeFileSync(path.join(d, 'gen.js'), '1');
+  const p = pt.undoPreview(d, ['a.txt']);
+  assert.deepStrictEqual(p.restore, ['a.txt']);
+  assert.deepStrictEqual(p.remove, []);
+  assert.strictEqual(pt.undoPreview(d, ['nope.txt']).ok, false);
+  const r = await pt.undo(d, p.token, ['a.txt']);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.strictEqual(read(d, 'a.txt'), 'one\n');
+  assert.strictEqual(read(d, 'b.txt'), 'changed b\n'); // not chosen: stays
+  assert.strictEqual(pt.snapshots.length, 1, 'snapshot kept while other files differ');
+  // a created file can be undone on its own, then the last one clears the snapshot
+  const g1 = await pt.undo(d, pt.undoPreview(d, ['gen.js']).token, ['gen.js']);
+  assert.deepStrictEqual(g1.removed, ['gen.js']);
+  assert.deepStrictEqual(trashed, ['gen.js']);
+  await pt.undo(d, pt.undoPreview(d, ['b.txt']).token, ['b.txt']);
+  assert.strictEqual(pt.snapshots.length, 0);
+  assert.strictEqual(read(d, 'b.txt'), 'bee\n');
+});
