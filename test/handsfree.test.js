@@ -61,6 +61,9 @@ test('built-in voice commands match whole short utterances only', async () => {
 
 test('silence / whisper hallucinations count as nothing said', async () => {
   const { cmd } = await load();
+  assert.ok(cmd.isCorrection('จาร์วิส ไม่ใช่ ฉันบอกให้เปิดเพลง'));
+  assert.ok(cmd.isCorrection('พูดใหม่'));
+  assert.ok(!cmd.isCorrection('เปิดเพลงให้หน่อย'));
   assert.ok(cmd.isNoise(''));
   assert.ok(cmd.isNoise('จาร์วิส'));
   assert.ok(cmd.isNoise('ขอบคุณที่รับชม'));
@@ -353,6 +356,9 @@ test('hands-free settings: off by default, validated', () => {
   assert.strictEqual(d.handsFreeSensitivity, 'medium');
   assert.ok(sanitize({ handsFreeSensitivity: 'high', handsFreeBackground: 'tray' }).ok);
   assert.ok(!sanitize({ handsFreeSensitivity: 'max' }).ok);
+  assert.strictEqual(d.handsFreeEndSilence, 'normal');
+  assert.ok(sanitize({ handsFreeEndSilence: 'fast' }).ok);
+  assert.ok(!sanitize({ handsFreeEndSilence: 'instant' }).ok);
   assert.ok(!sanitize({ handsFreeBackground: 'always' }).ok);
 });
 

@@ -14,7 +14,8 @@ function arm() {
   clearTimeout(armTimer);
   $('allow').disabled = true;
   $('always').disabled = true;
-  armTimer = setTimeout(() => { $('allow').disabled = false; $('always').disabled = false; }, ARM_MS);
+  $('safe').disabled = true;
+  armTimer = setTimeout(() => { $('allow').disabled = false; $('always').disabled = false; $('safe').disabled = false; }, ARM_MS);
 }
 
 /** Picks the accent and icon: edit, shell, read, web or other. */
@@ -91,6 +92,9 @@ function render(r) {
 
   show('rule', r.rule ? `"อนุญาตเสมอ" จะเพิ่ม rule: ${r.rule} ลง .claude/settings.local.json` : '');
   $('always').hidden = !r.rule;
+  // several waiting and some are low risk: one click clears those (the rest still ask)
+  $('safe').hidden = !(r.queue > 0 && r.safeCount > 0);
+  $('safe').textContent = `อนุมัติที่เสี่ยงต่ำทั้งหมด (${r.safeCount})`;
   $('deny-wrap').hidden = true;
   $('deny-reason').value = '';
 
@@ -116,6 +120,10 @@ function answer(decision, ev) {
 $('allow').onclick = (e) => answer('once', e);
 $('always').onclick = (e) => answer('always', e);
 $('deny').onclick = (e) => answer('deny', e);
+$('safe').onclick = (e) => {
+  if (!e.isTrusted || $('safe').disabled) return;
+  api.invoke('approval-win:approve-safe').catch(() => {});
+};
 $('deny-why').onclick = (e) => {
   if (!e.isTrusted) return;
   $('deny-wrap').hidden = false;

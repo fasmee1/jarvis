@@ -13,6 +13,7 @@ const { ScreenWatcher, matchWindows, grayThumb, THUMB_W, THUMB_H } = require('./
 const { SerialMonitor, listPorts } = require('./lib/serial/monitor');
 const { ProjectManager } = require('./lib/projects');
 const { listSessions, readSession } = require('./lib/history');
+const { AwayDigest } = require('./lib/away-digest');
 const { UsageService } = require('./lib/usage/service');
 const { resolveClaudeCommand } = require('./lib/claude/resolve');
 const { v } = require('./lib/ipc-validate');
@@ -103,6 +104,7 @@ const screenWatch = new ScreenWatcher({
 const serial = new SerialMonitor({ onState: (s) => send('serial:state', s) }); // one open COM port at a time
 let tts = null;
 let geminiTts = null; // Gemini voice + its usage counter (status shown in Settings)
+const awayDigest = new AwayDigest();
 let stt = null;
 let vision = null;
 let wakeAssets = null;
@@ -201,6 +203,13 @@ function createWindow() {
     // a request that was waiting in the window now needs the desktop popup
     if (approvalWin && openApprovals.length) approvalWin.update(approvalPayload(openApprovals[0], openApprovals.length - 1), true);
     sendBg();
+  });
+  // away from the window = the user is elsewhere; coming back sums up what the background projects did
+  win.on('blur', () => awayDigest.away());
+  win.on('minimize', () => awayDigest.away());
+  win.on('focus', () => {
+    const d = awayDigest.back();
+    if (d) send('projects:digest', d);
   });
   for (const ev of ['restore', 'show', 'focus']) {
     win.on(ev, () => {
@@ -573,16 +582,22 @@ function registerIpc() {
     return { ...(await core.runCheck(p.kind)), done: true };
   }));
   handle('code:cancel', () => ({ ok: core.tools.cancel() }));
-  handle('code:diff', () => local(() => core.projectDiff()));
+  // diff / undo work on the HUD's project, or on a background project when it has a projectId
+  const coreFor = (p) => {
+    const c = projects.get(v.projectId(p && p.projectId !== undefined ? p.projectId : 'main'));
+    if (!c) throw new Error('ไม่พบโปรเจกต์');
+    return c;
+  };
+  handle('code:diff', (p) => local(() => coreFor(p).projectDiff()));
   handle('code:undo-preview', (p) => local(() => {
     const files = p && p.files !== undefined ? v.strArray(p.files, 200, 1000, 'files') : undefined;
-    return core.undoPreview(files);
+    return coreFor(p).undoPreview(files);
   }));
   handle('code:undo', (p) => local(() => {
     v.obj(p);
     v.str(p.token, 200, 'token');
     const files = p.files === undefined ? undefined : v.strArray(p.files, 200, 1000, 'files'); // only these paths
-    return core.undoApply(p.token, files);
+    return coreFor(p).undoApply(p.token, files);
   }));
   handle('session:coding-mode', (p) => {
     core.setCodingMode(v.bool(p, 'coding'));
@@ -764,6 +779,11 @@ function registerIpc() {
     if (!hf.on && tray && win.isVisible()) hideTray();
     return { ok: true };
   });
+  handle('memory:list', () => (memory ? memory.list() : []));
+  handle('memory:remove', (p) => {
+    v.obj(p);
+    return { ok: !!memory && memory.remove(v.str(p, 200, 'text')) };
+  });
   handle('hf:open-history', () => {
     const dir = path.join(app.getPath('userData'), 'voice-history');
     fs.mkdirSync(dir, { recursive: true });
@@ -890,6 +910,11 @@ function registerIpc() {
     orbCommand(action, action === 'send-text' ? { text: v.str(p.text, 2000, 'text') } : {});
     return { ok: true };
   });
+  handle('approval:approve-safe', () => ({ ok: true, count: projects.approveSafeAll() }));
+  ipcMain.handle('approval-win:approve-safe', async (event) => {
+    if (!approvalWin || !approvalWin.alive() || event.sender !== approvalWin.win.webContents) throw new Error('unknown sender');
+    return { ok: true, count: projects.approveSafeAll() };
+  });
   // desktop permission popup → main (genuine clicks in that window are the answer)
   ipcMain.handle('approval-win:respond', async (event, p) => {
     if (!approvalWin || !approvalWin.alive() || event.sender !== approvalWin.win.webContents) throw new Error('unknown sender');
@@ -1006,6 +1031,8 @@ function approvalPayload(r, queue) {
     timeoutSec: r.timeoutSec,
     createdAt: r.createdAt,
     queue,
+    safe: !!r.safe,
+    safeCount: openApprovals.filter((x) => x.safe).length,
     file: String((r.preview && r.preview.file) || input.file_path || input.notebook_path || ''),
     isNew: !!(r.preview && r.preview.isNew),
     // the raw input is only repeated when the diff doesn't already say it all
@@ -1255,7 +1282,13 @@ app.whenReady().then(async () => {
   projects = new ProjectManager({
     main: core,
     settings,
-    ui: coreUi,
+    ui: (channel, payload) => {
+      coreUi(channel, payload);
+      if (channel === 'project:status') {
+        const say = awayDigest.record(payload);
+        if (say && settings.get().speakProjectEvents) coreUi('tts:announce', { text: say });
+      }
+    },
     stateFile: path.join(userData, 'projects.json'),
     createCore: ({ id, name, ui }) => new JarvisCore({
       settings,

@@ -118,9 +118,16 @@ export function renderCode(kind, code) {
 }
 
 /** Compact card for the chat stream. */
-export function blockCard(item) {
+export function blockCard(item, onOpen) {
   const card = el('div', { class: 'block-card' });
-  card.append(el('div', { class: 'block-kind', text: `▣ jarvis-${item.kind} — แสดงบนจอแล้ว` }));
+  card.append(el('div', { class: 'block-kind', text: `▣ jarvis-${item.kind} — แสดงบนจอแล้ว${onOpen ? ' · กดเพื่อดูอีกครั้ง' : ''}` }));
+  if (onOpen) {
+    card.classList.add('clickable');
+    card.setAttribute('role', 'button');
+    card.tabIndex = 0;
+    card.onclick = onOpen;
+    card.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } };
+  }
   if (item.kind === 'steps') card.append(el('div', { class: 'dim', text: `${item.data.steps.length} ขั้นตอน${item.data.title ? ': ' + item.data.title : ''}` }));
   if (item.kind === 'bom') card.append(el('div', { class: 'dim', text: `${item.data.items.length} รายการ` }));
   if (item.kind === 'diagram') card.append(el('div', { class: 'dim', text: `${item.data.nodes.length} ชิ้นส่วน, ${(item.data.edges || []).length} สาย` }));

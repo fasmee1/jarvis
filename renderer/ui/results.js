@@ -889,7 +889,7 @@ function renderDiff(root, data, ctx) {
         clearTimeout(armed);
         rev.disabled = true;
         let r;
-        try { r = await ctx.revertFiles(data.token, [file]); } catch (err) { r = { ok: false, reason: err.message }; }
+        try { r = await ctx.revertFiles(data.token, [file], data.projectId); } catch (err) { r = { ok: false, reason: err.message }; }
         if (r && r.ok) {
           box.classList.add('reverted');
           status.textContent = isNew ? 'ย้ายไปถังขยะแล้ว' : 'ย้อนแล้ว';
@@ -953,8 +953,33 @@ function renderMcp(root, data, ctx) {
   return { items: [] };
 }
 
+// ---------- digest: what background projects did while the user was away (opened by the app itself) ----------
+// data: {items:[{projectId, name, status, filesChanged, branch, error}], text}
+const DIGEST_STATUS = { done: ['เสร็จแล้ว', 'ok'], error: ['ติด', 'bad'], 'awaiting-approval': ['รอคุณตัดสินใจ', 'wait'] };
+function renderDigest(root, data, ctx) {
+  const wrap = h('div', 'mc-wrap sv-item');
+  wrap.append(h('div', 'mc-total', data.text));
+  for (const i of data.items || []) {
+    const [label, cls] = DIGEST_STATUS[i.status] || [i.status, ''];
+    const row = h('div', 'mc-row');
+    row.append(h('span', 'mc-name', i.name || i.projectId), h('span', `mc-st ${cls}`, label));
+    if (i.filesChanged) row.append(h('span', 'mc-src', `แก้ ${i.filesChanged} ไฟล์${i.branch ? ` · ${i.branch}` : ''}`));
+    if (i.error) row.append(h('span', 'mc-src', i.error));
+    if (i.filesChanged && ctx.openProjectDiff) {
+      const b = h('button', 'df-btn', 'ดู diff');
+      b.type = 'button';
+      b.onclick = () => ctx.openProjectDiff(i.projectId);
+      row.append(b);
+    }
+    wrap.append(row);
+  }
+  root.append(wrap);
+  return { items: [] };
+}
+
 // ---------- registry ----------
 const RENDERERS = {
+  digest: renderDigest,
   mcp: renderMcp,
   diff: renderDiff,
   search: renderSearch,
@@ -983,6 +1008,7 @@ export const TYPE_META = {
   model: { icon: 'step', label: 'โมเดล 3D' },
   diff: { icon: 'step', label: 'การแก้ไฟล์' },
   mcp: { icon: 'step', label: 'MCP' },
+  digest: { icon: 'step', label: 'สรุปงาน' },
 };
 
 /** Has this payload anything to show? */
@@ -993,6 +1019,7 @@ export function isEmptyResult(data) {
     case 'table': return !(data.rows && data.rows.length);
     case 'chart': return !(data.series && data.series.length);
     case 'mcp': return false;
+    case 'digest': return !(data.items && data.items.length);
     case 'diff': return !(data.files && data.files.length) && !(data.created && data.created.length);
     case 'text': return !(data.markdown || (data.items && data.items.length));
     case 'map': return typeof data.lat !== 'number';

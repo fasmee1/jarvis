@@ -12,7 +12,7 @@
 //
 // No DOM here: the engine, speech-to-text, sounds and UI are injected, so the
 // flow is unit-tested with fakes (test/handsfree.test.js).
-import { parseCommand, stripWake, isNoise, isWakeOnly, containsWake } from './commands.js';
+import { parseCommand, stripWake, isNoise, isWakeOnly, containsWake, isCorrection } from './commands.js';
 
 export const ST = {
   IDLE: 'IDLE',
@@ -27,13 +27,16 @@ export const ST = {
 
 export const TIMING = {
   detectedMs: 300,
-  silenceMs: 1200,
+  silenceMs: 1200, // 'normal'; see END_SILENCE_MS
   maxMs: 15000,
   noSpeechMs: 4000,
   followMs: 6000,
   partialEveryMs: 1500,
   fadeMs: 150,
 };
+
+// pause length that ends a command, by the handsFreeEndSilence setting
+export const END_SILENCE_MS = { fast: 800, normal: 1200, patient: 1800 };
 
 // waits between tries when the mic is busy after sleep / unlock (≈ 30 s in all)
 const MIC_RETRY_MS = [1000, 2000, 4000, 8000, 15000];
@@ -142,7 +145,7 @@ export class HandsFree {
 
   _configure() {
     const s = this.d.settings();
-    this.engine.configure({ sensitivity: s.sensitivity, opts: { silenceMs: TIMING.silenceMs, maxMs: TIMING.maxMs, noSpeechMs: TIMING.noSpeechMs, followMs: TIMING.followMs, bargeVoice: !!s.bargeVoice, debug: !!s.debug } });
+    this.engine.configure({ sensitivity: s.sensitivity, opts: { silenceMs: END_SILENCE_MS[s.endSilence] || TIMING.silenceMs, maxMs: TIMING.maxMs, noSpeechMs: TIMING.noSpeechMs, followMs: TIMING.followMs, bargeVoice: !!s.bargeVoice, debug: !!s.debug } });
   }
 
   /** Settings changed (sensitivity, barge-in, device). */
@@ -448,6 +451,10 @@ export class HandsFree {
       return this._listen();
     }
     this.ui.transcript(text, true);
+    if (isCorrection(text)) {
+      this.stats.corrections = (this.stats.corrections || 0) + 1; // the last command was probably heard wrong
+      this._saveStats();
+    }
     // context: viewer / video commands only make sense while the Result Viewer is open
     const cmd = parseCommand(text, this.d.context ? this.d.context() : {});
     if (cmd) return this._local(cmd);

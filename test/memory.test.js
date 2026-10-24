@@ -23,6 +23,15 @@ test('memory: add, dedupe, forget, persist', () => {
   assert.equal(m.forget(''), 0);
 });
 
+test('memory: remove deletes only the exact item', () => {
+  const m = new MemoryStore(null);
+  m.add('ชอบตอบสั้น');
+  m.add('ชอบตอบสั้นมาก');
+  assert.strictEqual(m.remove('ชอบตอบสั้น'), true);
+  assert.deepStrictEqual(m.list(), ['ชอบตอบสั้นมาก']);
+  assert.strictEqual(m.remove('ไม่มี'), false);
+});
+
 test('memory: size limits keep the token cost bounded', () => {
   const m = new MemoryStore(null);
   for (let i = 0; i < MAX_ITEMS + 10; i++) m.add(`ข้อ ${i} ` + 'ก'.repeat(500));

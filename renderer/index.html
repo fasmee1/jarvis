@@ -376,6 +376,7 @@
         <button data-stab="handsfree" class="tab">Hands-free</button>
         <button data-stab="display" class="tab">การแสดงผล</button>
         <button data-stab="web" class="tab">เว็บ</button>
+        <button data-stab="memory" class="tab">ความจำ</button>
       </div>
       <div class="stab" id="stab-claude">
         <label>Path ของ claude (เว้นว่าง = หาอัตโนมัติ)<input id="s-claudePath" type="text" placeholder="C:\Users\...\claude.exe"></label>
@@ -469,6 +470,13 @@
             <option value="high">High — เรียกติดง่าย อาจติดเองบ้าง</option>
           </select>
         </label>
+        <label>เว้นช่วงเงียบนานแค่ไหนถึงถือว่าพูดจบ
+          <select id="s-handsFreeEndSilence">
+            <option value="fast">เร็ว — 0.8 วิ ตอบไว แต่อาจตัดตอนหยุดคิด</option>
+            <option value="normal">ปกติ — 1.2 วิ (แนะนำ)</option>
+            <option value="patient">ช้า — 1.8 วิ รอได้นานเวลาพูดช้า</option>
+          </select>
+        </label>
         <label class="check"><input id="s-handsFreeBargeVoice" type="checkbox"> พูดแทรกได้ด้วยเสียงพูดชัด ๆ ระหว่าง JARVIS กำลังตอบ (คำว่า “จาร์วิส” แทรกได้เสมอ)</label>
         <label class="check"><input id="s-handsFreeLiveTranscript" type="checkbox"> แสดงคำพูดสด ๆ ระหว่างพูด (whisper ในเครื่อง)</label>
         <label class="check"><input id="ui-wake-chime" type="checkbox"> เสียงตอบรับเมื่อได้ยินคำเรียก (ดังแม้ปิดเสียง HUD)</label>
@@ -526,6 +534,10 @@
         <p class="dim">ใส่ API token ฟรีจาก sketchfab.com/settings/password แล้วสั่ง "ขอดูโมเดล 3D ของ…" JARVIS จะค้นและดาวน์โหลดโมเดลจริงมาแสดง พร้อมเครดิตเจ้าของ</p>
         <div class="row"><input id="s-sketchfab-key" type="password" placeholder="Sketchfab API token (เก็บแบบเข้ารหัส)"><button id="s-sketchfab-save" class="btn small">บันทึก token</button></div>
       </div>
+      <div class="stab" id="stab-memory" hidden>
+        <p class="dim">สิ่งที่ JARVIS จำไว้เกี่ยวกับคุณ · สั่งด้วยเสียงว่า “จำไว้ว่า …” หรือ “ลืมเรื่อง …” · กด ✕ เพื่อลบเอง</p>
+        <ul id="s-memory-list" class="list"></ul>
+      </div>
       <div class="stab" id="stab-web" hidden>
         <p>หน้าเว็บที่ JARVIS เปิดใช้ข้อมูลแยกจากแอป (คุกกี้ การล็อกอิน แคช) และเก็บไว้ระหว่างการเปิดแอปแต่ละครั้ง</p>
         <div class="row"><button id="s-web-clear" class="btn danger">ล้างข้อมูลเว็บ</button><span id="s-web-clear-status" class="dim"></span></div>
@@ -558,6 +570,7 @@
         <button id="ap-always" class="btn">อนุญาตเสมอสำหรับคำสั่งนี้</button>
         <button id="ap-deny" class="btn danger">ปฏิเสธ</button>
         <button id="ap-deny-why" class="btn danger ghost">ปฏิเสธพร้อมบอกเหตุผล</button>
+        <button id="ap-safe" class="btn" hidden>อนุมัติที่เสี่ยงต่ำทั้งหมด</button>
       </div>
       <div id="ap-rule" class="dim mono"></div>
     </div>

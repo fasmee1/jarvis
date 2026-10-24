@@ -280,6 +280,7 @@ function playBoot({ home }) {
         gsap.set([c.pl, c.dot], { clearProps: 'strokeDasharray,strokeDashoffset,opacity' });
         gsap.set(shells.get(c), { clearProps: 'transform' });
       }
+      if (home.docking) home.docking.restoreDocked();
       if (!skipped) overlay.hidden = true;
       else setTimeout(() => { overlay.hidden = true; }, 220);
       body.classList.remove('booting');

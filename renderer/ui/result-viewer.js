@@ -187,6 +187,7 @@ export class ResultViewer {
       reveal: (el) => this.viewer.reveal(el),
       onVideo: (state) => this._video(tab.id, state),
       revertFiles: this.o.revertFiles,
+      openProjectDiff: this.o.openProjectDiff,
       reconnectMcp: this.o.reconnectMcp,
     };
   }

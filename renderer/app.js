@@ -200,15 +200,15 @@ async function runProjectCheck(kind) {
   say(rep.speak);
 }
 
-async function showProjectDiff() {
-  const d = await api.invoke('code:diff').catch(failed);
+async function showProjectDiff(projectId = 'main') {
+  const d = await api.invoke('code:diff', { projectId }).catch(failed);
   if (!d.ok) {
     notice(d.error, 'warn');
     say(d.error);
     return;
   }
   const rep = diffReport(d);
-  if (!rep.empty) resultViewer.display({ type: 'diff', title: rep.title, spokenSummary: rep.speak, ...d });
+  if (!rep.empty) resultViewer.display({ type: 'diff', title: rep.title, spokenSummary: rep.speak, ...d, projectId });
   else addSystemMsg(rep.speak);
   say(rep.speak);
 }
@@ -232,11 +232,11 @@ async function reconnectMcp() {
 }
 
 /** Undo just the given files of the turn shown in the diff view (the view asks for a second click first). */
-async function revertDiffFiles(token, files) {
-  const p = await api.invoke('code:undo-preview', { files }).catch(failed);
+async function revertDiffFiles(token, files, projectId = 'main') {
+  const p = await api.invoke('code:undo-preview', { files, projectId }).catch(failed);
   if (!p.ok) return { ok: false, reason: p.reason || p.error };
   if (p.token !== token) return { ok: false, reason: 'ไฟล์เปลี่ยนไปแล้ว เปิด diff ใหม่อีกครั้ง' };
-  const r = await api.invoke('code:undo', { token, files }).catch(failed);
+  const r = await api.invoke('code:undo', { token, files, projectId }).catch(failed);
   if (!r.ok) return { ok: false, reason: r.reason || r.error };
   addSystemMsg(`↩ ย้อน ${files.join(', ')} แล้ว${r.safety ? ` — ถ้าต้องการกลับไปแบบก่อนย้อน: git restore --source=${r.safety} -- .` : ''}`);
   if (r.failed.length) notice(`ลบบางไฟล์ไม่ได้: ${r.failed.join(' · ')}`, 'warn');
@@ -603,7 +603,7 @@ function onChatItem(item) {
   if (item.type === 'code') {
     m.append(codeBlock(item.code));
   } else if (item.type === 'block') {
-    m.append(blockCard(item));
+    m.append(blockCard(item, () => reopenBlock(item)));
     if (item.kind === 'result') { resultViewer.show(item.data); orbBridge.set({ result: true }); }
     if (item.kind === 'steps') {
       const st = item.data.steps;
@@ -624,11 +624,30 @@ function onChatItem(item) {
         body.replaceChildren(node);
       }
       selectTab(tab);
+      // the tabs live in the MAKER section; bring it up so the block is actually seen
+      if (!sections.current) sections.show('maker');
     }
   } else if (item.type === 'block-error') {
     m.append(el('div', { class: 'block-card', text: `⚠ บล็อก jarvis-${item.kind} ผิดรูปแบบ (ดู Terminal)` }));
   }
   scrollChat();
+}
+
+// Click on a block card in the chat: show that block again.
+function reopenBlock(item) {
+  if (item.kind === 'result') {
+    resultViewer.show(item.data);
+    return;
+  }
+  const tab = TAB_FOR_KIND[item.kind];
+  if (!tab) return;
+  // code tabs keep every snippet stacked, so only the other tabs need their own content back
+  if (tab !== 'code') {
+    const node = renderForTab(item);
+    if (node) $(`tab-${tab}`).replaceChildren(node);
+  }
+  selectTab(tab);
+  sections.show('maker');
 }
 
 function selectTab(name) {
@@ -698,6 +717,13 @@ function onSubagents({ agents: list }) {
       el('div', {}, el('span', { text: a.title || a.type || 'subagent' }), el('span', { class: 'dim', text: ` ${label}` })),
       detail ? el('div', { class: 'dim mono', text: detail }) : null));
   }
+}
+
+/** The user is back after a while: what the background projects did meanwhile (spoken, and a list with links to each diff). */
+function onDigest(d) {
+  if (!d || !d.text) return;
+  resultViewer.display({ type: 'digest', title: 'ระหว่างที่คุณไม่อยู่', spokenSummary: d.text, ...d });
+  if (!S.voiceMuted) { speaker.enqueue(d.text); speaker.flush(); }
 }
 
 /** How full the conversation is; a click compacts it. */
@@ -784,6 +810,9 @@ function showApproval() {
     diff.replaceChildren(diffDetails(req.preview));
   } else diff.hidden = true;
   $('ap-always').hidden = !req.rule;
+  const safeN = S.approvals.filter((r) => r.safe).length;
+  $('ap-safe').hidden = !(S.approvals.length > 1 && safeN > 0);
+  $('ap-safe').textContent = `อนุมัติที่เสี่ยงต่ำทั้งหมด (${safeN})`;
   $('ap-rule').textContent = req.rule ? `"อนุญาตเสมอ" จะเพิ่ม rule: ${req.rule} ลง .claude/settings.local.json` : '';
   $('ap-queue').textContent = S.approvals.length > 1 ? `มีคำขอรออีก ${S.approvals.length - 1} รายการ` : '';
   $('ap-deny-reason-wrap').hidden = true;
@@ -1401,6 +1430,7 @@ resultViewer = new ResultViewer({
   sfx,
   web: webViewer,
   revertFiles: revertDiffFiles,
+  openProjectDiff: (projectId) => showProjectDiff(projectId),
   reconnectMcp,
   retry: () => { if (S.lastUserText) send(S.lastUserText); },
   // the conversation is open: the result opens in the viewer right away and also
@@ -1549,6 +1579,7 @@ hands = new HandsFree({
   saveStats: (st) => { try { localStorage.setItem('jarvis.hfStats', JSON.stringify(st)); } catch { /* storage unavailable */ } },
   settings: () => ({
     sensitivity: S.settings.handsFreeSensitivity,
+    endSilence: S.settings.handsFreeEndSilence,
     bargeVoice: S.settings.handsFreeBargeVoice,
     liveTranscript: S.settings.handsFreeLiveTranscript && S.settings.sttProvider === 'whisper',
     verifyWake: S.settings.sttProvider === 'whisper', // local only
@@ -1614,7 +1645,7 @@ function renderHandsFree() {
   if (st) {
     const cpu = hands.lastCpu ? ` · ${hands.lastCpu.msPerFrame.toFixed(1)} ms ต่อ 80 ms (${((hands.lastCpu.msPerFrame / 80) * 100).toFixed(1)}% ของ 1 core)` : '';
     const info = hfEngine.info ? ` · VAD ${hfEngine.info.vad ? 'Silero' : 'energy'} · “จาร์วิส” ${hfEngine.info.head ? '✓' : '✕'}` : '';
-    st.textContent = `${on ? (hands.state === HF.PAUSED ? 'หยุดชั่วคราว' : 'กำลังฟัง') : 'ปิดอยู่'} · ${hfEngine.name}${info}${cpu} · false triggers ${hands.stats.falseTriggers} (กรองระหว่างพูด ${hands.stats.suppressed})`;
+    st.textContent = `${on ? (hands.state === HF.PAUSED ? 'หยุดชั่วคราว' : 'กำลังฟัง') : 'ปิดอยู่'} · ${hfEngine.name}${info}${cpu} · false triggers ${hands.stats.falseTriggers} (กรองระหว่างพูด ${hands.stats.suppressed}) · ถูกแก้ว่าฟังผิด ${hands.stats.corrections || 0} จาก ${hands.stats.wakes} ครั้ง`;
   }
 }
 
@@ -1775,7 +1806,7 @@ function wireHandsFree() {
   for (const k of ['handsFreeBargeVoice', 'handsFreeLiveTranscript', 'handsFreeAutoStart', 'saveVoiceHistory']) {
     $(`s-${k}`).onchange = async (e) => { await saveSetting({ [k]: e.target.checked }); hands.reconfigure(); };
   }
-  for (const k of ['handsFreeSensitivity', 'handsFreeBackground']) {
+  for (const k of ['handsFreeSensitivity', 'handsFreeEndSilence', 'handsFreeBackground']) {
     $(`s-${k}`).onchange = async (e) => {
       await saveSetting({ [k]: e.target.value });
       hands.reconfigure();
@@ -1790,6 +1821,7 @@ function fillHandsFreeSettings() {
   const s = S.settings;
   for (const k of ['handsFreeBargeVoice', 'handsFreeLiveTranscript', 'handsFreeAutoStart', 'saveVoiceHistory']) $(`s-${k}`).checked = !!s[k];
   $('s-handsFreeSensitivity').value = s.handsFreeSensitivity;
+  $('s-handsFreeEndSilence').value = s.handsFreeEndSilence;
   $('s-handsFreeBackground').value = s.handsFreeBackground;
   $('ui-wake-chime').checked = sfx.wakeChimeOn;
   renderHandsFree();
@@ -1903,6 +1935,18 @@ function fillSettings() {
   fillHandsFreeSettings();
 }
 
+async function fillMemory() {
+  const ul = $('s-memory-list');
+  const items = await api.invoke('memory:list').catch(() => []);
+  ul.replaceChildren(...items.map((text) => el('li', {}, el('span', { text }), el('button', {
+    class: 'btn small',
+    text: '✕',
+    title: 'ลบข้อนี้',
+    onclick: async () => { await api.invoke('memory:remove', { text }); fillMemory(); },
+  }))));
+  if (!items.length) ul.append(el('li', { class: 'dim', text: '(ยังไม่มีอะไรที่จำไว้)' }));
+}
+
 async function fillDevices() {
   const fill = async (sel, kind, cur) => {
     const devs = await listDevices(kind);
@@ -1933,7 +1977,8 @@ function openSettings(tab = 'claude') {
   refreshInstallStatus();
   if (sections.current !== 'settings') sections.show('settings');
   for (const b of $('settings-tabs').querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.stab === tab);
-  for (const t of ['claude', 'perm', 'voice', 'camera', 'handsfree', 'display', 'web']) $(`stab-${t}`).hidden = t !== tab;
+  for (const t of ['claude', 'perm', 'voice', 'camera', 'handsfree', 'display', 'web', 'memory']) $(`stab-${t}`).hidden = t !== tab;
+  if (tab === 'memory') fillMemory();
 }
 
 function wireSettings() {
@@ -2320,6 +2365,7 @@ function wireEvents() {
   api.on('activity', onActivity);
   api.on('todos', onTodos);
   api.on('subagents', onSubagents);
+  api.on('projects:digest', onDigest);
   $('ctx-meter').onclick = () => { if (!S.busy) send('/compact'); };
   api.on('terminal', ({ stream, text }) => term(text, stream));
   api.on('notice', ({ level, text, action }) => notice(text, level, action));
@@ -2497,6 +2543,11 @@ function wireDom() {
   $('ap-once').onclick = (e) => answerApproval('once', e);
   $('ap-always').onclick = (e) => answerApproval('always', e);
   $('ap-deny').onclick = (e) => answerApproval('deny', e);
+  $('ap-safe').onclick = async (e) => {
+    if (!e.isTrusted) return; // a genuine click only, like every other answer
+    const r = await api.invoke('approval:approve-safe').catch(failed);
+    if (r.ok) notice(`อนุมัติที่เสี่ยงต่ำแล้ว ${r.count} รายการ`, 'info', null, 4000);
+  };
   $('ap-deny-why').onclick = () => { $('ap-deny-reason-wrap').hidden = false; $('ap-deny-reason').focus(); };
   $('ap-deny-reason-send').onclick = (e) => answerApproval('deny-reason', e);
   $('btn-transcript-send').onclick = () => {

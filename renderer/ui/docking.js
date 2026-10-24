@@ -230,6 +230,22 @@ export class Docking {
     return end;
   }
 
+  /**
+   * Re-apply the folded look of docked cards (hidden leader line only; dots stay).
+   * The boot sequence draws every connector and clears those inline styles when it
+   * finishes, and a layout rebuild (window resize) makes fresh lines, so docked cards
+   * were left with a line and no card.
+   */
+  restoreDocked() {
+    for (const [id, s] of this.st) {
+      if (!s.target || !s.docked || s.mode !== 'home') continue;
+      const c = this.cards.cards.get(id);
+      if (!c) continue;
+      if (this.reduced) gsap.set(c.pl, { opacity: 0 });
+      else gsap.set(c.pl, { strokeDasharray: '1 1', strokeDashoffset: -1 });
+    }
+  }
+
   // ---------- internals ----------
   _visible() {
     return [...this.cards.cards.values()].filter((c) => !c.def.hidden);
@@ -530,6 +546,7 @@ export class Docking {
         this._settled(id, true);
       }
     }
+    this.restoreDocked();
     this._sync();
   }
 

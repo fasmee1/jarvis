@@ -2,7 +2,7 @@
 // Permission popup preload (sandboxed): only the popup's own IPC channels.
 const { contextBridge, ipcRenderer } = require('electron');
 
-const INVOKE = ['approval-win:respond'];
+const INVOKE = ['approval-win:respond', 'approval-win:approve-safe'];
 const EVENTS = ['approval-win:data'];
 
 contextBridge.exposeInMainWorld('approval', {

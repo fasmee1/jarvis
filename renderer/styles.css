@@ -269,6 +269,8 @@ select option { background: var(--bg-2); }
 .btn.back { font-size: 12px; }
 
 .block-card { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 8px 0; background: var(--surface); white-space: normal; }
+.block-card.clickable { cursor: pointer; }
+.block-card.clickable:hover, .block-card.clickable:focus-visible { border-color: var(--accent); outline: none; }
 .block-card .block-kind { font-size: 11px; color: var(--accent); letter-spacing: 0.08em; font-family: var(--font-mono); }
 .denials { color: var(--warning) !important; }
 .transcript-confirm { border: 1px solid rgba(255, 181, 71, 0.4); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: rgba(255, 181, 71, 0.05); }

@@ -351,6 +351,13 @@ export function parseCommand(transcript, ctx = {}) {
 /** Common whisper hallucinations on silence / noise — treated as "nothing said". */
 const HALLUCINATIONS = R('^(?:ขอบคุณที่รับชม|ติดตามช่องของเรา|ฝากกดติดตาม.*|ซับไตเติ้ล.*|subtitlesby.*|thanksforwatching|you|เพลง|ดนตรี|music|เสียงเพลง|เสียงดนตรี)$', 'i');
 
+/** The user is fixing a misheard command: "ไม่ใช่", "ฟังผิด", "พูดใหม่", "ไม่ได้ขอ…". Only counted for the stats. */
+const CORRECTION = R('^(?:ไมใช|ฟังผิด|ฟังไมถูก|พูดใหม|ไมไดขอ|ไมไดบอก|ผิดแลว|เมื่อกี้ไมใช)');
+
+export function isCorrection(transcript) {
+  return CORRECTION.test(tight(stripWake(transcript)));
+}
+
 export function isNoise(transcript) {
   const t = tight(stripWake(transcript));
   return !t || HALLUCINATIONS.test(t);

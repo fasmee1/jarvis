@@ -247,3 +247,45 @@ test('core: ExitPlanMode with an empty input (real CLI) shows the drafted plan f
   core._onPermissionRequest({ id: 'c', kind: 'permission', tool_name: 'ExitPlanMode', input: {} });
   assert.strictEqual(shown(), null);
 });
+
+test('core: "approve low-risk" allows the safe waiting requests and leaves the risky ones', async () => {
+  const fs = require('fs');
+  const os = require('os');
+  const { SettingsStore } = require('../lib/settings');
+  const { JarvisCore } = require('../lib/jarvis-core');
+  const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-batch-')));
+  const proj = tmp();
+  const settings = new SettingsStore(tmp());
+  settings.update({ autoApproveSafe: false }); // so even safe requests wait
+  const events = [];
+  const core = new JarvisCore({ settings, tempDir: tmp(), ui: (c, p) => events.push([c, p]), appRoot: tmp(), logDir: tmp() });
+  core.warm = () => {};
+  core.nodeCmd = { command: 'node', env: {} };
+  core.broker = { timeoutSec: 60 };
+  core.setCwd(proj);
+  const ask = (tool, input, kind = 'permission') => core._onPermissionRequest({ id: 'r' + Math.random(), kind, tool_name: tool, input });
+  const a = ask('Write', { file_path: path.join(proj, 'a.txt'), content: 'x' });
+  const b = ask('Bash', { command: 'git push' });
+  const c = ask('Bash', { command: 'npm test' });
+  const d = ask('Bash', { command: 'arduino-cli upload' }, 'guard');
+  const flags = events.filter(([ch]) => ch === 'approval:request').map(([, p]) => [p.tool, p.safe]);
+  assert.deepStrictEqual(flags, [['Write', true], ['Bash', false], ['Bash', true], ['Bash', false]]);
+  assert.strictEqual(core.pending.size, 4);
+  assert.strictEqual(core.approveSafePending(), 2);
+  assert.strictEqual((await a).behavior, 'allow');
+  assert.strictEqual((await c).behavior, 'allow');
+  assert.strictEqual(core.pending.size, 2, 'git push and the guard question still wait');
+  assert.strictEqual(core.approveSafePending(), 0);
+  core._dropPendingApprovals('test');
+  assert.notStrictEqual((await b).behavior, 'allow');
+  assert.notStrictEqual((await d).behavior, 'allow');
+});
+
+test('ProjectManager.approveSafeAll adds up the HUD and every background project', () => {
+  const { ProjectManager } = require('../lib/projects');
+  const main = { approveSafePending: () => 2 };
+  const pm = new ProjectManager({ main, createCore: () => null, ui: () => {}, settings: { get: () => ({}) } });
+  pm.projects.set('p-1', { core: { approveSafePending: () => 3 } });
+  pm.projects.set('p-2', { core: null });
+  assert.strictEqual(pm.approveSafeAll(), 5);
+});

@@ -11,6 +11,17 @@ import { Docking } from './docking.js';
 
 const $ = (id) => document.getElementById(id);
 
+// Under a minute: "12.3s"; longer: "m:ss" / "h:mm:ss" so a long standby never grows a huge number.
+export function formatElapsed(ms) {
+  const s = Math.max(0, ms) / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const t = Math.floor(s);
+  const p = (n) => String(n).padStart(2, '0');
+  const m = Math.floor(t / 60) % 60;
+  const h = Math.floor(t / 3600);
+  return h ? `${h}:${p(m)}:${p(t % 60)}` : `${m}:${p(t % 60)}`;
+}
+
 export class Home {
   constructor({ onOpen, onCoreClick }) {
     this.root = $('home');
@@ -230,7 +241,7 @@ export class Home {
     const el = now - this.stateAt;
     if (!this._lastEl || now - this._lastEl > 100) {
       this._lastEl = now;
-      $('core-elapsed').textContent = `${(el / 1000).toFixed(1)}s`;
+      $('core-elapsed').textContent = formatElapsed(el);
       this.cards.setElapsed(el);
     }
   }
