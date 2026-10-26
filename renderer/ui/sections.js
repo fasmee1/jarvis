@@ -4,8 +4,8 @@
 
 const api = window.jarvis;
 const $ = (id) => document.getElementById(id);
-const VIEWS = { maker: 'view-maker', activity: 'view-activity', diagnostics: 'view-diagnostics', settings: 'settings' };
-const ORDER = ['talk', 'maker', 'activity', 'diagnostics', 'projects', 'settings'];
+const VIEWS = { maker: 'view-maker', activity: 'view-activity', diagnostics: 'view-diagnostics', settings: 'settings', video: 'view-video' };
+const ORDER = ['talk', 'maker', 'activity', 'diagnostics', 'projects', 'settings', 'video'];
 
 export class Sections {
   constructor({ onChange, beforeShow, onTalk, onProjects }) {
@@ -48,7 +48,7 @@ export class Sections {
       else if (this.current) this.home();
       return;
     }
-    if (!this.menu.hidden && /^[1-6]$/.test(e.key)) {
+    if (!this.menu.hidden && /^[1-7]$/.test(e.key)) {
       e.preventDefault(); // "1" must not end up typed in the conversation input
       this.show(ORDER[Number(e.key) - 1]);
     }

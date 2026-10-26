@@ -1,0 +1,111 @@
+/* EDIT section: preview + clip panel on top, timeline lanes below (ui/video-editor.js). */
+
+.ve-head-actions { margin-left: auto; display: flex; gap: 8px; }
+.ve-body { gap: 12px; }
+#video-editor.drop { outline: 1px dashed var(--accent-soft); outline-offset: -8px; background: var(--accent-ghost); }
+
+.ve-banner { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid rgba(255, 181, 71, 0.4); background: rgba(255, 181, 71, 0.06); color: var(--warning); }
+.ve-banner .btn { margin-left: auto; }
+
+.ve-empty { flex: 1; min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px dashed var(--border-hover); background: var(--surface); text-align: center; padding: 24px; }
+.ve-empty-title { font-size: 18px; color: var(--text-1); letter-spacing: 0.02em; }
+.ve-empty p { margin: 0; max-width: 560px; }
+
+.ve-work { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+.ve-top { flex: 1; min-height: 0; display: flex; gap: 16px; }
+
+.ve-stage { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ve-preview { position: relative; flex: 1 1 auto; min-height: 0; max-width: 100%; aspect-ratio: var(--ve-ratio, 9 / 16); background: #000; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.ve-preview video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+.ve-audio-only { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+
+.ve-transport { display: flex; align-items: center; gap: 8px; }
+.ve-play { min-width: 44px; }
+.ve-time { font-size: 14px; color: var(--text-1); min-width: 150px; text-align: center; }
+.ve-keys { font-size: 12px; }
+
+.ve-side { flex: 0 0 400px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.ve-h { margin: 4px 0 0; font-size: 13px; font-weight: 500; color: var(--text-2); letter-spacing: 0.04em; }
+.ve-h .dim { font-weight: 400; font-size: 12px; }
+.ve-sources { display: flex; flex-direction: column; gap: 8px; }
+.ve-src { padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.ve-src-head { display: flex; gap: 8px; align-items: baseline; }
+.ve-src-name { flex: 1; min-width: 0; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-src-meta { font-size: 12px; }
+.ve-sum { color: var(--text-2); }
+.ve-warn { color: var(--warning); font-size: 12px; }
+.ve-err { color: var(--error); font-size: 12px; }
+.ve-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.ve-src > .btn { align-self: flex-start; }
+
+.ve-job { display: flex; flex-direction: column; gap: 6px; }
+.ve-job .btn { align-self: flex-start; }
+.ve-job-label { display: flex; justify-content: space-between; color: var(--accent); }
+.ve-bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.ve-bar-fill { height: 100%; background: var(--accent); transition: width var(--fast) linear; }
+
+.ve-transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.ve-transcript > li.dim { padding: 6px 2px; }
+.ve-line { width: 100%; display: flex; gap: 10px; text-align: left; padding: 6px 8px; background: none; border: 1px solid transparent; border-radius: 4px; color: var(--text-1); font: inherit; cursor: pointer; }
+.ve-line:hover, .ve-line:focus-visible { border-color: var(--border-hover); background: var(--surface-2); }
+.ve-line .mono { flex: 0 0 auto; font-size: 12px; padding-top: 1px; }
+
+.ve-tl-bar { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ve-tl-bar > .dim { margin-right: auto; }
+
+.ve-tl { flex: 0 0 auto; display: grid; grid-template-columns: 76px 1fr; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.ve-labels { display: flex; flex-direction: column; border-right: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
+.ve-label { height: 40px; display: flex; align-items: center; padding: 0 10px; }
+.ve-label-ruler, .ve-ruler { height: 22px; }
+#ve-label-silence, .ve-lane-thin { height: 20px; }
+#ve-label-clips, #ve-lane-clips { height: 46px; }
+
+.ve-timeline { position: relative; overflow-x: auto; overflow-y: hidden; cursor: pointer; padding: 0 12px; touch-action: none; }
+.ve-track { position: relative; min-width: 100%; }
+.ve-lane { position: relative; height: 40px; }
+.ve-ruler { position: relative; border-bottom: 1px solid var(--line); }
+.ve-tick { position: absolute; top: 0; bottom: 0; padding-left: 4px; border-left: 1px solid var(--line); font: 11px var(--font-mono); color: var(--text-3); line-height: 22px; white-space: nowrap; }
+
+.ve-clip { position: absolute; top: 5px; bottom: 5px; border-radius: 4px; border: 1px solid var(--accent-soft); background: var(--accent-faint); display: flex; align-items: center; gap: 6px; padding: 0 8px; overflow: hidden; font-size: 12px; color: var(--text-1); box-sizing: border-box; }
+.ve-clip.ve-c1 { border-color: var(--orange-soft); background: rgba(255, 154, 61, 0.12); }
+.ve-clip.ve-c2 { border-color: rgba(167, 139, 250, 0.55); background: rgba(167, 139, 250, 0.12); }
+.ve-clip.ve-c3 { border-color: rgba(110, 231, 160, 0.5); background: rgba(110, 231, 160, 0.1); }
+.ve-clip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-clip-speed { color: var(--accent); }
+
+.ve-sil { position: absolute; top: 4px; bottom: 4px; border-radius: 2px; background: repeating-linear-gradient(135deg, rgba(255, 181, 71, 0.35) 0 4px, rgba(255, 181, 71, 0.08) 4px 8px); }
+.ve-say { position: absolute; top: 6px; bottom: 6px; border-left: 2px solid var(--accent); background: var(--accent-ghost); padding: 0 6px; font-size: 12px; line-height: 28px; color: var(--text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; box-sizing: border-box; }
+
+.ve-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; box-shadow: 0 0 8px var(--accent-soft); }
+.ve-playhead::before { content: ''; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top-color: var(--accent); }
+
+@media (max-width: 1100px) {
+  .ve-side { flex-basis: 300px; }
+  .ve-styles { grid-template-columns: 1fr; }
+}
+
+/* ---- style picker (ui/video-styles.js) ---- */
+.ve-styles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ve-style { position: relative; padding: 8px 10px 30px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; }
+.ve-style:hover { border-color: var(--border-hover); }
+.ve-style:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 1px; }
+.ve-style.on { border-color: var(--accent); background: var(--accent-ghost); box-shadow: inset 0 0 0 1px var(--accent-faint); }
+.ve-style-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ve-style-name { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-style.on .ve-style-name { color: var(--accent); }
+.ve-style-tag { flex: none; font-size: 11px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--border-hover); color: var(--text-2); }
+.ve-style-meta { font-size: 11.5px; }
+.ve-style-actions { position: absolute; left: 6px; bottom: 4px; display: flex; gap: 2px; }
+.ve-style-actions .btn { padding: 1px 6px; font-size: 11.5px; min-height: 0; }
+.ve-style-add { align-self: flex-start; }
+.ve-style-detail { font-size: 12.5px; }
+.ve-style-detail summary { cursor: pointer; }
+.ve-style-detail p { margin: 6px 0 0; white-space: pre-wrap; color: var(--text-2); line-height: 1.6; }
+.ve-note-label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-2); }
+.ve-note-label textarea { resize: vertical; min-height: 56px; font: inherit; }
+
+.ve-sd { width: min(640px, 92vw); }
+.ve-sd label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-2); position: relative; }
+.ve-sd textarea { resize: vertical; font: inherit; line-height: 1.6; }
+.ve-sd-count { align-self: flex-end; font-size: 11px; }
+.ve-sd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

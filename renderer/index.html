@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="ui/projects.css">
   <link rel="stylesheet" href="ui/task-status.css">
   <link rel="stylesheet" href="ui/screen-watch.css">
+  <link rel="stylesheet" href="ui/video-editor.css">
 </head>
 <body>
   <!-- ============ HOME: one full-screen instrument ============ -->
@@ -149,6 +150,9 @@
                   <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
                 </button>
                 <button id="btn-look" class="cv-act toggle" type="button" title="ดูนี่ — แนบภาพกล้องกับข้อความถัดไป (Alt+L)">ดูนี่</button>
+                <button id="btn-voice-mute" class="cv-act toggle" type="button" title="ปิดเสียงพูดของ JARVIS (คำตอบยังแสดงบนจอ)" aria-label="ปิดเสียงพูดของ JARVIS" aria-pressed="false">
+                  <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z M22 9l-6 6 M16 9l6 6"/></svg>
+                </button>
                 <button id="btn-stop" class="cv-act danger" type="button" title="หยุด Claude และเสียงพูด" aria-label="หยุด">
                   <svg class="cv-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7z"/></svg>
                 </button>
@@ -279,6 +283,7 @@
       <button class="menu-item" data-section="diagnostics"><span class="mi-k">04</span><span class="mi-t">DIAGNOSTICS</span><span class="mi-th">latency · tokens · terminal</span></button>
       <button class="menu-item" data-section="projects"><span class="mi-k">05</span><span class="mi-t">PROJECTS</span><span class="mi-th">งานเบื้องหลัง · หลายโปรเจกต์</span></button>
       <button class="menu-item" id="btn-settings" data-section="settings"><span class="mi-k">06</span><span class="mi-t">SETTINGS</span><span class="mi-th">ตั้งค่า</span></button>
+      <button class="menu-item" data-section="video"><span class="mi-k">07</span><span class="mi-t">EDIT</span><span class="mi-th">ตัดต่อคลิปสั้น</span></button>
       <div class="menu-sep"></div>
       <div class="menu-snd">
         <span class="mono dim">SOUND</span>
@@ -315,6 +320,86 @@
       <div class="tab-body" id="tab-bom" hidden><div class="placeholder">— ยังไม่มีรายการอุปกรณ์</div></div>
       <div class="tab-body" id="tab-code" hidden><div class="placeholder">— ยังไม่มีโค้ด Arduino / OpenSCAD</div></div>
       <div class="tab-body" id="tab-model3d" hidden><div class="placeholder">— พื้นที่โมเดล 3D (ระยะถัดไป)</div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-video" hidden>
+    <header class="view-head">
+      <button class="btn back" data-home>◂ HOME</button>
+      <h1>EDIT <span class="th">ตัดต่อคลิป</span></h1>
+      <div class="ve-head-actions">
+        <button id="ve-undo" class="btn small" type="button" title="ย้อนกลับ (Ctrl+Z)" disabled>↶ ย้อนกลับ</button>
+        <button id="ve-redo" class="btn small" type="button" title="ทำซ้ำ (Ctrl+Y)" disabled>↷ ทำซ้ำ</button>
+        <button id="ve-import" class="btn small" type="button">＋ นำเข้าคลิป</button>
+        <button id="ve-clear" class="btn small" type="button" disabled>ล้างทั้งหมด</button>
+      </div>
+    </header>
+    <div class="view-body ve-body" id="video-editor">
+      <div id="ve-ffmpeg" class="ve-banner cut" hidden>
+        <span id="ve-ffmpeg-text"></span>
+        <button id="ve-ffmpeg-open" class="btn small" type="button">ไปที่ตั้งค่า &gt; วิดีโอ</button>
+      </div>
+      <div id="ve-empty" class="ve-empty cut">
+        <div class="ve-empty-title">ลากคลิปมาวางตรงนี้</div>
+        <div class="dim">หรือ</div>
+        <button id="ve-empty-import" class="btn primary" type="button">เลือกคลิปจากเครื่อง</button>
+        <p class="dim">วิดีโอ mp4 mov m4v webm mkv avi · เสียง mp3 m4a wav aac ogg flac · ไฟล์ต้นฉบับไม่ถูกแก้ไข</p>
+        <p class="dim">นำเข้าแล้ว JARVIS จะฟังคลิปให้เอง: หาช่วงเงียบ และถอดเสียงพูดพร้อมเวลา</p>
+      </div>
+      <div id="ve-work" class="ve-work" hidden>
+        <div class="ve-top">
+          <div class="ve-stage">
+            <div id="ve-preview" class="ve-preview">
+              <video id="ve-video" playsinline preload="auto"></video>
+              <div id="ve-audio-only" class="ve-audio-only dim" hidden>เสียงอย่างเดียว</div>
+            </div>
+            <div class="ve-transport">
+              <button id="ve-start" class="btn small" type="button" title="กลับไปต้นคลิป (Home)" aria-label="กลับไปต้นคลิป">⏮</button>
+              <button id="ve-play" class="btn small ve-play" type="button" title="เล่น / หยุด (Space)" aria-label="เล่น">▶</button>
+              <span id="ve-time" class="mono ve-time">0:00.0 / 0:00.0</span>
+              <span class="dim ve-keys">← → ทีละเฟรม · Shift ทีละวินาที</span>
+            </div>
+          </div>
+          <aside class="ve-side">
+            <h2 class="ve-h">แนวคลิป <span class="dim">· JARVIS จะตัดต่อตามแนวที่เลือก</span></h2>
+            <div id="ve-styles" class="ve-styles" role="radiogroup" aria-label="แนวคลิป"></div>
+            <button id="ve-style-add" class="btn small ve-style-add" type="button">＋ เพิ่มแนวใหม่</button>
+            <details class="ve-style-detail"><summary class="dim">ดูคำอธิบายของแนวที่เลือก</summary><p id="ve-style-prompt"></p></details>
+            <label class="ve-note-label"><span>สั่งเพิ่มเฉพาะคลิปนี้ <span class="dim">(ไม่บังคับ)</span></span>
+              <textarea id="ve-note" rows="3" maxlength="1000" placeholder="เช่น ตัดตอนที่ผมพูดผิดออกด้วย · ใช้ประโยคแรกเป็นตัวเปิด"></textarea>
+            </label>
+            <button id="ve-cut" class="btn primary ve-cut-btn" type="button">✂ ให้ JARVIS ตัดต่อตามแนวนี้</button>
+            <div id="ve-cut-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
+            <h2 class="ve-h">คลิปที่นำเข้า</h2>
+            <div id="ve-sources" class="ve-sources"></div>
+            <h2 class="ve-h">คำพูดในคลิป <span class="dim">· กดเพื่อไปที่ประโยคนั้น</span></h2>
+            <ul id="ve-transcript" class="ve-transcript"></ul>
+          </aside>
+        </div>
+        <div class="ve-tl-bar">
+          <span class="dim">แถบเวลา</span>
+          <button id="ve-zoom-out" class="btn small" type="button" title="ย่อ (-)" aria-label="ย่อแถบเวลา">−</button>
+          <button id="ve-zoom-in" class="btn small" type="button" title="ขยาย (+ หรือ Ctrl+ล้อเมาส์)" aria-label="ขยายแถบเวลา">＋</button>
+          <button id="ve-zoom-fit" class="btn small" type="button">พอดีจอ</button>
+        </div>
+        <div class="ve-tl">
+          <div class="ve-labels">
+            <div class="ve-label ve-label-ruler"></div>
+            <div class="ve-label" id="ve-label-clips"></div>
+            <div class="ve-label" id="ve-label-silence"></div>
+            <div class="ve-label" id="ve-label-speech"></div>
+          </div>
+          <div id="ve-timeline" class="ve-timeline">
+            <div id="ve-track" class="ve-track">
+              <div id="ve-ruler" class="ve-ruler"></div>
+              <div id="ve-lane-clips" class="ve-lane"></div>
+              <div id="ve-lane-silence" class="ve-lane ve-lane-thin"></div>
+              <div id="ve-lane-speech" class="ve-lane"></div>
+              <div id="ve-playhead" class="ve-playhead"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -378,6 +463,7 @@
         <button data-stab="display" class="tab">การแสดงผล</button>
         <button data-stab="web" class="tab">เว็บ</button>
         <button data-stab="memory" class="tab">ความจำ</button>
+        <button data-stab="video" class="tab">วิดีโอ</button>
       </div>
       <div class="stab" id="stab-claude">
         <label>Path ของ claude (เว้นว่าง = หาอัตโนมัติ)<input id="s-claudePath" type="text" placeholder="C:\Users\...\claude.exe"></label>
@@ -449,7 +535,7 @@
         <label class="check"><input id="s-ttsGemini" type="checkbox"> ใช้เสียง Gemini เป็นอันดับแรก (ฟรี มีอารมณ์ ต้องมี API key จาก aistudio.google.com/apikey) · ถ้าโควตาหมดจะใช้ Edge แทนเอง</label>
         <div class="row"><input id="s-gemini-key" type="password" placeholder="Gemini API key (เก็บแบบเข้ารหัส)"><button id="s-gemini-save" class="btn small">บันทึก key</button></div>
         <label>เสียง Gemini (เช่น Kore, Puck, Leda, Aoede)<input id="s-geminiVoice" type="text" placeholder="Kore"></label>
-        <label>เพดานจำนวนครั้งต่อวัน (เกินแล้วใช้ Edge แทน)<input id="s-geminiDailyCap" type="number" min="1" max="100000" step="1"></label>
+        <label>เพดานจำนวนครั้งต่อวัน (0 = ไม่จำกัด ใช้จนโควตา Gemini หมดแล้วสลับไป Edge เอง)<input id="s-geminiDailyCap" type="number" min="0" max="100000" step="1"></label>
         <div class="row"><span id="gemini-usage" class="dim mono"></span></div>
         <div class="row"><button id="s-thai-voice" class="btn small">ติดตั้งเสียงภาษาไทย (Windows, ต้องใช้ admin)</button><button id="s-speech-settings" class="btn small">เปิดหน้า Speech ของ Windows</button></div>
       </div>
@@ -539,6 +625,13 @@
         <p class="dim">สิ่งที่ JARVIS จำไว้เกี่ยวกับคุณ · สั่งด้วยเสียงว่า “จำไว้ว่า …” หรือ “ลืมเรื่อง …” · กด ✕ เพื่อลบเอง</p>
         <ul id="s-memory-list" class="list"></ul>
       </div>
+      <div class="stab" id="stab-video" hidden>
+        <p>เครื่องมือตัดต่อคลิปใช้โปรแกรม ffmpeg ทำงานอยู่เบื้องหลัง (ดึงเสียง หาช่วงเงียบ และสร้างไฟล์วิดีโอตอนส่งออก) ไม่มีหน้าต่างของตัวเอง</p>
+        <div class="row"><span id="ffmpeg-status" class="dim mono"></span><button id="s-ffmpeg-install" class="btn small">ติดตั้ง ffmpeg ให้อัตโนมัติ</button></div>
+        <p class="dim">ติดตั้งอัตโนมัติจะดาวน์โหลดประมาณ 90 MB ครั้งเดียว (ffmpeg 7.1.1 รุ่น essentials จาก gyan.dev สัญญาอนุญาต GPLv3) และตรวจไฟล์ก่อนติดตั้ง</p>
+        <label>ที่อยู่ ffmpeg ที่มีอยู่แล้ว (เว้นว่าง = ใช้ตัวที่ JARVIS ติดตั้ง หรือที่หาเจอในเครื่อง)<input id="s-ffmpegPath" type="text" placeholder="C:\ffmpeg\bin\ffmpeg.exe หรือโฟลเดอร์ bin"></label>
+        <p class="dim">ต้องมี ffprobe.exe อยู่ในโฟลเดอร์เดียวกับ ffmpeg.exe</p>
+      </div>
       <div class="stab" id="stab-web" hidden>
         <p>หน้าเว็บที่ JARVIS เปิดใช้ข้อมูลแยกจากแอป (คุกกี้ การล็อกอิน แคช) และเก็บไว้ระหว่างการเปิดแอปแต่ละครั้ง</p>
         <div class="row"><button id="s-web-clear" class="btn danger">ล้างข้อมูลเว็บ</button><span id="s-web-clear-status" class="dim"></span></div>
@@ -594,6 +687,26 @@
   </div>
 
   <!-- Folder picker: shown once per conversation before a command that needs a project folder -->
+  <div id="ve-style-dialog" class="modal" hidden>
+    <form id="ve-sd-form" class="modal-card cut ve-sd" novalidate role="dialog" aria-modal="true" aria-labelledby="ve-sd-title">
+      <div id="ve-sd-title" class="approval-title ve-sd-title">เพิ่มแนวใหม่</div>
+      <label>ชื่อแนว<input id="ve-sd-name" type="text" maxlength="40" placeholder="เช่น รีวิวอาหาร" autocomplete="off"></label>
+      <label>คำอธิบายแนว <span class="dim">— เขียนเหมือนบอกคนตัดต่อ JARVIS จะทำตามข้อความนี้</span>
+        <textarea id="ve-sd-prompt" rows="7" maxlength="2000" placeholder="เช่น เปิดด้วยจานที่น่ากินที่สุด ตัดช่วงเคี้ยวเงียบ ๆ ออก เน้นตอนชิมคำแรก ซับตัวใหญ่ จบด้วยราคาและชื่อร้าน"></textarea>
+        <span id="ve-sd-count" class="dim mono ve-sd-count"></span>
+      </label>
+      <div class="ve-sd-row">
+        <label>จังหวะการตัดช่วงเงียบ<select id="ve-sd-pace"></select></label>
+        <label>ความยาวเป้าหมาย (วินาที, 0 = ไม่จำกัด)<input id="ve-sd-target" type="number" min="0" max="600" step="1"></label>
+      </div>
+      <div id="ve-sd-error" class="ve-err" role="alert"></div>
+      <div class="approval-actions">
+        <button id="ve-sd-save" class="btn primary" type="submit">บันทึก</button>
+        <button id="ve-sd-cancel" class="btn ghost" type="button">ยกเลิก</button>
+      </div>
+    </form>
+  </div>
+
   <div id="folder-pick" class="modal" hidden>
     <div class="modal-card cut" role="dialog" aria-modal="true" aria-label="เลือกโฟลเดอร์ทำงาน">
       <div class="approval-title">เลือกโฟลเดอร์ที่จะให้ JARVIS ทำงาน</div>

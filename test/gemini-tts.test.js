@@ -76,6 +76,8 @@ test('available() is false without a key, when disabled, or over the daily cap',
   cfg = CONFIG;
   for (let i = 0; i < 3; i++) await g.synthesize('x');
   assert.strictEqual(g.available(), false); // 3 of 3 used today
+  cfg = { ...CONFIG, geminiDailyCap: 0 };
+  assert.strictEqual(g.available(), true); // 0 = no cap
 });
 
 test('429 starts a growing cooldown and the failed request is not counted', async () => {

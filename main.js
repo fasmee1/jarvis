@@ -26,6 +26,13 @@ const { installThaiVoice } = require('./lib/installer/thai-voice');
 const { PERMISSION_MODES } = require('./lib/claude/args');
 const { SttService } = require('./lib/stt');
 const { VisionAssets } = require('./lib/installer/vision-assets');
+const { Ffmpeg } = require('./lib/video/ffmpeg');
+const { MediaRegistry } = require('./lib/video/media');
+const { ClipAnalyzer } = require('./lib/video/analyze');
+const { VideoService } = require('./lib/video/service');
+const { StyleStore } = require('./lib/video/styles');
+const { askClaude } = require('./lib/video/ask-claude');
+const { PACES } = require('./lib/video/presets');
 const { WakeAssets } = require('./lib/installer/wake-assets');
 const { pcm16ToWav } = require('./lib/stt/wav');
 const { trayIconPng } = require('./lib/tray-icon');
@@ -69,10 +76,14 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
+// clips imported to the video editor, served by random token (lib/video/media.js)
+const videoMedia = new MediaRegistry();
+
 function registerAppProtocol() {
   protocol.handle('app', (req) => {
     const url = new URL(req.url);
     if (url.host !== 'jarvis') return new Response('not found', { status: 404 });
+    if (url.pathname.startsWith('/media/')) return videoMedia.respond(url.pathname, req.headers);
     const rel = path.normalize(decodeURIComponent(url.pathname).replace(/^\/+/, ''));
     // downloaded 3D models live in userData, not next to the app
     const modelsDir = path.join(app.getPath('userData'), 'models');
@@ -107,6 +118,9 @@ let geminiTts = null; // Gemini voice + its usage counter (status shown in Setti
 const awayDigest = new AwayDigest();
 let stt = null;
 let vision = null;
+let ffmpeg = null;
+let video = null; // video editor state + analysis jobs (lib/video/service.js)
+let videoStyles = null; // clip styles the user picks from (lib/video/styles.js)
 let wakeAssets = null;
 let mapsKeys = null; // { google, ion, sketchfab } credentials: Google Earth 3D map, 3D model downloads
 let modelSource = null; // Sketchfab client behind the jarvis-model-search block
@@ -969,6 +983,67 @@ function registerIpc() {
   // ---- Vision (phase 3) ----
   handle('vision:status', () => vision.status());
   handle('vision:install', () => vision.install((p) => send('install:progress', { what: 'vision', ...p })));
+
+  // ---- video editor ----
+  handle('video:ffmpeg-status', () => ffmpeg.status());
+  handle('video:ffmpeg-install', () => ffmpeg.install((p) => send('install:progress', { what: 'ffmpeg', ...p })));
+  handle('video:state', () => video.snapshot());
+  handle('video:choose', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'เลือกคลิปที่จะตัดต่อ',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'วิดีโอและเสียง', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'mp3', 'm4a', 'wav', 'aac', 'ogg', 'flac'] },
+      ],
+    });
+    if (r.canceled || !r.filePaths.length) return { added: [], rejected: [] };
+    return video.importFiles(r.filePaths.slice(0, 20));
+  });
+  handle('video:import', (p) => {
+    v.strArray(p, 20, 4096, 'paths');
+    return video.importFiles(p);
+  });
+  handle('video:analyze', (p) => video.analyze(v.str(p, 16, 'sourceId')));
+  handle('video:cancel', () => video.cancel());
+  handle('video:cut-start', (p) => {
+    v.obj(p);
+    return video.startCut({ styleId: v.str(p.styleId, 20, 'styleId'), note: v.str(p.note, 1000, 'note', { optional: true }) || '' });
+  });
+  handle('video:cut-cancel', () => video.cancelCut());
+  handle('video:undo', () => {
+    if (video.cut) throw new Error('รอให้ JARVIS ตัดต่อเสร็จก่อน');
+    video.history.undo();
+    return video.snapshot();
+  });
+  handle('video:redo', () => {
+    if (video.cut) throw new Error('รอให้ JARVIS ตัดต่อเสร็จก่อน');
+    video.history.redo();
+    return video.snapshot();
+  });
+  const stylesReply = (extra = {}) => ({ styles: videoStyles.list(), last: videoStyles.last().id, paces: Object.values(PACES).map((p) => ({ id: p.id, label: p.label })), ...extra });
+  handle('video:styles', () => stylesReply());
+  handle('video:style-save', (p) => {
+    v.obj(p);
+    const id = v.str(p.id, 20, 'id', { optional: true });
+    const style = videoStyles.save({ id, name: p.name, prompt: p.prompt, pace: p.pace, targetSec: p.targetSec });
+    return stylesReply({ saved: style.id });
+  });
+  handle('video:style-remove', (p) => {
+    videoStyles.remove(v.str(p, 20, 'id'));
+    return stylesReply();
+  });
+  handle('video:style-reset', (p) => {
+    videoStyles.reset(v.str(p, 20, 'id'));
+    return stylesReply();
+  });
+  handle('video:style-pick', (p) => {
+    videoStyles.setLast(v.str(p, 20, 'id'));
+    return stylesReply();
+  });
+  handle('video:reset', () => {
+    video.reset();
+    return video.snapshot();
+  });
   handle('vision:model', (p) => {
     v.oneOf(p, VisionAssets.MODEL_NAMES, 'model');
     const buf = vision.read(p);
@@ -1258,6 +1333,25 @@ app.whenReady().then(async () => {
   stt = new SttService({ dataDir: path.join(userData, 'stt'), tempDir: path.join(app.getPath('temp'), 'mee-jarvis') });
   stt.configure(settings.get());
   vision = new VisionAssets({ dataDir: path.join(userData, 'vision') });
+  ffmpeg = new Ffmpeg({ dataDir: path.join(userData, 'video'), getCustomPath: () => settings.get().ffmpegPath });
+  videoStyles = new StyleStore({ file: path.join(userData, 'video', 'styles.json') });
+  video = new VideoService({
+    registry: videoMedia,
+    ffmpeg,
+    analyzer: new ClipAnalyzer({ ffmpeg, stt, tempDir: path.join(app.getPath('temp'), 'mee-jarvis') }),
+    styles: videoStyles,
+    // a separate Claude run with no tools (lib/video/ask-claude.js), not the user's conversation
+    ask: (o) => {
+      const env = { ...process.env };
+      delete env.CLAUDECODE;
+      delete env.CLAUDE_CODE_ENTRYPOINT;
+      delete env.ELECTRON_RUN_AS_NODE;
+      const dir = path.join(userData, 'video');
+      fs.mkdirSync(dir, { recursive: true });
+      return askClaude({ ...o, resolveCommand: () => resolveClaudeCommand({ customPath: settings.get().claudePath }), cwd: dir, env, model: settings.get().model });
+    },
+    emit: send,
+  });
   wakeAssets = new WakeAssets({ dataDir: path.join(userData, 'handsfree') });
   const coreUi = (channel, payload) => {
     send(channel, payload);
@@ -1403,6 +1497,7 @@ app.on('will-quit', () => {
   else if (core) core.cleanup();
   if (tts) tts.dispose();
   if (stt) stt.dispose();
+  if (video) video.cancel(); // ffmpeg / whisper trees are killed
 });
 
 app.on('window-all-closed', () => app.quit());

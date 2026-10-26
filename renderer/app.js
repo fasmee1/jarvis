@@ -26,6 +26,7 @@ import { checkReport, diffReport, undoLines } from './ui/code-report.js';
 import { ProjectsPanel } from './ui/projects.js';
 import { TaskStatus } from './ui/task-status.js';
 import { toolPhase } from './ui/task-phase.js';
+import { VideoEditor } from './ui/video-editor.js';
 import { buildToolRow, finishRow, diffDetails, historyToolRow, historyResultRow } from './ui/tool-row.js';
 
 const api = window.jarvis;
@@ -79,6 +80,7 @@ const sections = new Sections({
   onProjects: () => projectsPanel.open(),
   onChange: (name) => {
     home.setVisible(!name);
+    if (videoEditor) { if (name === 'video') videoEditor.onShow(); else videoEditor.onHide(); }
     if (name) { S.dotErr = false; S.dotAtt = false; updateDot(); }
   },
   beforeShow: (name) => {
@@ -91,6 +93,7 @@ const sections = new Sections({
   },
 });
 const taskStatus = new TaskStatus();
+let videoEditor = null; // EDIT section (ui/video-editor.js), set up in init
 const TASK_PHASE = { THINKING: 'กำลังคิด', STREAMING: 'กำลังตอบ', TOOL_RUNNING: 'กำลังทำงาน', AWAITING_APPROVAL: 'รอคุณกดอนุญาต' };
 /** Task status pill: the latest command, what JARVIS is doing now, elapsed time. */
 function updateTaskStatus() {
@@ -355,6 +358,12 @@ function refreshState(sub) {
   updateTaskStatus();
   if (hands) hands.assistant({ speaking: S.speaking, busy: S.busy });
   if (resultViewer) resultViewer.setAttention(S.speaking || S.listening || (!!hands && ['WAKE_DETECTED', 'COMMAND_LISTENING'].includes(hands.state)));
+  const vm = $('btn-voice-mute');
+  if (vm) {
+    vm.classList.toggle('on', S.voiceMuted);
+    vm.setAttribute('aria-pressed', String(S.voiceMuted));
+    vm.title = S.voiceMuted ? 'เปิดเสียงพูดของ JARVIS' : 'ปิดเสียงพูดของ JARVIS (คำตอบยังแสดงบนจอ)';
+  }
   orbBridge.set({
     state: orbState(),
     hf: !!(hands && hands.active),
@@ -1765,17 +1774,23 @@ function onOrbCommand({ action, text }) {
       toggleHandsFree();
       break;
     case 'mute-toggle':
-      S.voiceMuted = !S.voiceMuted;
-      if (S.voiceMuted) speaker.stop();
-      notice(S.voiceMuted ? 'ปิดเสียงพูดของ JARVIS — คำตอบยังแสดงบนจอ' : 'เปิดเสียงพูดของ JARVIS', 'info', null, 3000);
-      refreshState();
+      toggleVoiceMute();
       break;
     default:
       break;
   }
 }
 
+/** Mute / unmute JARVIS's voice (orb menu and the main-page button). Replies still show on screen. */
+function toggleVoiceMute() {
+  S.voiceMuted = !S.voiceMuted;
+  if (S.voiceMuted) speaker.stop();
+  notice(S.voiceMuted ? 'ปิดเสียงพูดของ JARVIS — คำตอบยังแสดงบนจอ' : 'เปิดเสียงพูดของ JARVIS', 'info', null, 3000);
+  refreshState();
+}
+
 function wireHandsFree() {
+  $('btn-voice-mute').onclick = () => toggleVoiceMute();
   $('btn-handsfree').onclick = () => toggleHandsFree();
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === 'KeyH') {
@@ -1889,7 +1904,7 @@ function applyMode(mode) {
 // ---------------- settings dialog ----------------
 
 const FIELDS = {
-  text: ['claudePath', 'model', 'userProfile', 'azureRegion', 'pushToTalkKey', 'orbShortcut', 'geminiVoice'],
+  text: ['claudePath', 'ffmpegPath', 'model', 'userProfile', 'azureRegion', 'pushToTalkKey', 'orbShortcut', 'geminiVoice'],
   num: ['approvalTimeoutSec', 'geminiDailyCap', 'vadSilenceMs', 'screenWatchIntervalSec', 'screenWatchMaxMin', 'snapshotWidth', 'snapshotHeight'],
   float: ['ttsRate', 'snapshotQuality'],
   bool: ['persistentProcess', 'ttsGemini', 'guardEnabled', 'confirmVoiceBeforeSend', 'autoApproveSafe', 'visionOverlay', 'orbEnabled', 'orbOnTopFullscreen', 'orbAutoFade', 'orbAutoOpenResults'],
@@ -1963,7 +1978,7 @@ async function refreshInstallStatus() {
   $('stt-status').textContent = `whisper: ${w.hasExe ? '✓' : '✕'} โปรแกรม · ${w.hasModel ? '✓' : '✕'} โมเดล ${w.modelName} · Typhoon key: ${st.typhoon.hasKey ? '✓' : '✕'} · Azure key: ${st.azure.hasKey ? '✓' : '✕'}`;
   const g = await api.invoke('tts:gemini-status');
   const n = (x) => x.toLocaleString('en-US');
-  $('gemini-usage').textContent = `Gemini key: ${g.hasKey ? '✓' : '✕'} · วันนี้ ${n(g.day.requests)}/${n(g.dailyCap)} ครั้ง ${n(g.day.chars)} ตัวอักษร · เดือนนี้ ${n(g.month.requests)} ครั้ง ${n(g.month.chars)} ตัวอักษร${g.coolingDown ? ' · พักชั่วคราว (ใช้ Edge แทน)' : ''}${g.lastError ? ` · ผิดพลาดล่าสุด: ${g.lastError}` : ''}`;
+  $('gemini-usage').textContent = `Gemini key: ${g.hasKey ? '✓' : '✕'} · วันนี้ ${n(g.day.requests)}${g.dailyCap ? `/${n(g.dailyCap)}` : ''} ครั้ง ${n(g.day.chars)} ตัวอักษร · เดือนนี้ ${n(g.month.requests)} ครั้ง ${n(g.month.chars)} ตัวอักษร${g.coolingDown ? ' · พักชั่วคราว (ใช้ Edge แทน)' : ''}${g.lastError ? ` · ผิดพลาดล่าสุด: ${g.lastError}` : ''}`;
   const vs = await api.invoke('vision:status');
   $('vision-status').textContent = `MediaPipe: face ${vs.models.face ? '✓' : '✕'} · hand ${vs.models.hand ? '✓' : '✕'} · gesture ${vs.models.gesture ? '✓' : '✕'}`;
   return { st, vs };
@@ -1975,8 +1990,9 @@ function openSettings(tab = 'claude') {
   refreshInstallStatus();
   if (sections.current !== 'settings') sections.show('settings');
   for (const b of $('settings-tabs').querySelectorAll('.tab')) b.classList.toggle('active', b.dataset.stab === tab);
-  for (const t of ['claude', 'perm', 'voice', 'camera', 'handsfree', 'display', 'web', 'memory']) $(`stab-${t}`).hidden = t !== tab;
+  for (const t of ['claude', 'perm', 'voice', 'camera', 'handsfree', 'display', 'web', 'memory', 'video']) $(`stab-${t}`).hidden = t !== tab;
   if (tab === 'memory') fillMemory();
+  if (tab === 'video') refreshFfmpegStatus();
 }
 
 function wireSettings() {
@@ -2036,6 +2052,19 @@ function wireSettings() {
     await saveSetting({ [k]: e.target.value });
     if (k === 'speakerDeviceId') { await applySpeaker(); sfx.send(); } // short blip so you hear where it goes
     refreshInstallStatus();
+  };
+  $('s-ffmpegPath').onchange = async (e) => {
+    await saveSetting({ ffmpegPath: e.target.value.trim() });
+    refreshFfmpegStatus();
+  };
+  $('s-ffmpeg-install').onclick = async (e) => {
+    if (!e.isTrusted) return;
+    e.target.disabled = true;
+    $('ffmpeg-status').textContent = 'กำลังเริ่มดาวน์โหลด…';
+    const r = await api.invoke('video:ffmpeg-install').catch((err) => ({ ok: false, error: err.message }));
+    e.target.disabled = false;
+    notice(r.ok ? 'ติดตั้ง ffmpeg เรียบร้อย พร้อมใช้ตัดต่อคลิป' : 'ติดตั้ง ffmpeg ไม่สำเร็จ: ' + r.error, r.ok ? 'info' : 'error');
+    refreshFfmpegStatus();
   };
   const lines = (id) => $(id).value.split('\n').map((x) => x.trim()).filter(Boolean);
   $('s-guard-save').onclick = async () => {
@@ -2145,8 +2174,29 @@ async function autoInstall() {
   if (!vs.ready && !vs.installing) api.invoke('vision:install').then(refreshInstallStatus);
 }
 
+const FFMPEG_SOURCE = { installed: 'ติดตั้งโดย JARVIS', custom: 'ตามที่อยู่ที่ตั้งไว้', system: 'พบในเครื่อง' };
+
+/** One line in Settings > วิดีโอ: is ffmpeg ready, which one, or what is wrong. */
+async function refreshFfmpegStatus() {
+  const s = await api.invoke('video:ffmpeg-status').catch((err) => ({ ready: false, error: err.message }));
+  let text;
+  if (s.installing) text = 'กำลังติดตั้ง ffmpeg…';
+  else if (s.ready) text = `✓ พร้อมใช้ · ffmpeg ${s.version.split('-')[0]} (${FFMPEG_SOURCE[s.source] || s.source})`;
+  else if (s.error) text = `✕ ${s.error}`;
+  else text = '✕ ยังไม่มี ffmpeg — กดติดตั้งอัตโนมัติ หรือใส่ที่อยู่ด้านล่าง';
+  $('ffmpeg-status').textContent = text;
+  $('s-ffmpeg-install').hidden = !!s.ready;
+  $('s-ffmpeg-install').disabled = !!s.installing;
+  return s;
+}
+
 let lastProgress = 0;
 function onInstallProgress(p) {
+  if (p.what === 'ffmpeg') {
+    const pct = p.total ? ` ${Math.floor((p.received / p.total) * 100)}%` : '';
+    if (p.step === 'ffmpeg') $('ffmpeg-status').textContent = p.done ? 'ดาวน์โหลดเสร็จ' : `กำลังดาวน์โหลด ffmpeg${pct}`;
+    else $('ffmpeg-status').textContent = p.done ? p.step : `กำลัง${p.step}…`;
+  }
   const now = Date.now();
   if (!p.done && now - lastProgress < 3000) return;
   lastProgress = now;
@@ -2565,6 +2615,7 @@ function wireDom() {
   wireEvents();
   wireSettings();
   wireHandsFree();
+  videoEditor = new VideoEditor({ api, notice, openSettings, isOpen: () => sections.current === 'video' });
   // real spectra for the reactor segments (mic: hands-free engine or push-to-talk; voice: TTS output)
   home.bandsProvider = (k) => (k === 'tts' ? speaker.bands() : hands.active ? hfEngine.bands() : mic.bands());
   const init = await api.invoke('app:init');

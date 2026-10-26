@@ -199,6 +199,8 @@ img.broken { visibility: hidden; }
 .md blockquote { margin: 0 0 16px; padding-left: 16px; border-left: 2px solid var(--line); color: var(--text-2); }
 .md-a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-faint); }
 .md .tb-wrap { margin-bottom: 16px; }
+/* the app is user-select:none; reading text in the viewer must stay copyable */
+.md, .tb-wrap, .rv-summary { user-select: text; }
 
 /* ----- map ----- */
 .mp-frame { width: 100%; height: calc(100% - 32px); min-height: 360px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, 0.04); }
