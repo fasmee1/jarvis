@@ -136,3 +136,68 @@ test('ffmpeg: export args are an array, path stays one argument', () => {
   assert.throws(() => F.buildExportArgs({ list: l, output: 'C:/o.mov' }));
   assert.throws(() => F.buildExportArgs({ list: l, output: 'C:/o.mp4', aspect: '2:1' }));
 });
+
+test('effects: ids, tweens and sound commands', () => {
+  const fxm = require('../lib/video/effects');
+  assert.ok(fxm.isFx('flash') && !fxm.isFx('explode') && !fxm.isFx('__proto__') && !fxm.isFx('toString'));
+  assert.ok(fxm.isSfx('whoosh') && !fxm.isSfx('constructor'));
+  assert.deepStrictEqual(fxm.fxTween('none', { video: 'm-c1', flash: 'fx-0', at: 3 }), []);
+  assert.deepStrictEqual(fxm.fxTween('nope', { video: 'm-c1', flash: 'fx-0', at: 3 }), []);
+  assert.match(fxm.fxTween('zoom', { video: 'm-c1', flash: 'fx-0', at: 3.0004 })[0], /^tl\.fromTo\("#m-c1", \{ scale: 1\.2 \}.*, 3\);$/);
+  assert.match(fxm.fxTween('flash', { video: 'm-c1', flash: 'fx-2', at: 1 })[0], /"#fx-2"/);
+  assert.strictEqual(fxm.sfxLead('whoosh'), 0.12);
+  assert.strictEqual(fxm.sfxLead('pop'), 0);
+  assert.strictEqual(fxm.sfxLead('none'), 0);
+  for (const id of ['whoosh', 'pop', 'ding', 'click']) {
+    const args = fxm.sfxArgs(id, 'C:/t/x.wav');
+    assert.ok(args.every((a) => typeof a === 'string') && args[args.length - 1] === 'C:/t/x.wav' && args.includes('-y'));
+  }
+  assert.throws(() => fxm.sfxArgs('none', 'x.wav'), /ไม่รู้จัก/);
+  assert.throws(() => fxm.sfxArgs('rm -rf', 'x.wav'), /ไม่รู้จัก/);
+});
+
+test('edit-list: effects are set per clip or for every cut, validated, undoable; a split comes in plain', () => {
+  const E2 = require('../lib/video/edit-list');
+  let list = E2.emptyList([{ id: 's1', path: 'x', duration: 20 }]);
+  list = E2.addClip(list, { src: 's1', in: 0, out: 10 });
+  assert.throws(() => E2.applyOp(list, { op: 'fx-all', fx: 'flash' }), /อย่างน้อย 2 ช่วง/);
+  list = E2.splitAt(list, 5);
+  list = E2.applyOp(list, { op: 'fx', id: list.clips[0].id, fx: 'fade', sfx: 'pop' });
+  assert.strictEqual(list.clips[0].fx, 'fade');
+  const again = E2.splitAt(list, 2);
+  assert.strictEqual(again.clips[0].fx, 'fade', 'the first half keeps it');
+  assert.strictEqual(again.clips[1].fx, 'none');
+  assert.strictEqual(again.clips[1].sfx, 'none');
+  assert.throws(() => E2.applyOp(list, { op: 'fx', id: list.clips[0].id, fx: 'explode' }), /เอฟเฟกต์ภาพไม่รู้จัก/);
+  assert.throws(() => E2.applyOp(list, { op: 'fx', id: list.clips[0].id, sfx: '__proto__' }), /เสียงเอฟเฟกต์ไม่รู้จัก/);
+  const all = E2.applyOp(list, { op: 'fx-all', fx: 'zoom', sfx: 'ding' });
+  assert.deepStrictEqual(all.clips.map((c) => c.fx), ['fade', 'zoom'], 'the first clip has no cut before it');
+  const only = E2.applyOp(all, { op: 'fx-all', sfx: 'none' });
+  assert.deepStrictEqual(only.clips.map((c) => c.fx), ['fade', 'zoom'], 'only what is passed changes');
+  assert.strictEqual(only.clips[1].sfx, 'none');
+  const h = new E2.EditHistory(list);
+  h.apply(E2.applyOp, { op: 'fx-all', fx: 'blur' });
+  assert.strictEqual(h.list.clips[1].fx, 'blur');
+  h.undo();
+  assert.strictEqual(h.list.clips[1].fx, 'none', 'undo puts back what it was');
+});
+
+test('project: effects become tweens, a flash layer and sounds placed just before the cut', () => {
+  const { buildProject } = require('../lib/video/hf-project');
+  const clips = [
+    { id: 'c1', src: 's1', in: 0, out: 3, speed: 1, fx: 'fade' },
+    { id: 'c2', src: 's1', in: 5, out: 8, speed: 1, fx: 'flash', sfx: 'whoosh' },
+    { id: 'c3', src: 'a1', in: 0, out: 2, speed: 1, fx: 'zoom', sfx: 'ding' },
+  ];
+  const { html } = buildProject({
+    clips,
+    sources: { s1: { file: 'assets/s1.mp4', kind: 'video', audio: true }, a1: { file: 'assets/a1.mp3', kind: 'audio', audio: true } },
+    canvas: { width: 1080, height: 1920 },
+    sfxFiles: { whoosh: 'assets/sfx-whoosh.wav' },
+  });
+  assert.match(html, /tl\.fromTo\("#m-c1", \{ opacity: 0 \}/);
+  assert.match(html, /<div id="fx-1" class="clip fx-flash" data-start="3" data-duration="0\.3"/);
+  assert.match(html, /<audio id="sfx-1" src="assets\/sfx-whoosh\.wav" data-start="2\.88"/);
+  assert.ok(!/#m-c3/.test(html), 'no picture effect on an audio clip');
+  assert.ok(!/sfx-2/.test(html), 'a sound without a file plays nothing');
+});

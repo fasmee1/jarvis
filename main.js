@@ -34,6 +34,8 @@ const { StyleStore } = require('./lib/video/styles');
 const { askClaude } = require('./lib/video/ask-claude');
 const { HfRender, QUALITIES } = require('./lib/video/hf-render');
 const { CAPTION_STYLES } = require('./lib/video/hf-project');
+const exportPresets = require('./lib/video/export-presets');
+const effects = require('./lib/video/effects');
 const { PACES } = require('./lib/video/presets');
 const { WakeAssets } = require('./lib/installer/wake-assets');
 const { pcm16ToWav } = require('./lib/stt/wav');
@@ -1017,12 +1019,15 @@ function registerIpc() {
     const id = () => v.str(p.id, 20, 'id');
     const num = (k) => { if (typeof p[k] !== 'number' || !Number.isFinite(p[k])) throw new Error(`${k} ต้องเป็นตัวเลข`); return p[k]; };
     const opt = (k) => (p[k] === undefined ? undefined : num(k));
+    const optStr = (k) => (p[k] === undefined ? undefined : v.str(p[k], 20, k));
     switch (p.op) {
       case 'split': return video.edit({ op: 'split', at: num('at') });
       case 'trim': return video.edit({ op: 'trim', id: id(), in: opt('in'), out: opt('out') });
       case 'remove': return video.edit({ op: 'remove', id: id() });
       case 'move': return video.edit({ op: 'move', id: id(), to: Math.trunc(num('to')) });
       case 'speed': return video.edit({ op: 'speed', id: id(), speed: num('speed') });
+      case 'fx': return video.edit({ op: 'fx', id: id(), fx: optStr('fx'), sfx: optStr('sfx') });
+      case 'fx-all': return video.edit({ op: 'fx-all', fx: optStr('fx'), sfx: optStr('sfx') });
       default: throw new Error('คำสั่งตัดต่อนี้ไม่รู้จัก');
     }
   });
@@ -1047,6 +1052,35 @@ function registerIpc() {
     return video.startRender({ captionStyle, quality });
   });
   handle('video:render-cancel', () => video.cancelRender());
+  handle('video:export-presets', () => ({
+    presets: Object.values(exportPresets.PRESETS).map((x) => ({ id: x.id, label: x.label, note: x.note, width: x.width, height: x.height, maxSec: x.maxSec, tipSec: x.tipSec })),
+    fits: Object.entries(exportPresets.FITS).map(([id, label]) => ({ id, label })),
+    fx: Object.values(effects.FX).map((x) => ({ id: x.id, label: x.label })),
+    sfx: Object.values(effects.SFX).map((x) => ({ id: x.id, label: x.label })),
+  }));
+  handle('video:export-start', async (p) => {
+    v.obj(p);
+    const captionStyle = v.str(p.captionStyle, 20, 'captionStyle');
+    const presetId = v.str(p.preset, 20, 'preset');
+    const fit = v.str(p.fit, 20, 'fit');
+    if (!CAPTION_STYLES[captionStyle]) throw new Error('แบบซับไม่ถูกต้อง');
+    const preset = exportPresets.preset(presetId);
+    const first = [...video.sources.values()][0];
+    const r = await dialog.showSaveDialog(win, {
+      title: `บันทึกวิดีโอสำหรับ ${preset.label}`,
+      defaultPath: path.join(app.getPath('videos'), exportPresets.suggestName(first && first.name, preset)),
+      filters: [{ name: 'วิดีโอ MP4', extensions: ['mp4'] }],
+    });
+    if (r.canceled || !r.filePath) return { cancelled: true };
+    const target = /\.mp4$/i.test(r.filePath) ? r.filePath : `${r.filePath}.mp4`;
+    return video.startExport({ captionStyle, preset: presetId, fit, target });
+  });
+  handle('video:export-reveal', () => {
+    const f = video.lastExportPath();
+    if (!f) throw new Error('ยังไม่มีไฟล์ที่ส่งออก');
+    shell.showItemInFolder(f);
+    return { ok: true };
+  });
   handle('video:undo', () => {
     if (video.cut) throw new Error('รอให้ JARVIS ตัดต่อเสร็จก่อน');
     video.history.undo();
@@ -1377,6 +1411,7 @@ app.whenReady().then(async () => {
     ffmpeg,
     analyzer: new ClipAnalyzer({ ffmpeg, stt, tempDir: path.join(app.getPath('temp'), 'mee-jarvis') }),
     styles: videoStyles,
+    sfxDir: path.join(userData, 'video', 'sfx'),
     hf: new HfRender({ root: path.join(userData, 'video', 'projects'), gsapFile: path.join(__dirname, 'lib', 'video', 'vendor', 'gsap.min.js') }),
     // a separate Claude run with no tools (lib/video/ask-claude.js), not the user's conversation
     ask: (o) => {

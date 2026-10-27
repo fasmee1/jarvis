@@ -51,7 +51,7 @@
 .ve-line .mono { flex: 0 0 auto; font-size: 12px; padding-top: 1px; }
 
 .ve-tl-bar { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.ve-tools { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; margin-left: 10px; }
+.ve-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-right: auto; margin-left: 10px; }
 .ve-speed { background: var(--surface); color: var(--text-1); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 12px; padding: 3px 4px; }
 .ve-speed:disabled { opacity: 0.5; }
 .ve-sel-hint { font-size: 12px; margin-left: 4px; }
@@ -145,3 +145,5 @@
 
 /* video with subtitles */
 .ve-render-video { width: 100%; max-height: 420px; border-radius: 6px; background: #000; }
+
+.ve-clip-fx { font-size: 11px; line-height: 1; flex: none; }

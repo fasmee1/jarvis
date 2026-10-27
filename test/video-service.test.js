@@ -309,7 +309,7 @@ test('captions: edit by hand, restore, and a Claude fix that spares hand edits',
 });
 
 // ---- the video with subtitles (HyperFrames is faked) ----
-function renderService({ render } = {}) {
+function renderService({ render, failSfx = false } = {}) {
   const events = [];
   const prepared = [];
   const out = tmp();
@@ -322,9 +322,14 @@ function renderService({ render } = {}) {
       return { silences: [], transcript: { model: 'm', segments: [{ start: 0, end: 4, text: 'สวัสดีครับ วันนี้มาสอน' }, { start: 6, end: 9, text: 'ประโยคสอง' }] }, summary: {}, warnings: [] };
     },
   };
-  const ffmpeg = { async probe() { return { duration: 10, video: { width: 1080, height: 1920 }, audio: { codec: 'aac' } }; } };
-  const svc = new VideoService({ registry: new MediaRegistry(), ffmpeg, analyzer, styles: new StyleStore({ file: path.join(tmp(), 's.json') }), ask: async () => '', hf, emit: (ch, p) => events.push([ch, p]) });
-  return { svc, events, prepared };
+  const ran = [];
+  const ffmpeg = {
+    async probe() { return { duration: 10, video: { width: 1080, height: 1920 }, audio: { codec: 'aac' } }; },
+    async require() { return { ffmpeg: 'ffmpeg.exe' }; },
+    async run(exe, args) { ran.push(args); if (failSfx) return { code: 1, stderr: '' }; fs.writeFileSync(args[args.length - 1], 'RIFF'); return { code: 0, stderr: '' }; },
+  };
+  const svc = new VideoService({ registry: new MediaRegistry(), ffmpeg, analyzer, styles: new StyleStore({ file: path.join(tmp(), 's.json') }), ask: async () => '', hf, sfxDir: path.join(tmp(), 'sfx'), emit: (ch, p) => events.push([ch, p]) });
+  return { svc, events, prepared, ran };
 }
 const renderDone = (events) => new Promise((resolve) => {
   const t = setInterval(() => {
@@ -382,4 +387,100 @@ test('render: progress, failure and cancel are reported; busy and empty are refu
   assert.strictEqual(f.result.ok, false);
   assert.match(f.result.error, /ไม่สำเร็จ/);
   assert.strictEqual(bad.svc.snapshot().render, null);
+});
+
+// ---- export ----
+const exportPresets = require('../lib/video/export-presets');
+
+test('export presets: sizes, length notes, safe names', () => {
+  assert.deepStrictEqual([exportPresets.PRESETS.tiktok.width, exportPresets.PRESETS.tiktok.height], [1080, 1920]);
+  assert.deepStrictEqual([exportPresets.PRESETS.youtube.width, exportPresets.PRESETS.youtube.height], [1920, 1080]);
+  assert.throws(() => exportPresets.preset('myspace'), /ไม่รู้จัก/);
+  const shorts = exportPresets.PRESETS.shorts;
+  assert.strictEqual(exportPresets.lengthNote(shorts, 30), '');
+  assert.match(exportPresets.lengthNote(shorts, 90), /ไม่เกิน 1 นาที/);
+  assert.match(exportPresets.lengthNote(shorts, 200), /เกินที่ YouTube Shorts รับได้/);
+  assert.strictEqual(exportPresets.lengthNote(exportPresets.PRESETS.youtube, 5000), '');
+  assert.strictEqual(exportPresets.suggestName('my clip.final.MP4', exportPresets.PRESETS.tiktok), 'my clip.final-tiktok.mp4');
+  assert.strictEqual(exportPresets.suggestName('a/b:c*.mov', exportPresets.PRESETS.reels), 'abc-reels.mp4');
+  assert.strictEqual(exportPresets.suggestName('', exportPresets.PRESETS.reels), 'clip-reels.mp4');
+});
+
+test('export: renders at the preset size, saves under the chosen name, never over a source', async () => {
+  const seen = [];
+  const { svc, events, prepared } = renderService({ render: (dir, o) => { seen.push(o); fs.writeFileSync(o.out, 'FINAL'); return o.out; } });
+  const src = file('a.mp4');
+  await svc.importFiles([src]);
+  await settle();
+  const target = path.join(tmp(), 'final-tiktok.mp4');
+  const r = svc.startExport({ captionStyle: 'pop', preset: 'youtube', fit: 'contain', target });
+  assert.strictEqual(r.started, true);
+  assert.strictEqual(svc.snapshot().render.kind, 'export');
+  const done = await renderDone(events);
+  assert.strictEqual(done.result.ok, true);
+  assert.strictEqual(done.result.kind, 'export');
+  assert.strictEqual(done.result.name, 'final-tiktok.mp4');
+  assert.strictEqual(done.result.size, 5);
+  assert.ok(!('url' in done.result) && !JSON.stringify(done).includes(path.dirname(target)), 'no disk path goes to the page');
+  assert.strictEqual(fs.readFileSync(target, 'utf8'), 'FINAL');
+  assert.ok(!fs.existsSync(`${target}.part`));
+  assert.strictEqual(seen[0].quality, 'standard');
+  assert.match(prepared[0].html, /data-width="1920" data-height="1080"/);
+  assert.match(prepared[0].html, /object-fit:contain/);
+  assert.strictEqual(svc.lastExportPath(), target);
+  // refusals
+  assert.throws(() => svc.startExport({ preset: 'tiktok', target: src }), /ห้ามบันทึกทับ/);
+  assert.throws(() => svc.startExport({ preset: 'tiktok', target: path.join(tmp(), 'x.mov') }), /\.mp4/);
+  assert.throws(() => svc.startExport({ preset: 'tiktok', target: 'rel.mp4' }), /ที่อยู่เต็ม/);
+  assert.throws(() => svc.startExport({ preset: 'tiktok', target: path.join(tmp(), 'no', 'dir', 'x.mp4') }), /ไม่พบโฟลเดอร์/);
+  assert.throws(() => svc.startExport({ preset: 'nope', target }), /ไม่รู้จัก/);
+  assert.throws(() => svc.startExport({ preset: 'tiktok', fit: 'stretch', target }), /การจัดภาพ/);
+});
+
+test('export: a failed or cancelled export leaves no file behind', async () => {
+  const bad = renderService({ render: async () => { throw new Error('HyperFrames สร้างวิดีโอไม่สำเร็จ'); } });
+  await bad.svc.importFiles([file('a.mp4')]);
+  await settle();
+  const target = path.join(tmp(), 'x.mp4');
+  bad.svc.startExport({ preset: 'reels', target });
+  const f = await renderDone(bad.events);
+  assert.strictEqual(f.result.ok, false);
+  assert.strictEqual(f.result.kind, 'export');
+  assert.ok(!fs.existsSync(target) && !fs.existsSync(`${target}.part`));
+  assert.strictEqual(bad.svc.lastExportPath(), null);
+});
+
+test('effects: the sounds a clip asks for are made once, sent to the project, and named in the page', async () => {
+  const { svc, events, prepared, ran } = renderService();
+  await svc.importFiles([file('a.mp4')]);
+  await settle();
+  svc.edit({ op: 'split', at: 5 });
+  const [first, second] = svc.snapshot().clips;
+  svc.edit({ op: 'fx', id: second.id, fx: 'flash', sfx: 'whoosh' });
+  svc.edit({ op: 'fx', id: first.id, sfx: 'whoosh' });
+  svc.startRender({});
+  await renderDone(events);
+  assert.strictEqual(ran.length, 1, 'whoosh is made once for both clips');
+  assert.ok(ran[0].every((a) => typeof a === 'string'));
+  assert.deepStrictEqual(prepared[0].extra.map((x) => x.name), ['sfx-whoosh.wav']);
+  assert.strictEqual(fs.readFileSync(prepared[0].extra[0].path, 'utf8'), 'RIFF');
+  assert.match(prepared[0].html, /<audio id="sfx-1" src="assets\/sfx-whoosh\.wav"/);
+  assert.match(prepared[0].html, /class="clip fx-flash"/);
+  svc.startRender({}); // second render: the sound is already there
+  await renderDone(events);
+  assert.strictEqual(ran.length, 1);
+});
+
+test('effects: a sound that cannot be made is left out and the render still finishes with a note', async () => {
+  const { svc, events, prepared } = renderService({ failSfx: true });
+  await svc.importFiles([file('a.mp4')]);
+  await settle();
+  svc.edit({ op: 'split', at: 5 });
+  svc.edit({ op: 'fx', id: svc.snapshot().clips[1].id, fx: 'zoom', sfx: 'ding' });
+  svc.startRender({});
+  const done = await renderDone(events);
+  assert.strictEqual(done.result.ok, true);
+  assert.match(done.result.warning, /ติ๊ง/);
+  assert.ok(!/<audio id="sfx-/.test(prepared[0].html));
+  assert.match(prepared[0].html, /tl\.fromTo\("#m-c2"/, 'the picture effect is still there');
 });

@@ -56,6 +56,8 @@ export class VideoEditor {
     api.on('video:progress', (p) => this.setProgress(p));
     api.on('video:cut', (c) => this.setCut(c));
     api.on('video:render', (c) => this.setRenderState(c));
+    this.presets = [];
+    api.invoke('video:export-presets').then((r) => this._fillPresets(r)).catch(() => {});
     api.invoke('video:state').then((s) => this.setState(s)).catch(() => {});
   }
 
@@ -130,6 +132,42 @@ export class VideoEditor {
     }
   }
 
+  _fillPresets({ presets, fits, fx, sfx }) {
+    this.presets = presets;
+    this.fxLabels = Object.fromEntries(fx.map((x) => [x.id, x.label]));
+    this.sfxLabels = Object.fromEntries(sfx.map((x) => [x.id, x.label]));
+    $('ve-fx').replaceChildren(...fx.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ภาพ: ไม่มีเอฟเฟกต์' : `ภาพ: ${x.label}` })));
+    $('ve-sfx').replaceChildren(...sfx.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'เสียง: ไม่มี' : `เสียง: ${x.label}` })));
+    this._renderTools();
+    $('ve-preset').replaceChildren(...presets.map((x) => el('option', { value: x.id, text: `${x.label} · ${x.width}×${x.height}` })));
+    $('ve-fit').replaceChildren(...fits.map((x) => el('option', { value: x.id, text: x.label })));
+    this._renderExportNote();
+  }
+
+  /** The place's length limit against the timeline now. */
+  _renderExportNote() {
+    const p = this.presets.find((x) => x.id === $('ve-preset').value);
+    const d = this.snap.duration || 0;
+    const t = (s) => (s >= 60 ? `${Math.floor(s / 60)} นาที${s % 60 ? ` ${Math.round(s % 60)} วินาที` : ''}` : `${Math.round(s)} วินาที`);
+    let note = '';
+    if (p && d > 0) {
+      if (p.maxSec && d > p.maxSec) note = `ยาว ${t(d)} เกินที่ ${p.label} รับได้ (สูงสุด ${t(p.maxSec)}) — ตัดให้สั้นลงก่อน`;
+      else if (p.tipSec && d > p.tipSec) note = `ยาว ${t(d)} — ${p.label} ที่ได้คนดูจนจบมักไม่เกิน ${t(p.tipSec)}`;
+    }
+    $('ve-export-note').textContent = note;
+  }
+
+  async startExport() {
+    this.pause();
+    try {
+      const r = await this.api.invoke('video:export-start', { captionStyle: $('ve-cap-style').value, preset: $('ve-preset').value, fit: $('ve-fit').value });
+      if (r.cancelled) return;
+      this.notice('JARVIS เริ่มส่งออกไฟล์แล้ว — คุยเรื่องอื่นหรือทำอย่างอื่นต่อได้', 'info', null, 5000);
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
+    }
+  }
+
   /** 'video:render' events: progress while running, then the result. */
   setRenderState(c) {
     this.renderState = c;
@@ -143,12 +181,13 @@ export class VideoEditor {
     const running = !!(c && c.running);
     btn.disabled = running || !this.snap.clips.length || !!(this.cutState && this.cutState.running);
     btn.textContent = running ? 'กำลังสร้างวิดีโอ…' : '🎬 สร้างตัวอย่างพร้อมซับ';
+    $('ve-export').disabled = btn.disabled;
     if (running) {
       const pct = Math.round((c.fraction || 0) * 100);
       box.hidden = false;
       box.className = 've-cut-status cut running';
       box.replaceChildren(
-        el('div', { class: 've-job-label' }, el('span', { text: c.label || 'กำลังสร้างวิดีโอ' }), el('span', { class: 'mono', text: `${pct}%` })),
+        el('div', { class: 've-job-label' }, el('span', { text: `${c.kind === 'export' ? 'ส่งออก: ' : ''}${c.label || 'กำลังสร้างวิดีโอ'}` }), el('span', { class: 'mono', text: `${pct}%` })),
         el('div', { class: 've-bar', role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, styled(el('div', { class: 've-bar-fill' }), `width:${pct}%`)),
         el('div', { class: 've-actions' },
           el('span', { class: 'dim mono', text: fmtTime((c.elapsedMs || 0) / 1000).replace(/\.\d$/, '') }),
@@ -163,7 +202,16 @@ export class VideoEditor {
     box.hidden = false;
     box.className = `ve-cut-status cut ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
     if (!r.ok) {
-      box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? 'ยกเลิกการสร้างวิดีโอแล้ว' : `สร้างวิดีโอไม่สำเร็จ: ${r.error}` }));
+      box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? (r.kind === 'export' ? 'ยกเลิกการส่งออกแล้ว' : 'ยกเลิกการสร้างวิดีโอแล้ว') : `${r.kind === 'export' ? 'ส่งออกไม่สำเร็จ' : 'สร้างวิดีโอไม่สำเร็จ'}: ${r.error}` }));
+      return;
+    }
+    if (r.kind === 'export') {
+      const mb = (r.size / 1048576).toFixed(r.size < 10485760 ? 1 : 0);
+      box.replaceChildren(
+        el('div', { class: 've-cut-title', text: `ส่งออกแล้ว · ${r.name} · ${mb} MB` }),
+        el('div', { class: 'dim', text: `ยาว ${fmtTime(r.duration)} · ${r.captions} บรรทัดซับ · ใช้เวลา ${Math.round((r.elapsedMs || 0) / 1000)} วินาที` }),
+        el('div', { class: 've-actions' },
+          el('button', { class: 'btn small', type: 'button', text: 'เปิดโฟลเดอร์', onclick: () => this.api.invoke('video:export-reveal').catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn')) })));
       return;
     }
     const player = el('video', { class: 've-render-video', controls: '', playsinline: '', preload: 'metadata', src: r.url });
@@ -293,6 +341,13 @@ export class VideoEditor {
     return this.edit({ op: 'remove', id: c.id });
   }
 
+  /** How the selected clip comes in: { fx } and/or { sfx }. */
+  async setClipFx(change) {
+    const c = this._target();
+    if (!c) return false;
+    return this.edit({ op: 'fx', id: c.id, ...change });
+  }
+
   async setClipSpeed(speed) {
     const c = this._target();
     if (!c) return false;
@@ -340,6 +395,14 @@ export class VideoEditor {
       if (![...sp.options].some((o) => Number(o.value) === c.speed)) sp.append(el('option', { value: String(c.speed), text: `${c.speed}×` }));
       sp.value = String(c.speed);
     }
+    const fxSel = $('ve-fx');
+    const sfxSel = $('ve-sfx');
+    fxSel.disabled = sfxSel.disabled = !has || !c;
+    $('ve-fx-all').disabled = !has || this.snap.clips.length < 2;
+    if (c) {
+      fxSel.value = c.fx || 'none';
+      sfxSel.value = c.sfx || 'none';
+    }
     const i = c ? this.snap.clips.findIndex((x) => x.id === c.id) : -1;
     $('ve-sel-hint').textContent = c ? `${this.sel === c.id ? 'เลือก' : 'ใต้หัวอ่าน'}: ช่วงที่ ${i + 1}/${this.snap.clips.length}` : '';
   }
@@ -374,9 +437,14 @@ export class VideoEditor {
     $('ve-cut').onclick = (e) => e.isTrusted && this.startCut();
     $('ve-fix').onclick = (e) => e.isTrusted && this.fixCaptions();
     $('ve-render').onclick = (e) => e.isTrusted && this.startRender();
+    $('ve-export').onclick = (e) => e.isTrusted && this.startExport();
+    $('ve-preset').onchange = () => this._renderExportNote();
     $('ve-split').onclick = () => this.split();
     $('ve-delete').onclick = () => this.removeClip();
     $('ve-speed').onchange = (e) => this.setClipSpeed(Number(e.target.value));
+    $('ve-fx').onchange = (e) => this.setClipFx({ fx: e.target.value });
+    $('ve-sfx').onchange = (e) => this.setClipFx({ sfx: e.target.value });
+    $('ve-fx-all').onclick = () => this.edit({ op: 'fx-all', fx: $('ve-fx').value, sfx: $('ve-sfx').value });
     $('ve-undo').onclick = () => this.undo();
     $('ve-redo').onclick = () => this.redo();
 
@@ -667,6 +735,7 @@ export class VideoEditor {
     $('ve-redo').disabled = !this.snap.canRedo;
     this._renderCut();
     this._renderRender();
+    this._renderExportNote();
     this._renderTools();
     if (!has) return;
     this._renderPreviewShape();
@@ -741,6 +810,8 @@ export class VideoEditor {
         el('span', { class: 've-grip ve-grip-l', 'data-edge': 'in' }),
         el('span', { class: 've-clip-name', text: src ? src.name : r.clip.src }),
         r.clip.speed !== 1 ? el('span', { class: 've-clip-speed mono', text: `${r.clip.speed}×` }) : null,
+        r.clip.fx && r.clip.fx !== 'none' ? el('span', { class: 've-clip-fx', title: `เอฟเฟกต์ภาพ: ${(this.fxLabels || {})[r.clip.fx] || r.clip.fx}`, text: '✨' }) : null,
+        r.clip.sfx && r.clip.sfx !== 'none' ? el('span', { class: 've-clip-fx', title: `เสียง: ${(this.sfxLabels || {})[r.clip.sfx] || r.clip.sfx}`, text: '🔊' }) : null,
         el('span', { class: 've-grip ve-grip-r', 'data-edge': 'out' }));
       b.style.cssText = `left:${px(r.start)};width:${px(r.end - r.start)}`;
       b.addEventListener('pointerdown', (e) => this._clipDown(e, r, b, src));
