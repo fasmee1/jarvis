@@ -390,12 +390,23 @@
               <div class="ve-fix">
                 <label class="dim">เริ่ม <input id="ve-ov-start" class="ve-num" type="number" step="0.1" min="0" placeholder="หัวอ่าน"> วิ</label>
                 <label class="dim">ยาว <input id="ve-ov-len" class="ve-num" type="number" step="0.5" min="0.5" max="30" value="3"> วิ</label>
+                <select id="ve-ov-sfx" class="ve-speed" title="เสียงตอนอนิเมชั่นขึ้น" aria-label="เสียงตอนอนิเมชั่นขึ้น"></select>
               </div>
               <div class="ve-fix">
                 <button id="ve-ov-save" class="btn small primary" type="button">＋ เพิ่มอนิเมชั่น</button>
                 <button id="ve-ov-cancel" class="btn small" type="button" hidden>ยกเลิกการแก้</button>
               </div>
               <ul id="ve-ov-list" class="ve-ov-list"></ul>
+            </div>
+            <h2 class="ve-h">เสียงเอฟเฟกต์จากเว็บ <span class="dim">· ฟรี ไม่ต้องให้เครดิต</span></h2>
+            <div class="ve-ov">
+              <div class="ve-fix">
+                <input id="ve-sfx-q" class="ve-fix-hint" type="text" maxlength="80" autocomplete="off" placeholder="ค้นหาเสียง เช่น whoosh, box open (พิมพ์อังกฤษได้ผลดีกว่า)" aria-label="คำค้นหาเสียง">
+                <button id="ve-sfx-find" class="btn small" type="button" title="JARVIS ค้นเว็บแล้วโหลดเสียงที่ใบอนุญาตชัดเจน (ใช้โควต้า Claude เล็กน้อย ใช้เวลาราว 1–2 นาที)">🔎 หาเสียง</button>
+              </div>
+              <button id="ve-sfx-auto" class="btn small primary" type="button" title="JARVIS ดูว่าตรงไหนมีเอฟเฟกต์หรืออนิเมชั่นแต่ยังไม่มีเสียง แล้วหาเสียงที่เข้ากันมาใส่ให้ (ย้อนกลับได้ในขั้นเดียว)">✨ ให้ JARVIS เลือกเสียงให้ทั้งคลิป</button>
+              <div id="ve-sfx-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
+              <ul id="ve-sfx-list" class="ve-ov-list"></ul>
             </div>
             <h2 class="ve-h">วิดีโอพร้อมซับ <span class="dim">· ดูตัวอย่างก่อนส่งออก</span></h2>
             <div class="ve-fix">

@@ -86,6 +86,10 @@ const INVOKE = [
   'video:export-presets',
   'video:export-start',
   'video:export-reveal',
+  'video:sfx-list',
+  'video:sfx-find',
+  'video:sfx-cancel',
+  'video:sfx-remove',
   'video:caption-edit',
   'video:caption-restore',
   'video:caption-time',
@@ -177,6 +181,7 @@ const EVENTS = [
   'video:progress',
   'video:cut',
   'video:render',
+  'video:sfx',
 ];
 
 contextBridge.exposeInMainWorld('jarvis', {

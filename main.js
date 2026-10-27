@@ -33,6 +33,7 @@ const { VideoService } = require('./lib/video/service');
 const { StyleStore } = require('./lib/video/styles');
 const { askClaude } = require('./lib/video/ask-claude');
 const { HfRender, QUALITIES } = require('./lib/video/hf-render');
+const { SfxLibrary } = require('./lib/video/sfx-library');
 const { CAPTION_STYLES } = require('./lib/video/hf-project');
 const exportPresets = require('./lib/video/export-presets');
 const effects = require('./lib/video/effects');
@@ -1092,6 +1093,16 @@ function registerIpc() {
     const target = /\.mp4$/i.test(r.filePath) ? r.filePath : `${r.filePath}.mp4`;
     return video.startExport({ captionStyle, preset: presetId, fit, target });
   });
+  handle('video:sfx-list', () => video.soundList());
+  handle('video:sfx-find', (p) => {
+    v.obj(p);
+    return video.startSfxSearch({ query: v.str(p.query, 200, 'query', { optional: true }) || '' });
+  });
+  handle('video:sfx-cancel', () => video.cancelSfx());
+  handle('video:sfx-remove', (p) => {
+    v.obj(p);
+    return video.removeSound(v.str(p.id, 20, 'id'));
+  });
   handle('video:export-reveal', () => {
     const f = video.lastExportPath();
     if (!f) throw new Error('ยังไม่มีไฟล์ที่ส่งออก');
@@ -1429,6 +1440,7 @@ app.whenReady().then(async () => {
     analyzer: new ClipAnalyzer({ ffmpeg, stt, tempDir: path.join(app.getPath('temp'), 'mee-jarvis') }),
     styles: videoStyles,
     sfxDir: path.join(userData, 'video', 'sfx'),
+    sfxLibrary: new SfxLibrary({ dir: path.join(userData, 'video', 'sfx-library'), ffmpeg }),
     hf: new HfRender({ root: path.join(userData, 'video', 'projects'), gsapFile: path.join(__dirname, 'lib', 'video', 'vendor', 'gsap.min.js'), fontsDir: path.join(__dirname, 'lib', 'video', 'vendor', 'fonts') }),
     // a separate Claude run with no tools (lib/video/ask-claude.js), not the user's conversation
     ask: (o) => {

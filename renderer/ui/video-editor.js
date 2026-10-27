@@ -60,6 +60,9 @@ export class VideoEditor {
     api.on('video:progress', (p) => this.setProgress(p));
     api.on('video:cut', (c) => this.setCut(c));
     api.on('video:render', (c) => this.setRenderState(c));
+    api.on('video:sfx', (c) => this.setSfxState(c));
+    this.sounds = [];
+    this._soundsKey = '';
     this.presets = [];
     api.invoke('video:export-presets').then((r) => this._fillPresets(r)).catch(() => {});
     api.invoke('video:state').then((s) => this.setState(s)).catch(() => {});
@@ -164,6 +167,7 @@ export class VideoEditor {
     $('ve-ov-to').value = '';
     $('ve-ov-suffix').value = '';
     $('ve-ov-start').value = '';
+    $('ve-ov-sfx').value = 'none';
     $('ve-ov-save').textContent = '＋ เพิ่มอนิเมชั่น';
     $('ve-ov-cancel').hidden = true;
     this._ovFields();
@@ -181,6 +185,7 @@ export class VideoEditor {
     $('ve-ov-suffix').value = o.suffix || '';
     $('ve-ov-start').value = String(o.start);
     $('ve-ov-len').value = String(Math.round((o.end - o.start) * 10) / 10);
+    $('ve-ov-sfx').value = o.sfx || 'none';
     $('ve-ov-save').textContent = 'บันทึกการแก้';
     $('ve-ov-cancel').hidden = false;
     this._ovFields();
@@ -193,7 +198,7 @@ export class VideoEditor {
     const startIn = num('ve-ov-start');
     const start = startIn === undefined ? Math.round(this.t * 10) / 10 : startIn;
     const len = num('ve-ov-len') || 3;
-    const overlay = { kind, text: $('ve-ov-text').value, start, end: start + len };
+    const overlay = { kind, text: $('ve-ov-text').value, start, end: start + len, sfx: $('ve-ov-sfx').value || 'none' };
     if (kind === 'lower') overlay.text2 = $('ve-ov-text2').value;
     if (kind === 'counter') {
       overlay.from = num('ve-ov-from') ?? 0;
@@ -220,6 +225,83 @@ export class VideoEditor {
       : [el('li', { class: 'dim', text: 'ยังไม่มีอนิเมชั่น — เลื่อนหัวอ่านไปจุดที่ต้องการ แล้วกดเพิ่ม' })]));
   }
 
+  // ---------- sounds from the web ----------
+  async _loadSounds() {
+    try {
+      this.sounds = await this.api.invoke('video:sfx-list');
+    } catch {
+      return;
+    }
+    this._fillSounds();
+    this._renderSfx();
+  }
+
+  /** The "sound" choices (clip and animation): the built-in ones, then the ones fetched. */
+  _fillSounds() {
+    const list = this.sounds.length ? this.sounds : (this.builtinSfx || []).map((x) => ({ ...x, custom: false }));
+    if (!list.length) return;
+    this.sfxLabels = Object.fromEntries(list.map((x) => [x.id, x.label]));
+    const opts = list.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'เสียง: ไม่มี' : `เสียง: ${x.custom ? '🌐 ' : ''}${x.label}` }));
+    const keepClip = $('ve-sfx').value;
+    const keepOv = $('ve-ov-sfx').value;
+    $('ve-sfx').replaceChildren(...opts);
+    $('ve-ov-sfx').replaceChildren(...list.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ไม่มีเสียง' : `${x.custom ? '🌐 ' : ''}${x.label}` })));
+    if (keepClip) $('ve-sfx').value = keepClip;
+    if (keepOv) $('ve-ov-sfx').value = keepOv;
+    this._renderTools();
+  }
+
+  async findSounds(auto) {
+    const query = auto ? '' : $('ve-sfx-q').value.trim();
+    if (!auto && !query) return this.notice('พิมพ์คำที่อยากหาก่อน เช่น whoosh', 'warn');
+    try {
+      await this.api.invoke('video:sfx-find', { query });
+      this.notice(auto ? 'JARVIS กำลังค้นเว็บหาเสียงให้ — ใช้เวลาราว 1–2 นาที ทำอย่างอื่นต่อได้' : `กำลังค้นหาเสียง "${query}" — ใช้เวลาราว 1–2 นาที`, 'info', null, 5000);
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
+    }
+  }
+
+  setSfxState(c) {
+    this.sfxState = c;
+    this._renderSfx();
+  }
+
+  _renderSfx() {
+    const box = $('ve-sfx-status');
+    const c = this.sfxState;
+    const running = !!(c && c.running);
+    $('ve-sfx-find').disabled = running;
+    $('ve-sfx-auto').disabled = running || !this.snap.clips.length;
+    if (running) {
+      box.hidden = false;
+      box.className = 've-cut-status cut running';
+      box.replaceChildren(
+        el('div', { class: 've-job-label' }, el('span', { text: c.label || 'กำลังหาเสียง' }), el('span', { class: 'dim mono', text: fmtTime((c.elapsedMs || 0) / 1000).replace(/\.\d$/, '') })),
+        el('div', { class: 've-actions' }, el('button', { class: 'btn small', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:sfx-cancel') })));
+    } else if (c && c.result) {
+      const r = c.result;
+      box.hidden = false;
+      box.className = `ve-cut-status cut ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
+      if (!r.ok) box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? 'ยกเลิกการหาเสียงแล้ว' : `หาเสียงไม่สำเร็จ: ${r.error}` }));
+      else {
+        box.replaceChildren(
+          el('div', { class: 've-cut-title', text: r.auto ? `ใส่เสียงให้ ${r.assigned} จุดแล้ว · โหลดใหม่ ${r.added.length} เสียง` : `โหลดเสียงแล้ว ${r.added.length} เสียง: ${r.added.join(', ')}` }),
+          ...r.failed.map((f) => el('div', { class: 've-warn', text: f })),
+          el('div', { class: 'dim', text: r.auto ? 'ย้อนกลับด้วยปุ่ม "ย้อนกลับ" ได้ในขั้นเดียว · เปลี่ยนเสียงของแต่ละช่วงได้ที่ช่อง "เสียง"' : 'เลือกใช้ได้ที่ช่อง "เสียง" ของคลิปหรืออนิเมชั่น' }));
+      }
+    } else box.hidden = true;
+
+    const list = $('ve-sfx-list');
+    const mine = this.sounds.filter((x) => x.custom);
+    list.replaceChildren(...(mine.length ? mine.map((x) => el('li', { class: 've-ov-row' },
+      el('button', { class: 've-line', type: 'button', title: `เล่นฟัง · ${x.license}${x.sourcePage ? `\nที่มา: ${x.sourcePage}` : ''}`, onclick: () => { try { const a = new Audio(x.url); a.volume = 0.8; a.play(); } catch { /* no sound device */ } } },
+        el('span', { class: 'mono dim', text: `${x.seconds}s` }), el('span', { text: `▶ ${x.label} · ${x.host}` })),
+      el('span', { class: 've-line-tools show' },
+        el('button', { class: 've-mini', type: 'button', title: 'เอาออกจากคลัง', 'aria-label': 'เอาเสียงออกจากคลัง', text: '🗑', onclick: () => { if (confirm(`เอาเสียง "${x.label}" ออกจากคลัง? ที่ใช้อยู่จะกลายเป็นไม่มีเสียง`)) this.api.invoke('video:sfx-remove', { id: x.id }).then((s) => this.setState(s)).catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn')); } }))))
+      : [el('li', { class: 'dim', text: 'ยังไม่มีเสียงที่โหลดไว้' })]));
+  }
+
   // ---------- video with subtitles (HyperFrames) ----------
   async startRender() {
     this.pause();
@@ -238,7 +320,8 @@ export class VideoEditor {
     this.fxOutLabels = Object.fromEntries(fxOut.map((x) => [x.id, x.label]));
     $('ve-fxout').replaceChildren(...fxOut.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ออก: ไม่มี' : `ออก: ${x.label}` })));
     $('ve-fx').replaceChildren(...fx.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ภาพ: ไม่มีเอฟเฟกต์' : `ภาพ: ${x.label}` })));
-    $('ve-sfx').replaceChildren(...sfx.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'เสียง: ไม่มี' : `เสียง: ${x.label}` })));
+    this.builtinSfx = sfx;
+    this._fillSounds();
     this._renderTools();
     $('ve-preset').replaceChildren(...presets.map((x) => el('option', { value: x.id, text: `${x.label} · ${x.width}×${x.height}` })));
     $('ve-fit').replaceChildren(...fits.map((x) => el('option', { value: x.id, text: x.label })));
@@ -552,6 +635,9 @@ export class VideoEditor {
     $('ve-sfx').onchange = (e) => this.setClipFx({ sfx: e.target.value });
     $('ve-fxout').onchange = (e) => this.setClipFx({ fxOut: e.target.value });
     $('ve-ov-kind').onchange = () => this._ovFields();
+    $('ve-sfx-find').onclick = (e) => e.isTrusted && this.findSounds(false);
+    $('ve-sfx-auto').onclick = (e) => e.isTrusted && this.findSounds(true);
+    $('ve-sfx-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.findSounds(false); } else e.stopPropagation(); });
     $('ve-cap-style').onchange = () => { this.fx.key = ''; this._paintFx(); };
     $('ve-ov-save').onclick = () => this.saveOverlay();
     $('ve-ov-cancel').onclick = () => this._ovReset();
@@ -703,6 +789,13 @@ export class VideoEditor {
     // the snapshot carries the cut too, so a reopened page shows a running or finished cut
     if (s.cut) this.cutState = { running: true, ...s.cut };
     else if (!this.cutState || !this.cutState.running) this.cutState = s.lastCut ? { running: false, result: s.lastCut } : null;
+    if (s.sfx) this.sfxState = { running: true, ...s.sfx };
+    else if (!this.sfxState || !this.sfxState.running) this.sfxState = s.lastSfx ? { running: false, result: s.lastSfx } : null;
+    const soundsKey = JSON.stringify(s.sounds || []);
+    if (soundsKey !== this._soundsKey) {
+      this._soundsKey = soundsKey;
+      this._loadSounds();
+    }
     if (s.render) this.renderState = { running: true, ...s.render };
     else if (!this.renderState || !this.renderState.running) this.renderState = s.lastRender ? { running: false, result: s.lastRender } : null;
     if (clipsChanged) {
@@ -848,6 +941,7 @@ export class VideoEditor {
     this._renderRender();
     this._renderExportNote();
     this._renderOverlays();
+    this._renderSfx();
     this._renderTools();
     if (!has) return;
     this._renderPreviewShape();
