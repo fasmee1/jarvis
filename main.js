@@ -1019,6 +1019,7 @@ function registerIpc() {
     const id = () => v.str(p.id, 20, 'id');
     const num = (k) => { if (typeof p[k] !== 'number' || !Number.isFinite(p[k])) throw new Error(`${k} ต้องเป็นตัวเลข`); return p[k]; };
     const opt = (k) => (p[k] === undefined ? undefined : num(k));
+    const num2 = (x, k) => { if (typeof x !== 'number' || !Number.isFinite(x)) throw new Error(`${k} ต้องเป็นตัวเลข`); return x; };
     const optStr = (k) => (p[k] === undefined ? undefined : v.str(p[k], 20, k));
     switch (p.op) {
       case 'split': return video.edit({ op: 'split', at: num('at') });
@@ -1026,14 +1027,29 @@ function registerIpc() {
       case 'remove': return video.edit({ op: 'remove', id: id() });
       case 'move': return video.edit({ op: 'move', id: id(), to: Math.trunc(num('to')) });
       case 'speed': return video.edit({ op: 'speed', id: id(), speed: num('speed') });
-      case 'fx': return video.edit({ op: 'fx', id: id(), fx: optStr('fx'), sfx: optStr('sfx') });
-      case 'fx-all': return video.edit({ op: 'fx-all', fx: optStr('fx'), sfx: optStr('sfx') });
+      case 'overlay-add':
+      case 'overlay-update': {
+        v.obj(p.overlay);
+        const o = p.overlay;
+        const text = (k, max) => (o[k] === undefined ? undefined : v.str(o[k], max, k, { optional: true }) || '');
+        const n = (k) => (o[k] === undefined ? undefined : num2(o[k], k));
+        const overlay = { kind: o.kind === undefined ? undefined : v.str(o.kind, 20, 'kind'), text: text('text', 200), text2: text('text2', 200), suffix: text('suffix', 20), from: n('from'), to: n('to'), start: n('start'), end: n('end') };
+        for (const k of Object.keys(overlay)) if (overlay[k] === undefined) delete overlay[k];
+        return p.op === 'overlay-add' ? video.edit({ op: 'overlay-add', overlay }) : video.edit({ op: 'overlay-update', id: id(), overlay });
+      }
+      case 'overlay-remove': return video.edit({ op: 'overlay-remove', id: id() });
+      case 'fx': return video.edit({ op: 'fx', id: id(), fx: optStr('fx'), sfx: optStr('sfx'), fxOut: optStr('fxOut') });
+      case 'fx-all': return video.edit({ op: 'fx-all', fx: optStr('fx'), sfx: optStr('sfx'), fxOut: optStr('fxOut') });
       default: throw new Error('คำสั่งตัดต่อนี้ไม่รู้จัก');
     }
   });
   handle('video:caption-edit', (p) => {
     v.obj(p);
     return video.editCaption({ sourceId: v.str(p.sourceId, 20, 'sourceId'), i: Math.trunc(Number(p.i)), text: v.str(p.text, 400, 'text') });
+  });
+  handle('video:caption-time', (p) => {
+    v.obj(p);
+    return video.setCaptionTime({ sourceId: v.str(p.sourceId, 20, 'sourceId'), i: Math.trunc(Number(p.i)), start: p.start, end: p.end });
   });
   handle('video:caption-restore', (p) => {
     v.obj(p);
@@ -1057,6 +1073,7 @@ function registerIpc() {
     fits: Object.entries(exportPresets.FITS).map(([id, label]) => ({ id, label })),
     fx: Object.values(effects.FX).map((x) => ({ id: x.id, label: x.label })),
     sfx: Object.values(effects.SFX).map((x) => ({ id: x.id, label: x.label })),
+    fxOut: Object.values(effects.FX_OUT).map((x) => ({ id: x.id, label: x.label })),
   }));
   handle('video:export-start', async (p) => {
     v.obj(p);
@@ -1412,7 +1429,7 @@ app.whenReady().then(async () => {
     analyzer: new ClipAnalyzer({ ffmpeg, stt, tempDir: path.join(app.getPath('temp'), 'mee-jarvis') }),
     styles: videoStyles,
     sfxDir: path.join(userData, 'video', 'sfx'),
-    hf: new HfRender({ root: path.join(userData, 'video', 'projects'), gsapFile: path.join(__dirname, 'lib', 'video', 'vendor', 'gsap.min.js') }),
+    hf: new HfRender({ root: path.join(userData, 'video', 'projects'), gsapFile: path.join(__dirname, 'lib', 'video', 'vendor', 'gsap.min.js'), fontsDir: path.join(__dirname, 'lib', 'video', 'vendor', 'fonts') }),
     // a separate Claude run with no tools (lib/video/ask-claude.js), not the user's conversation
     ask: (o) => {
       const env = { ...process.env };

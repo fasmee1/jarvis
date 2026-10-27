@@ -88,6 +88,7 @@ const INVOKE = [
   'video:export-reveal',
   'video:caption-edit',
   'video:caption-restore',
+  'video:caption-time',
   'video:caption-fix',
   'video:undo',
   'video:redo',

@@ -351,6 +351,7 @@
           <div class="ve-stage">
             <div id="ve-preview" class="ve-preview">
               <video id="ve-video" playsinline preload="auto"></video>
+              <div id="ve-fx-layer" class="ve-fx-layer" aria-hidden="true"></div>
               <div id="ve-audio-only" class="ve-audio-only dim" hidden>เสียงอย่างเดียว</div>
             </div>
             <div class="ve-transport">
@@ -370,6 +371,32 @@
             </label>
             <button id="ve-cut" class="btn primary ve-cut-btn" type="button">✂ ให้ JARVIS ตัดต่อตามแนวนี้</button>
             <div id="ve-cut-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
+            <h2 class="ve-h">อนิเมชั่นซ้อนคลิป <span class="dim">· หัวข้อ ป้ายชื่อ ตัวเลขนับขึ้น</span></h2>
+            <div class="ve-ov">
+              <div class="ve-fix">
+                <select id="ve-ov-kind" class="ve-speed" aria-label="ชนิดอนิเมชั่น">
+                  <option value="title">หัวข้อเด้ง</option>
+                  <option value="lower">ป้ายชื่อ</option>
+                  <option value="counter">ตัวเลขนับขึ้น</option>
+                </select>
+                <input id="ve-ov-text" class="ve-fix-hint" type="text" maxlength="60" autocomplete="off" aria-label="ข้อความอนิเมชั่น">
+              </div>
+              <div class="ve-fix">
+                <input id="ve-ov-text2" class="ve-fix-hint" type="text" maxlength="60" autocomplete="off" placeholder="ตำแหน่ง / คำอธิบายใต้ชื่อ (ไม่บังคับ)" aria-label="ข้อความบรรทัดที่สอง" hidden>
+                <input id="ve-ov-from" class="ve-num" type="number" step="any" placeholder="จาก" aria-label="ตัวเลขเริ่มต้น" hidden>
+                <input id="ve-ov-to" class="ve-num" type="number" step="any" placeholder="ถึง" aria-label="ตัวเลขสุดท้าย" hidden>
+                <input id="ve-ov-suffix" class="ve-num" type="text" maxlength="6" placeholder="+ หรือ %" aria-label="ท้ายตัวเลข" hidden>
+              </div>
+              <div class="ve-fix">
+                <label class="dim">เริ่ม <input id="ve-ov-start" class="ve-num" type="number" step="0.1" min="0" placeholder="หัวอ่าน"> วิ</label>
+                <label class="dim">ยาว <input id="ve-ov-len" class="ve-num" type="number" step="0.5" min="0.5" max="30" value="3"> วิ</label>
+              </div>
+              <div class="ve-fix">
+                <button id="ve-ov-save" class="btn small primary" type="button">＋ เพิ่มอนิเมชั่น</button>
+                <button id="ve-ov-cancel" class="btn small" type="button" hidden>ยกเลิกการแก้</button>
+              </div>
+              <ul id="ve-ov-list" class="ve-ov-list"></ul>
+            </div>
             <h2 class="ve-h">วิดีโอพร้อมซับ <span class="dim">· ดูตัวอย่างก่อนส่งออก</span></h2>
             <div class="ve-fix">
               <select id="ve-cap-style" class="ve-speed" title="แบบตัวอักษรซับ" aria-label="แบบตัวอักษรซับ">
@@ -407,6 +434,7 @@
               <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option>
             </select>
             <select id="ve-fx" class="ve-speed" title="เอฟเฟกต์ภาพตอนคลิปที่เลือกเข้ามา" aria-label="เอฟเฟกต์ภาพตอนเข้า"></select>
+            <select id="ve-fxout" class="ve-speed" title="เอฟเฟกต์ภาพตอนคลิปที่เลือกออกไป" aria-label="เอฟเฟกต์ภาพตอนออก"></select>
             <select id="ve-sfx" class="ve-speed" title="เสียงเอฟเฟกต์ตอนคลิปที่เลือกเข้ามา" aria-label="เสียงเอฟเฟกต์ตอนเข้า"></select>
             <button id="ve-fx-all" class="btn small" type="button" title="ใช้เอฟเฟกต์และเสียงที่เลือกอยู่กับทุกรอยต่อ (ทุกช่วงยกเว้นช่วงแรก)">ใช้กับทุกรอยต่อ</button>
             <span id="ve-sel-hint" class="dim ve-sel-hint"></span>
@@ -421,6 +449,7 @@
             <div class="ve-label" id="ve-label-clips"></div>
             <div class="ve-label" id="ve-label-silence"></div>
             <div class="ve-label" id="ve-label-speech"></div>
+            <div class="ve-label" id="ve-label-anim"></div>
           </div>
           <div id="ve-timeline" class="ve-timeline">
             <div id="ve-track" class="ve-track">
@@ -428,6 +457,7 @@
               <div id="ve-lane-clips" class="ve-lane"></div>
               <div id="ve-lane-silence" class="ve-lane ve-lane-thin"></div>
               <div id="ve-lane-speech" class="ve-lane"></div>
+              <div id="ve-lane-anim" class="ve-lane ve-lane-thin"></div>
               <div id="ve-playhead" class="ve-playhead"></div>
             </div>
           </div>

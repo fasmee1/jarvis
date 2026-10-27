@@ -62,6 +62,7 @@
 .ve-label-ruler, .ve-ruler { height: 22px; }
 #ve-label-silence, .ve-lane-thin { height: 20px; }
 #ve-label-clips, #ve-lane-clips { height: 46px; }
+#ve-label-anim, #ve-lane-anim { height: 26px; }
 
 .ve-timeline { position: relative; overflow-x: auto; overflow-y: hidden; cursor: pointer; padding: 0 12px; touch-action: none; }
 .ve-track { position: relative; min-width: 100%; }
@@ -147,3 +148,38 @@
 .ve-render-video { width: 100%; max-height: 420px; border-radius: 6px; background: #000; }
 
 .ve-clip-fx { font-size: 11px; line-height: 1; flex: none; }
+
+/* animations over the picture */
+.ve-ov { display: flex; flex-direction: column; gap: 6px; }
+.ve-num { width: 84px; background: var(--surface); color: var(--text-1); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 12px; padding: 4px 6px; }
+.ve-ov label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.ve-ov-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ve-ov-row { display: flex; align-items: flex-start; gap: 4px; }
+.ve-ov-row .ve-line { flex: 1; min-width: 0; }
+.ve-ov-row.on .ve-line { border-color: var(--accent); }
+.ve-line-tools.show { opacity: 1; }
+.ve-anim { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; border: 1px solid rgba(167, 139, 250, 0.6); background: rgba(167, 139, 250, 0.18); font-size: 11px; line-height: 18px; padding: 0 6px; overflow: hidden; white-space: nowrap; cursor: pointer; box-sizing: border-box; color: var(--text-1); }
+.ve-anim.on { border-color: var(--accent); }
+
+/* subtitle blocks you can retime */
+.ve-say.drag { cursor: grab; touch-action: none; user-select: none; }
+.ve-say .ve-say-text { pointer-events: none; }
+.ve-say.drag:hover .ve-grip { background: var(--accent-soft); }
+
+/* live look of effects, animations and subtitles over the preview (sizes follow --u, set by FxLayer.measure) */
+.ve-preview { --u: 0.35; }
+.ve-fx-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; font-family: "IBM Plex Sans Thai Looped", "Leelawadee UI", Tahoma, sans-serif; font-weight: 700; color: #fff; }
+.ve-fx-flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+.ve-ov-item { position: absolute; left: 6%; right: 6%; text-align: center; text-shadow: 0 calc(var(--u) * 3px) calc(var(--u) * 14px) rgba(0, 0, 0, .7); }
+.ve-ov-item[hidden] { display: none; }
+.ve-ov-item.ov-title { top: 13%; font-size: calc(var(--u) * 92px); line-height: 1.25; }
+.ve-ov-item.ov-title span { display: inline-block; padding: 0.15em 0.6em; background: #ffe14d; color: #111; border-radius: 0.3em; text-shadow: none; box-shadow: 0 calc(var(--u) * 8px) calc(var(--u) * 24px) rgba(0, 0, 0, .35); }
+.ve-ov-item.ov-lower { left: 5%; right: auto; max-width: 80%; bottom: 31%; text-align: left; padding: 0.35em 0.9em 0.4em 0.7em; background: rgba(0, 0, 0, .62); border-left: 0.16em solid #ffe14d; border-radius: 0 0.3em 0.3em 0; font-size: calc(var(--u) * 59px); line-height: 1.3; }
+.ve-ov-item.ov-lower .ov-role { font-size: 0.68em; font-weight: 400; opacity: .9; }
+.ve-ov-item.ov-counter { top: 34%; font-size: calc(var(--u) * 216px); line-height: 1.05; }
+.ve-ov-item.ov-counter .ov-label { font-size: 0.24em; letter-spacing: .02em; }
+.ve-fx-cap { position: absolute; left: 6%; right: 6%; bottom: 17%; text-align: center; font-size: calc(var(--u) * 71px); line-height: 1.35; }
+.ve-fx-cap[hidden] { display: none; }
+.ve-fx-cap.cap-classic { text-shadow: 0 calc(var(--u) * 3px) calc(var(--u) * 12px) rgba(0, 0, 0, .95), 0 0 calc(var(--u) * 3px) rgba(0, 0, 0, .9); }
+.ve-fx-cap.cap-pop { color: #ffe14d; -webkit-text-stroke: calc(var(--u) * 6px) #000; paint-order: stroke fill; }
+.ve-fx-cap.cap-bar { background: rgba(0, 0, 0, .62); border-radius: 0.26em; padding: 0.2em 0.4em; width: fit-content; max-width: 88%; margin: 0 auto; }

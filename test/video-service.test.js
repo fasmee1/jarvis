@@ -484,3 +484,48 @@ test('effects: a sound that cannot be made is left out and the render still fini
   assert.ok(!/<audio id="sfx-/.test(prepared[0].html));
   assert.match(prepared[0].html, /tl\.fromTo\("#m-c2"/, 'the picture effect is still there');
 });
+
+test('overlays: in the snapshot, kept through a style cut, and in the rendered page', async () => {
+  const { svc, events, prepared } = renderService();
+  await svc.importFiles([file('a.mp4')]);
+  await settle();
+  svc.edit({ op: 'overlay-add', overlay: { kind: 'title', text: 'หัวข้อ', start: 1, end: 3 } });
+  assert.deepStrictEqual(svc.snapshot().overlays.map((o) => [o.id, o.text]), [['o1', 'หัวข้อ']]);
+  assert.throws(() => svc.edit({ op: 'overlay-add', overlay: { kind: 'title', text: '', start: 1, end: 3 } }), /ว่างไม่ได้/);
+  svc.startRender({});
+  await renderDone(events);
+  assert.match(prepared[0].html, /class="clip ov ov-title"/);
+  svc.history.undo();
+  assert.deepStrictEqual(svc.snapshot().overlays, []);
+});
+
+test('overlays: a JARVIS style cut does not delete them', async () => {
+  const { svc, events } = cutService({ ask: async () => '{"clips":[{"piece":"p1"}],"summary":"x"}' });
+  await svc.importFiles([file('a.mp4')]);
+  svc.edit({ op: 'overlay-add', overlay: { kind: 'lower', text: 'ชื่อ', start: 0, end: 2 } });
+  svc.startCut({ styleId: 'viral' });
+  const done = await cutDone(events);
+  assert.strictEqual(done.result.ok, true);
+  assert.deepStrictEqual(svc.snapshot().overlays.map((o) => o.text), ['ชื่อ']);
+  assert.strictEqual(svc.snapshot().overlays[0].id, 'o1');
+});
+
+test('captions: retime a line; it must stay inside the clip, be long enough and not run into its neighbours', async () => {
+  const { svc } = cutService({ ask: async () => '' });
+  await svc.importFiles([file('a.mp4')]);
+  await settle();
+  const segs = () => svc.snapshot().sources[0].analysis.transcript.segments;
+  assert.deepStrictEqual([segs()[0].start, segs()[0].end, segs()[1].start, segs()[1].end], [0, 4, 7, 10]);
+  svc.setCaptionTime({ sourceId: 's1', i: 0, start: 0.5, end: 3.2 });
+  assert.deepStrictEqual([segs()[0].start, segs()[0].end], [0.5, 3.2]);
+  assert.strictEqual(segs()[0].text, 'สวัสดีครับ', 'only the time changes');
+  svc.setCaptionTime({ sourceId: 's1', i: 1, start: 4, end: 7 }); // up to its neighbour is fine: 4 == previous end? previous ends 3.2
+  assert.throws(() => svc.setCaptionTime({ sourceId: 's1', i: 1, start: 3, end: 8 }), /ทับกับประโยคก่อนหน้า/);
+  assert.throws(() => svc.setCaptionTime({ sourceId: 's1', i: 0, start: 0, end: 7.5 }), /ทับกับประโยคถัดไป/);
+  assert.throws(() => svc.setCaptionTime({ sourceId: 's1', i: 1, start: 8, end: 8.1 }), /อย่างน้อย 0\.2/);
+  assert.throws(() => svc.setCaptionTime({ sourceId: 's1', i: 1, start: 8, end: 11 }), /อยู่ในคลิป/);
+  assert.throws(() => svc.setCaptionTime({ sourceId: 's1', i: 1, start: -1, end: 8 }), /อยู่ในคลิป/);
+  assert.throws(() => svc.setCaptionTime({ sourceId: 's1', i: 1, start: NaN, end: 8 }), /ไม่ถูกต้อง/);
+  assert.throws(() => svc.setCaptionTime({ sourceId: 's1', i: 9, start: 1, end: 2 }), /ไม่พบประโยค/);
+  assert.throws(() => svc.setCaptionTime({ sourceId: 'nope', i: 0, start: 1, end: 2 }), /ยังไม่มีคำพูด/);
+});

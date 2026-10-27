@@ -5,10 +5,12 @@
 
 import { el } from '../blocks.js';
 import { StylePicker } from './video-styles.js';
+import { FxLayer } from './video-preview.js';
 import { layout, locate, timelineTime, mapRanges, fmtTime, ticks, fitZoom, frameStep, totalLength } from './video-timeline.js';
 
 const $ = (id) => document.getElementById(id);
-const LANE_LABELS = { clips: 'คลิป', silence: 'ช่วงเงียบ', speech: 'คำพูด' };
+const LANE_LABELS = { clips: 'คลิป', silence: 'ช่วงเงียบ', speech: 'คำพูด', anim: 'อนิเมชั่น' };
+const OV_NAMES = { title: 'หัวข้อ', lower: 'ป้ายชื่อ', counter: 'ตัวเลข' };
 
 function isField(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
@@ -47,10 +49,12 @@ export class VideoEditor {
     this.seekToken = 0;
     this.sel = null; // id of the selected clip
     this.editing = null; // { srcId, i }: a transcript line being typed over
+    this.ovEditing = null; // id of the animation loaded in the form
 
     this.root = $('video-editor');
     this.styles = new StylePicker({ api, notice });
     this.video = $('ve-video');
+    this.fx = new FxLayer($('ve-fx-layer'), this.video);
     this._wire();
     api.on('video:state', (s) => this.setState(s));
     api.on('video:progress', (p) => this.setProgress(p));
@@ -121,6 +125,101 @@ export class VideoEditor {
     box.replaceChildren(...kids.filter(Boolean));
   }
 
+  // ---------- animations over the picture ----------
+  /** Shows the inputs the chosen kind needs. */
+  _ovFields() {
+    const kind = $('ve-ov-kind').value;
+    $('ve-ov-text').placeholder = kind === 'counter' ? 'คำใต้ตัวเลข เช่น ผู้ติดตาม (ไม่บังคับ)' : kind === 'lower' ? 'ชื่อ เช่น ฟัซมี' : 'ข้อความหัวข้อ เช่น ข้อ 1 ห้ามพลาด!';
+    $('ve-ov-text2').hidden = kind !== 'lower';
+    for (const id of ['ve-ov-from', 've-ov-to', 've-ov-suffix']) $(id).hidden = kind !== 'counter';
+  }
+
+  /** "เพิ่มหัวข้อ …": starts at the playhead and stays 3 s (3.5 s for a counter). */
+  async addOverlayByVoice(overlay) {
+    const start = Math.round(this.t * 10) / 10;
+    const ok = await this.edit({ op: 'overlay-add', overlay: { ...overlay, start, end: start + (overlay.kind === 'counter' ? 3.5 : 3) } });
+    if (ok) this.notice(`เพิ่ม${OV_NAMES[overlay.kind]}ที่ ${fmtTime(start)} แล้ว — ปรับเวลาและข้อความได้ที่ช่อง "อนิเมชั่นซ้อนคลิป"`, 'info', null, 4000);
+    return ok;
+  }
+
+  /** "ลบอนิเมชั่น": the one on screen at the playhead, else the last added; "ทั้งหมด" removes every one. */
+  async removeOverlayByVoice(all) {
+    const items = this.snap.overlays || [];
+    if (!items.length) return this.notice('ยังไม่มีอนิเมชั่นให้ลบ', 'info', null, 3000);
+    if (all) {
+      for (const o of items) await this.edit({ op: 'overlay-remove', id: o.id });
+      this._ovReset();
+      return true;
+    }
+    const target = items.find((o) => this.t >= o.start && this.t <= o.end) || items[items.length - 1];
+    if (this.ovEditing === target.id) this._ovReset();
+    return this.edit({ op: 'overlay-remove', id: target.id });
+  }
+
+  _ovReset() {
+    this.ovEditing = null;
+    $('ve-ov-text').value = '';
+    $('ve-ov-text2').value = '';
+    $('ve-ov-from').value = '';
+    $('ve-ov-to').value = '';
+    $('ve-ov-suffix').value = '';
+    $('ve-ov-start').value = '';
+    $('ve-ov-save').textContent = '＋ เพิ่มอนิเมชั่น';
+    $('ve-ov-cancel').hidden = true;
+    this._ovFields();
+    this._renderOverlays();
+  }
+
+  /** Puts an existing animation in the form so it can be changed. */
+  loadOverlay(o) {
+    this.ovEditing = o.id;
+    $('ve-ov-kind').value = o.kind;
+    $('ve-ov-text').value = o.text;
+    $('ve-ov-text2').value = o.text2 || '';
+    $('ve-ov-from').value = o.kind === 'counter' ? String(o.from) : '';
+    $('ve-ov-to').value = o.kind === 'counter' ? String(o.to) : '';
+    $('ve-ov-suffix').value = o.suffix || '';
+    $('ve-ov-start').value = String(o.start);
+    $('ve-ov-len').value = String(Math.round((o.end - o.start) * 10) / 10);
+    $('ve-ov-save').textContent = 'บันทึกการแก้';
+    $('ve-ov-cancel').hidden = false;
+    this._ovFields();
+    this._renderOverlays();
+  }
+
+  async saveOverlay() {
+    const kind = $('ve-ov-kind').value;
+    const num = (id) => { const x = $(id).value.trim(); return x === '' ? undefined : Number(x); };
+    const startIn = num('ve-ov-start');
+    const start = startIn === undefined ? Math.round(this.t * 10) / 10 : startIn;
+    const len = num('ve-ov-len') || 3;
+    const overlay = { kind, text: $('ve-ov-text').value, start, end: start + len };
+    if (kind === 'lower') overlay.text2 = $('ve-ov-text2').value;
+    if (kind === 'counter') {
+      overlay.from = num('ve-ov-from') ?? 0;
+      overlay.to = num('ve-ov-to');
+      overlay.suffix = $('ve-ov-suffix').value;
+      if (overlay.to === undefined) return this.notice('ใส่ตัวเลขปลายทางช่อง "ถึง" ก่อน', 'warn');
+    }
+    const ok = await this.edit(this.ovEditing ? { op: 'overlay-update', id: this.ovEditing, overlay } : { op: 'overlay-add', overlay });
+    if (ok) this._ovReset();
+  }
+
+  _renderOverlays() {
+    const list = $('ve-ov-list');
+    const items = this.snap.overlays || [];
+    this._ovFields();
+    list.replaceChildren(...(items.length
+      ? items.map((o) => el('li', { class: o.id === this.ovEditing ? 've-ov-row on' : 've-ov-row' },
+        el('button', { class: 've-line', type: 'button', title: 'ไปที่อนิเมชั่นนี้', onclick: () => { this.pause(); this.seek(o.start); } },
+          el('span', { class: 'mono dim', text: fmtTime(o.start) }),
+          el('span', { text: `${OV_NAMES[o.kind] || o.kind}: ${o.text || (o.kind === 'counter' ? `${o.from} → ${o.to}${o.suffix}` : '')}` })),
+        el('span', { class: 've-line-tools show' },
+          el('button', { class: 've-mini', type: 'button', title: 'แก้', 'aria-label': 'แก้อนิเมชั่น', text: '✎', onclick: () => this.loadOverlay(o) }),
+          el('button', { class: 've-mini', type: 'button', title: 'ลบ', 'aria-label': 'ลบอนิเมชั่น', text: '🗑', onclick: () => { if (this.ovEditing === o.id) this._ovReset(); this.edit({ op: 'overlay-remove', id: o.id }); } }))))
+      : [el('li', { class: 'dim', text: 'ยังไม่มีอนิเมชั่น — เลื่อนหัวอ่านไปจุดที่ต้องการ แล้วกดเพิ่ม' })]));
+  }
+
   // ---------- video with subtitles (HyperFrames) ----------
   async startRender() {
     this.pause();
@@ -132,10 +231,12 @@ export class VideoEditor {
     }
   }
 
-  _fillPresets({ presets, fits, fx, sfx }) {
+  _fillPresets({ presets, fits, fx, sfx, fxOut }) {
     this.presets = presets;
     this.fxLabels = Object.fromEntries(fx.map((x) => [x.id, x.label]));
     this.sfxLabels = Object.fromEntries(sfx.map((x) => [x.id, x.label]));
+    this.fxOutLabels = Object.fromEntries(fxOut.map((x) => [x.id, x.label]));
+    $('ve-fxout').replaceChildren(...fxOut.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ออก: ไม่มี' : `ออก: ${x.label}` })));
     $('ve-fx').replaceChildren(...fx.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ภาพ: ไม่มีเอฟเฟกต์' : `ภาพ: ${x.label}` })));
     $('ve-sfx').replaceChildren(...sfx.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'เสียง: ไม่มี' : `เสียง: ${x.label}` })));
     this._renderTools();
@@ -367,9 +468,13 @@ export class VideoEditor {
   }
 
   /** Voice commands from handsfree/commands.js (action 'edit'). */
-  voice(op) {
+  voice(cmd) {
     if (!this.snap.sources.length) return this.notice('ยังไม่มีคลิปในหน้าตัดต่อ', 'warn');
+    const op = typeof cmd === 'string' ? cmd : cmd.op;
     switch (op) {
+      case 'overlay-add': return this.addOverlayByVoice(cmd.overlay);
+      case 'overlay-remove': return this.removeOverlayByVoice(cmd.all);
+      case 'fx': return cmd.all ? this.edit({ op: 'fx-all', ...cmd.change }) : this.setClipFx(cmd.change);
       case 'split': return this.split();
       case 'delete': return this.removeClip();
       case 'faster': return this.nudgeSpeed(1);
@@ -397,11 +502,12 @@ export class VideoEditor {
     }
     const fxSel = $('ve-fx');
     const sfxSel = $('ve-sfx');
-    fxSel.disabled = sfxSel.disabled = !has || !c;
+    fxSel.disabled = sfxSel.disabled = $('ve-fxout').disabled = !has || !c;
     $('ve-fx-all').disabled = !has || this.snap.clips.length < 2;
     if (c) {
       fxSel.value = c.fx || 'none';
       sfxSel.value = c.sfx || 'none';
+      $('ve-fxout').value = c.fxOut || 'none';
     }
     const i = c ? this.snap.clips.findIndex((x) => x.id === c.id) : -1;
     $('ve-sel-hint').textContent = c ? `${this.sel === c.id ? 'เลือก' : 'ใต้หัวอ่าน'}: ช่วงที่ ${i + 1}/${this.snap.clips.length}` : '';
@@ -444,7 +550,12 @@ export class VideoEditor {
     $('ve-speed').onchange = (e) => this.setClipSpeed(Number(e.target.value));
     $('ve-fx').onchange = (e) => this.setClipFx({ fx: e.target.value });
     $('ve-sfx').onchange = (e) => this.setClipFx({ sfx: e.target.value });
-    $('ve-fx-all').onclick = () => this.edit({ op: 'fx-all', fx: $('ve-fx').value, sfx: $('ve-sfx').value });
+    $('ve-fxout').onchange = (e) => this.setClipFx({ fxOut: e.target.value });
+    $('ve-ov-kind').onchange = () => this._ovFields();
+    $('ve-cap-style').onchange = () => { this.fx.key = ''; this._paintFx(); };
+    $('ve-ov-save').onclick = () => this.saveOverlay();
+    $('ve-ov-cancel').onclick = () => this._ovReset();
+    $('ve-fx-all').onclick = () => this.edit({ op: 'fx-all', fx: $('ve-fx').value, sfx: $('ve-sfx').value, fxOut: $('ve-fxout').value });
     $('ve-undo').onclick = () => this.undo();
     $('ve-redo').onclick = () => this.redo();
 
@@ -470,7 +581,7 @@ export class VideoEditor {
       return Math.max(0, Math.min(this.snap.duration, (e.clientX - r.left) / this.pxPerSec));
     };
     tl.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || !this.snap.clips.length || e.target.closest('.ve-clip')) return;
+      if (e.button !== 0 || !this.snap.clips.length || e.target.closest('.ve-clip, .ve-anim, .ve-say.drag')) return;
       dragging = true;
       tl.setPointerCapture(e.pointerId);
       this.wasPlaying = this.playing;
@@ -736,9 +847,11 @@ export class VideoEditor {
     this._renderCut();
     this._renderRender();
     this._renderExportNote();
+    this._renderOverlays();
     this._renderTools();
     if (!has) return;
     this._renderPreviewShape();
+    this.fx.measure();
     this._renderSources();
     this._renderTimeline();
     this._renderTime();
@@ -810,7 +923,8 @@ export class VideoEditor {
         el('span', { class: 've-grip ve-grip-l', 'data-edge': 'in' }),
         el('span', { class: 've-clip-name', text: src ? src.name : r.clip.src }),
         r.clip.speed !== 1 ? el('span', { class: 've-clip-speed mono', text: `${r.clip.speed}×` }) : null,
-        r.clip.fx && r.clip.fx !== 'none' ? el('span', { class: 've-clip-fx', title: `เอฟเฟกต์ภาพ: ${(this.fxLabels || {})[r.clip.fx] || r.clip.fx}`, text: '✨' }) : null,
+        r.clip.fx && r.clip.fx !== 'none' ? el('span', { class: 've-clip-fx', title: `เอฟเฟกต์ตอนเข้า: ${(this.fxLabels || {})[r.clip.fx] || r.clip.fx}`, text: '✨' }) : null,
+        r.clip.fxOut && r.clip.fxOut !== 'none' ? el('span', { class: 've-clip-fx', title: `เอฟเฟกต์ตอนออก: ${(this.fxOutLabels || {})[r.clip.fxOut] || r.clip.fxOut}`, text: '🌗' }) : null,
         r.clip.sfx && r.clip.sfx !== 'none' ? el('span', { class: 've-clip-fx', title: `เสียง: ${(this.sfxLabels || {})[r.clip.sfx] || r.clip.sfx}`, text: '🔊' }) : null,
         el('span', { class: 've-grip ve-grip-r', 'data-edge': 'out' }));
       b.style.cssText = `left:${px(r.start)};width:${px(r.end - r.start)}`;
@@ -823,7 +937,7 @@ export class VideoEditor {
     for (const s of this.snap.sources) {
       if (!s.analysis) continue;
       silences.push(...mapRanges(this.snap.clips, s.id, s.analysis.silences));
-      if (s.analysis.transcript) speech.push(...mapRanges(this.snap.clips, s.id, s.analysis.transcript.segments));
+      if (s.analysis.transcript) speech.push(...mapRanges(this.snap.clips, s.id, s.analysis.transcript.segments).map((g) => ({ ...g, srcId: s.id })));
     }
     $('ve-lane-silence').replaceChildren(...silences.map((g) => {
       const b = el('div', { class: 've-sil', title: `เงียบ ${fmtTime(g.end - g.start)}` });
@@ -831,11 +945,84 @@ export class VideoEditor {
       return b;
     }));
     $('ve-lane-speech').replaceChildren(...speech.map((g) => {
-      const b = el('div', { class: 've-say', title: g.text }, el('span', { text: g.text }));
+      // a line that lies wholly inside one clip can be dragged; one cut across clips cannot (which edge?)
+      const src = this._source(g.srcId);
+      const seg = src && src.analysis.transcript.segments[g.i];
+      const loc = locate(this.snap.clips, (g.start + g.end) / 2);
+      const clip = loc && loc.clip;
+      const drag = !!(seg && clip && clip.src === g.srcId && seg.start >= clip.in - 1e-6 && seg.end <= clip.out + 1e-6);
+      const b = el('div', { class: drag ? 've-say drag' : 've-say', title: drag ? `${g.text} — ลากขอบเพื่อปรับเวลาซับ ลากกลางเพื่อเลื่อน` : g.text },
+        drag ? el('span', { class: 've-grip ve-grip-l', 'data-edge': 'in' }) : null,
+        el('span', { class: 've-say-text', text: g.text }),
+        drag ? el('span', { class: 've-grip ve-grip-r', 'data-edge': 'out' }) : null);
       b.style.cssText = `left:${px(g.start)};width:${px(g.end - g.start)}`;
+      if (drag) b.addEventListener('pointerdown', (e) => this._sayDown(e, g, seg, clip, b));
+      return b;
+    }));
+    $('ve-lane-anim').replaceChildren(...(this.snap.overlays || []).filter((o) => o.start < duration).map((o) => {
+      const b = el('div', { class: o.id === this.ovEditing ? 've-anim on' : 've-anim', title: `${OV_NAMES[o.kind] || o.kind}: ${o.text} — กดเพื่อแก้` }, el('span', { text: o.text || OV_NAMES[o.kind] }));
+      b.style.cssText = `left:${px(o.start)};width:${px(Math.min(o.end, duration) - o.start)}`;
+      b.addEventListener('click', () => { this.loadOverlay(o); this.pause(); this.seek(o.start); });
       return b;
     }));
     for (const [k, label] of Object.entries(LANE_LABELS)) $(`ve-label-${k}`).textContent = label;
+  }
+
+  /** Press on a subtitle block: drag an edge to retime it, drag the middle to move it, click to go there. */
+  _sayDown(e, g, seg, clip, b) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const edge = e.target.dataset && e.target.dataset.edge;
+    const segs = this._source(g.srcId).analysis.transcript.segments;
+    const prev = segs[g.i - 1];
+    const next = segs[g.i + 1];
+    const lo = Math.max(clip.in, prev ? prev.end : 0);
+    const hi = Math.min(clip.out, next ? next.start : Infinity);
+    const MIN = 0.2;
+    const x0 = e.clientX;
+    const pps = this.pxPerSec;
+    const px = (t) => `${(t * pps).toFixed(1)}px`;
+    const clamp = (x, a, z) => Math.max(a, Math.min(z, x));
+    this.pause();
+    try { b.setPointerCapture(e.pointerId); } catch { /* the block was redrawn under the pointer */ }
+    let moved = false;
+    let res = null;
+    const onMove = (ev) => {
+      const dx = ev.clientX - x0;
+      if (!moved && Math.abs(dx) < DRAG_PX) return;
+      moved = true;
+      const d = (dx / pps) * clip.speed; // source seconds
+      let a = seg.start;
+      let z = seg.end;
+      if (edge === 'in') a = clamp(seg.start + d, lo, seg.end - MIN);
+      else if (edge === 'out') z = clamp(seg.end + d, seg.start + MIN, hi);
+      else {
+        const len = seg.end - seg.start;
+        a = clamp(seg.start + d, lo, hi - len);
+        z = a + len;
+      }
+      res = { start: a, end: z };
+      b.style.left = px(g.start + (a - seg.start) / clip.speed);
+      b.style.width = px((z - a) / clip.speed);
+    };
+    const done = async (ev) => {
+      b.removeEventListener('pointermove', onMove);
+      b.removeEventListener('pointerup', done);
+      b.removeEventListener('pointercancel', done);
+      try { b.releasePointerCapture(ev.pointerId); } catch { /* already released */ }
+      if (!moved) {
+        const r = $('ve-track').getBoundingClientRect();
+        this.seek((ev.clientX - r.left) / pps);
+        return;
+      }
+      const ok = res && (res.start !== seg.start || res.end !== seg.end)
+        ? await this.captionCall('video:caption-time', { sourceId: g.srcId, i: g.i, start: res.start, end: res.end })
+        : false;
+      if (!ok) this._renderTimeline(); // put the block back
+    };
+    b.addEventListener('pointermove', onMove);
+    b.addEventListener('pointerup', done);
+    b.addEventListener('pointercancel', done);
   }
 
   /** Press on a clip: click selects, dragging the body moves it, dragging an edge trims it. */
@@ -849,7 +1036,7 @@ export class VideoEditor {
     const len = row.end - row.start;
     const wasPlaying = this.playing;
     this.pause();
-    b.setPointerCapture(e.pointerId);
+    try { b.setPointerCapture(e.pointerId); } catch { /* the block was redrawn under the pointer */ }
     let moved = false;
     let result = null; // { in, out } for a trim, { to } for a move
 
@@ -903,7 +1090,15 @@ export class VideoEditor {
     b.addEventListener('pointercancel', done);
   }
 
+  /** The live look of effects, animations and subtitles at the playhead (see ui/video-preview.js). */
+  _paintFx() {
+    if (!this.snap.clips.length) return this.fx.clear();
+    this.fx.build(this.snap.overlays || [], $('ve-cap-style').value);
+    this.fx.paint(this.t, { rows: layout(this.snap.clips), captions: this.snap.captions || [] });
+  }
+
   _renderTime() {
+    this._paintFx();
     const d = this.snap.duration || totalLength(this.snap.clips);
     $('ve-time').textContent = `${fmtTime(this.t)} / ${fmtTime(d)}`;
     $('ve-playhead').style.left = `${(this.t * this.pxPerSec).toFixed(1)}px`;

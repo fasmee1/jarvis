@@ -441,3 +441,43 @@ test('EDIT page voice commands: only while the page is showing', async () => {
   assert.strictEqual(op('ตัดคลิปนี้ให้เหลือสามสิบวินาทีแล้วใส่เพลง'), null, 'long requests still go to Claude');
   assert.strictEqual(parseCommand('หยุด', edit).action, 'stop', 'plain stop is unchanged');
 });
+
+test('EDIT page voice: effects in, out, sounds, every cut, and taking them off', async () => {
+  const { parseCommand } = await import('../renderer/handsfree/commands.js');
+  const get = (t, ctx = { edit: true }) => parseCommand(t, ctx);
+  const fx = (t) => { const c = get(t); return c && c.action === 'edit' && c.op === 'fx' ? { all: c.all, ...c.change } : null; };
+  assert.deepStrictEqual(fx('เอฟเฟกต์ซูม'), { all: false, fx: 'zoom' });
+  assert.deepStrictEqual(fx('ใส่เอฟเฟกต์เฟดครับ'), { all: false, fx: 'fade' });
+  assert.deepStrictEqual(fx('เอฟเฟคเบลอ'), { all: false, fx: 'blur' }, 'a common spelling');
+  assert.deepStrictEqual(fx('ใส่เอฟเฟกต์ตอนออกเฟด'), { all: false, fxOut: 'fade' });
+  assert.deepStrictEqual(fx('ตอนออกสไลด์'), { all: false, fxOut: 'slide' });
+  assert.deepStrictEqual(fx('เสียงวูช'), { all: false, sfx: 'whoosh' });
+  assert.deepStrictEqual(fx('ใส่เสียงติ๊ง'), { all: false, sfx: 'ding' });
+  assert.deepStrictEqual(fx('เสียงป๊อปทุกรอยต่อ'), { all: true, sfx: 'pop' });
+  assert.deepStrictEqual(fx('ใส่เอฟเฟกต์แฟลชทุกรอยต่อ'), { all: true, fx: 'flash' });
+  assert.deepStrictEqual(fx('เอาเอฟเฟกต์ออก'), { all: false, fx: 'none', fxOut: 'none', sfx: 'none' });
+  assert.deepStrictEqual(fx('เอาเสียงเอฟเฟกต์ออก'), { all: false, sfx: 'none' });
+  assert.strictEqual(fx('ซูม'), null, 'a bare word is not a command');
+  assert.strictEqual(get('เอฟเฟกต์ซูม', {}), null, 'not on other pages');
+  assert.strictEqual(fx('ใส่เอฟเฟกต์ซูมให้ทุกช่วงแล้วสรุปคลิปให้หน่อย'), null, 'long requests still go to Claude');
+});
+
+test('EDIT page voice: add and remove animations, keeping the words the user said', async () => {
+  const { parseCommand } = await import('../renderer/handsfree/commands.js');
+  const ov = (text, ctx = { edit: true }) => { const c = parseCommand(text, ctx); return c && c.action === 'edit' ? c : null; };
+  assert.deepStrictEqual(ov('เพิ่มหัวข้อ ข้อ 1 ห้ามพลาด').overlay, { kind: 'title', text: 'ข้อ 1 ห้ามพลาด' });
+  assert.deepStrictEqual(ov('ใส่หัวข้อว่า สอนทำกาแฟเย็นครับ').overlay, { kind: 'title', text: 'สอนทำกาแฟเย็น' });
+  assert.deepStrictEqual(ov('เพิ่มอนิเมชั่นหัวข้อ โปรโมชั่นพิเศษ').overlay, { kind: 'title', text: 'โปรโมชั่นพิเศษ' });
+  assert.deepStrictEqual(ov('ใส่แอนิเมชันหัวข้อ ราคาเดียว').overlay, { kind: 'title', text: 'ราคาเดียว' });
+  assert.deepStrictEqual(ov('ใส่ป้ายชื่อ ฟัซมี').overlay, { kind: 'lower', text: 'ฟัซมี', text2: '' });
+  assert.deepStrictEqual(ov('ใส่ป้ายชื่อ ฟัซมี ตำแหน่ง ผู้สร้าง JARVIS').overlay, { kind: 'lower', text: 'ฟัซมี', text2: 'ผู้สร้าง JARVIS' });
+  assert.deepStrictEqual(ov('ใส่ตัวเลขนับขึ้น 12500 ผู้ติดตาม').overlay, { kind: 'counter', to: 12500, text: 'ผู้ติดตาม' });
+  assert.deepStrictEqual(ov('เพิ่มตัวเลข 1,200,000 ยอดวิว').overlay, { kind: 'counter', to: 1200000, text: 'ยอดวิว' });
+  assert.deepStrictEqual(ov('ใส่ตัวเลขนับขึ้น ๕๐๐').overlay, { kind: 'counter', to: 500, text: '' });
+  assert.strictEqual(ov('ลบอนิเมชั่น').op, 'overlay-remove');
+  assert.strictEqual(ov('ลบอนิเมชั่น').all, false);
+  assert.strictEqual(ov('ลบอนิเมชั่นทั้งหมด').all, true);
+  assert.strictEqual(ov('เพิ่มหัวข้อ', { edit: true }), null, 'no words, no animation');
+  assert.strictEqual(ov('เพิ่มหัวข้อ ข้อ 1', {}), null, 'not on other pages');
+  assert.strictEqual(ov('เพิ่มหัวข้อ ข้อ 1').overlay.text.length > 0, true);
+});

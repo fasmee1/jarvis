@@ -201,3 +201,78 @@ test('project: effects become tweens, a flash layer and sounds placed just befor
   assert.ok(!/#m-c3/.test(html), 'no picture effect on an audio clip');
   assert.ok(!/sfx-2/.test(html), 'a sound without a file plays nothing');
 });
+
+test('effects out: ids, tweens, split keeps the way out at the end, set for every cut but the last', () => {
+  const fxm = require('../lib/video/effects');
+  const E3 = require('../lib/video/edit-list');
+  assert.ok(fxm.isFxOut('fade') && !fxm.isFxOut('flash') && !fxm.isFxOut('toString'));
+  assert.deepStrictEqual(fxm.fxOutTween('none', { video: 'm-c1', end: 5 }), []);
+  assert.match(fxm.fxOutTween('fade', { video: 'm-c1', end: 5 })[0], /^tl\.to\("#m-c1", \{ opacity: 0, duration: 0\.4.*, 4\.6\);$/);
+  assert.match(fxm.fxOutTween('zoom', { video: 'm-c1', end: 0.2 })[0], /, 0\);$/, 'never before time 0');
+  let list = E3.emptyList([{ id: 's1', path: 'x', duration: 20 }]);
+  list = E3.addClip(list, { src: 's1', in: 0, out: 10 });
+  list = E3.applyOp(list, { op: 'fx', id: list.clips[0].id, fxOut: 'slide' });
+  const cut = E3.splitAt(list, 4);
+  assert.strictEqual(cut.clips[0].fxOut, 'none', 'the first half no longer ends the clip');
+  assert.strictEqual(cut.clips[1].fxOut, 'slide', 'the second half does');
+  assert.throws(() => E3.applyOp(list, { op: 'fx', id: list.clips[0].id, fxOut: 'flash' }), /เอฟเฟกต์ตอนออกไม่รู้จัก/);
+  const three = E3.splitAt(cut, 7);
+  const all = E3.applyOp(three, { op: 'fx-all', fx: 'zoom', fxOut: 'fade' });
+  assert.deepStrictEqual(all.clips.map((c) => c.fx || 'none'), ['none', 'zoom', 'zoom']);
+  assert.deepStrictEqual(all.clips.map((c) => c.fxOut), ['fade', 'fade', 'slide'], 'the last clip keeps its own way out');
+  const { buildProject } = require('../lib/video/hf-project');
+  const { html } = buildProject({ clips: all.clips, sources: { s1: { file: 'assets/s1.mp4', kind: 'video', audio: true } }, canvas: { width: 1080, height: 1920 } });
+  assert.match(html, /tl\.to\("#m-c1", \{ opacity: 0, duration: 0\.4/);
+});
+
+test('overlays: add, update, remove are checked, numbered and undoable', () => {
+  const E4 = require('../lib/video/edit-list');
+  let list = E4.emptyList([{ id: 's1', path: 'x', duration: 20 }]);
+  list = E4.addClip(list, { src: 's1', in: 0, out: 10 });
+  list = E4.applyOp(list, { op: 'overlay-add', overlay: { kind: 'title', text: '  ข้อ 1   ห้ามพลาด ', start: 1, end: 4 } });
+  list = E4.applyOp(list, { op: 'overlay-add', overlay: { kind: 'lower', text: 'ฟัซมี', text2: 'ผู้สร้าง', start: 4, end: 7 } });
+  list = E4.applyOp(list, { op: 'overlay-add', overlay: { kind: 'counter', text: 'ผู้ติดตาม', to: 12500, suffix: '+', start: 5, end: 9 } });
+  assert.deepStrictEqual(list.overlays.map((o) => o.id), ['o1', 'o2', 'o3']);
+  assert.strictEqual(list.overlays[0].text, 'ข้อ 1 ห้ามพลาด');
+  assert.deepStrictEqual([list.overlays[2].from, list.overlays[2].to, list.overlays[2].suffix], [0, 12500, '+']);
+  assert.strictEqual(list.overlays[0].text2, '', 'only a name tag has a second line');
+  const upd = E4.applyOp(list, { op: 'overlay-update', id: 'o1', overlay: { text: 'เปลี่ยนแล้ว', end: 5 } });
+  assert.deepStrictEqual([upd.overlays[0].text, upd.overlays[0].start, upd.overlays[0].end], ['เปลี่ยนแล้ว', 1, 5]);
+  assert.strictEqual(E4.applyOp(upd, { op: 'overlay-remove', id: 'o2' }).overlays.length, 2);
+  const again = E4.applyOp(E4.applyOp(list, { op: 'overlay-remove', id: 'o3' }), { op: 'overlay-add', overlay: { kind: 'title', text: 'ใหม่', start: 0, end: 1 } });
+  assert.strictEqual(again.overlays[2].id, 'o4', 'ids are never reused');
+  const bad = (o) => () => E4.applyOp(list, { op: 'overlay-add', overlay: o });
+  assert.throws(bad({ kind: 'confetti', text: 'x', start: 0, end: 2 }), /ชนิดอนิเมชั่น/);
+  assert.throws(bad({ kind: 'title', text: '  ', start: 0, end: 2 }), /ว่างไม่ได้/);
+  assert.throws(bad({ kind: 'title', text: 'ก'.repeat(61), start: 0, end: 2 }), /ยาวเกินไป/);
+  assert.throws(bad({ kind: 'title', text: 'x', start: -1, end: 2 }), /เวลาอนิเมชั่น/);
+  assert.throws(bad({ kind: 'title', text: 'x', start: 1, end: 1.2 }), /อย่างน้อย 0\.5/);
+  assert.throws(bad({ kind: 'title', text: 'x', start: 0, end: 31 }), /ไม่เกิน 30/);
+  assert.throws(bad({ kind: 'counter', text: '', start: 0, end: 2 }), /ตัวเลข/);
+  assert.throws(bad({ kind: 'counter', to: 1e12, start: 0, end: 2 }), /พันล้าน/);
+  assert.throws(() => E4.applyOp(list, { op: 'overlay-update', id: 'zzz', overlay: {} }), /ไม่พบอนิเมชั่น/);
+  assert.throws(() => E4.applyOp(list, { op: 'overlay-remove', id: 'zzz' }), /ไม่พบอนิเมชั่น/);
+  const h = new E4.EditHistory(list);
+  h.apply(E4.applyOp, { op: 'overlay-remove', id: 'o1' });
+  assert.strictEqual(h.list.overlays.length, 2);
+  h.undo();
+  assert.strictEqual(h.list.overlays.length, 3);
+});
+
+test('project: overlays become a title pill, a name tag and a counting number; text is escaped', () => {
+  const { buildProject } = require('../lib/video/hf-project');
+  const overlays = [
+    { id: 'o1', kind: 'title', text: 'a <b> & "q"', start: 1, end: 4 },
+    { id: 'o2', kind: 'lower', text: 'ฟัซมี', text2: 'ผู้สร้าง', start: 4, end: 8 },
+    { id: 'o3', kind: 'counter', text: 'ผู้ติดตาม', from: 0, to: 12500, suffix: '+', start: 5, end: 9 },
+    { id: 'o4', kind: 'title', text: 'past the end', start: 20, end: 25 },
+    { id: 'o5', kind: 'title', text: 'cut by the end', start: 9.9, end: 14 },
+  ];
+  const { html } = buildProject({ clips: [{ id: 'c1', src: 's1', in: 0, out: 10, speed: 1 }], sources: { s1: { file: 'assets/s1.mp4', kind: 'video', audio: true } }, canvas: { width: 1080, height: 1920 }, overlays });
+  assert.match(html, /<div id="ov-0" class="clip ov ov-title" data-start="1" data-duration="3" data-track-index="12"><span>a &lt;b&gt; &amp; &quot;q&quot;<\/span>/);
+  assert.match(html, /<div class="ov-name">ฟัซมี<\/div><div class="ov-role">ผู้สร้าง<\/div>/);
+  assert.match(html, /<div id="ov-2-n">0\+<\/div><div class="ov-label">ผู้ติดตาม<\/div>/);
+  assert.match(html, /const st2 = \{ v: 0 \}; tl\.to\(st2, \{ v: 12500, duration: 2,/);
+  assert.ok(!/past the end/.test(html) && !/cut by the end/.test(html), 'outside the video, or too short to see');
+  assert.ok(!/<ov/.test(html));
+});

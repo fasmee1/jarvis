@@ -325,7 +325,67 @@ const EDIT = {
   start: R('^(?:กลับไปต้น|กลับไปต้นคลิป|ไปต้นคลิป|ไปเริ่มต้น|กลับไปเริ่มต้น|ไปที่ต้น|เริ่มต้น|ต้นคลิป|gotostart|backtostart)$'),
 };
 
-function editCommand(t) {
+// effects by voice: "เอฟเฟกต์ซูม", "ใส่เอฟเฟกต์ตอนออกเฟด", "เสียงวูช", "ใส่เอฟเฟกต์เฟดทุกรอยต่อ", "เอาเอฟเฟกต์ออก"
+const FX_WORD = '(เฟด|แฟลช|ซูม|สไลด์|เบลอ)';
+const EFFECT = '(?:เอฟเฟ็?[กค]|effect)';
+const FX_BY_WORD = { เฟด: 'fade', แฟลช: 'flash', ซูม: 'zoom', สไลด์: 'slide', เบลอ: 'blur' };
+const SFX_BY_WORD = { วูช: 'whoosh', ป๊อป: 'pop', ติ๊ง: 'ding', คลิก: 'click' };
+const FX_RE = {
+  out: R(`^(?:ใส่|ตั้ง)?(?:${EFFECT})?(?:ตอนออก|ออก)${FX_WORD}(ทุกรอยต่อ)?$`),
+  in: R(`^(?:ใส่|ตั้ง)?(?:${EFFECT})(?:ตอนเข้า|เข้า)?${FX_WORD}(ทุกรอยต่อ)?$`),
+  sfx: R('^(?:ใส่|ตั้ง)?เสียง(วูช|ป๊อป|ติ๊ง|คลิก)(ทุกรอยต่อ)?$'),
+  clear: R(`^(?:เอา|ลบ|ยกเลิก)${EFFECT}(?:ทั้งหมด)?(?:ออก)?$`),
+  clearSfx: R(`^(?:เอา|ลบ|ยกเลิก)เสียง${EFFECT}(?:ออก)?$`),
+};
+const lookup = (table, word) => table[Object.keys(table).find((k) => fold(k) === word)];
+
+function fxCommand(t) {
+  let m = FX_RE.out.exec(t);
+  if (m) return { action: 'edit', op: 'fx', all: !!m[2], change: { fxOut: lookup(FX_BY_WORD, m[1]) } };
+  m = FX_RE.in.exec(t);
+  if (m) return { action: 'edit', op: 'fx', all: !!m[2], change: { fx: lookup(FX_BY_WORD, m[1]) } };
+  m = FX_RE.sfx.exec(t);
+  if (m) return { action: 'edit', op: 'fx', all: !!m[2], change: { sfx: lookup(SFX_BY_WORD, m[1]) } };
+  if (FX_RE.clearSfx.test(t)) return { action: 'edit', op: 'fx', all: false, change: { sfx: 'none' } };
+  if (FX_RE.clear.test(t)) return { action: 'edit', op: 'fx', all: false, change: { fx: 'none', fxOut: 'none', sfx: 'none' } };
+  return null;
+}
+
+// animations by voice, on the raw text so the words the user says are kept:
+//   "เพิ่มหัวข้อ ข้อ 1 ห้ามพลาด" · "ใส่ป้ายชื่อ ฟัซมี ตำแหน่ง ผู้สร้าง" · "ใส่ตัวเลขนับขึ้น 12500 ผู้ติดตาม" · "ลบอนิเมชั่น"
+const looseWord = (w) => [...w].map((ch) => (/[ก-ฮ]/.test(ch) ? `${ch}[่-๋]*` : ch)).join('');
+const ANIM_WORD = `(?:${['อนิเมชั่น', 'อนิเมชัน', 'แอนิเมชั่น', 'แอนิเมชัน', 'อนิเมชั่น'].map(looseWord).join('|')}|animation)`;
+const ADD = '(?:เพิ่ม|ใส่|สร้าง|ทำ)';
+const POLITE_END = '(?:\\s*(?:ครับ|ค่ะ|คะ|นะ|ครับผม|หน่อย))*\\s*[.!]?$';
+const ANIM_RE = {
+  title: new RegExp(`^${ADD}\\s*(?:${ANIM_WORD}\\s*)?หัวข้อ(?:เด้ง)?\\s*(?:ว่า|คือ)?\\s*(.+?)${POLITE_END}`, 'i'),
+  lower: new RegExp(`^${ADD}\\s*(?:${ANIM_WORD}\\s*)?ป้ายชื่อ\\s*(?:ว่า|คือ)?\\s*(.+?)(?:\\s+ตำแหน่ง\\s*(?:คือ)?\\s*(.+?))?${POLITE_END}`, 'i'),
+  counter: new RegExp(`^${ADD}\\s*(?:${ANIM_WORD}\\s*)?ตัวเลข(?:นับขึ้น)?\\s*([0-9๐-๙][0-9๐-๙,]*)\\s*(.*?)${POLITE_END}`, 'i'),
+  remove: new RegExp(`^(?:ลบ|เอา)\\s*${ANIM_WORD}\\s*(ทั้งหมด|ออก|นี้)?${POLITE_END}`, 'i'),
+};
+const thaiDigits = (s) => s.replace(/[๐-๙]/g, (d) => String(d.charCodeAt(0) - 0x0e50)).replace(/,/g, '');
+
+function animCommand(raw) {
+  const text = String(raw || '').trim();
+  let m = ANIM_RE.counter.exec(text);
+  if (m) {
+    const to = Number(thaiDigits(m[1]));
+    if (Number.isFinite(to)) return { action: 'edit', op: 'overlay-add', overlay: { kind: 'counter', to, text: (m[2] || '').trim().slice(0, 60) } };
+  }
+  m = ANIM_RE.lower.exec(text);
+  if (m && m[1]) return { action: 'edit', op: 'overlay-add', overlay: { kind: 'lower', text: m[1].trim().slice(0, 60), text2: (m[2] || '').trim().slice(0, 60) } };
+  m = ANIM_RE.title.exec(text);
+  if (m && m[1]) return { action: 'edit', op: 'overlay-add', overlay: { kind: 'title', text: m[1].trim().slice(0, 60) } };
+  m = ANIM_RE.remove.exec(text);
+  if (m) return { action: 'edit', op: 'overlay-remove', all: m[1] === 'ทั้งหมด' };
+  return null;
+}
+
+function editCommand(t, raw) {
+  const ac = animCommand(raw);
+  if (ac) return ac;
+  const fxc = fxCommand(t);
+  if (fxc) return fxc;
   for (const op of Object.keys(EDIT)) if (EDIT[op].test(t)) return { action: 'edit', op };
   return null;
 }
@@ -338,7 +398,7 @@ export function parseCommand(transcript, ctx = {}) {
   if (CMD.talkOpen.test(t)) return { action: 'talk-open' };
   if (CMD.talkClose.test(t)) return { action: 'talk-close' };
   if (ctx.edit) {
-    const ec = editCommand(t);
+    const ec = editCommand(t, raw);
     if (ec) return ec;
   }
   if (ctx.viewer && ctx.web) {

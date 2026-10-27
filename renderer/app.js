@@ -1295,7 +1295,7 @@ function afterTranscript(text, latency) {
   }
   if (cmd && cmd.action === 'edit' && videoEditor) {
     addSystemMsg(`🎙 ${text}`);
-    videoEditor.voice(cmd.op);
+    videoEditor.voice(cmd);
     return;
   }
   if (cmd && cmd.action === 'open-site') {
@@ -1571,7 +1571,7 @@ function hfLocal(cmd) {
     case 'talk-open':
     case 'talk-close': talkCommand(cmd.action); break;
     case 'viewer': resultViewer.command(cmd); break;
-    case 'edit': if (videoEditor) videoEditor.voice(cmd.op); break;
+    case 'edit': if (videoEditor) videoEditor.voice(cmd); break;
     case 'open-site': openSite(cmd, (t) => hfSend(t)); break;
     case 'code': codeCommand(cmd); break;
     case 'serial': serialCommand(cmd); break;
