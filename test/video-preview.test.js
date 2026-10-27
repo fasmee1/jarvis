@@ -74,3 +74,22 @@ test('preview: the subtitle line at a time', async () => {
   near(captionPop(caps[0], 0.1), 0.5);
   assert.strictEqual(captionPop(caps[0], 0.9), 1);
 });
+
+test('preview: when each sound starts, and which ones playing passes', async () => {
+  const { buildCues, cuesBetween } = await load();
+  const rows = [
+    { clip: { id: 'c1', sfx: 'none' }, start: 0, end: 4 },
+    { clip: { id: 'c2', sfx: 'whoosh' }, start: 4, end: 8 },
+    { clip: { id: 'c3', sfx: 'dl-aaaaaaaa' }, start: 8, end: 12 },
+    { clip: { id: 'c4', sfx: 'ding' }, start: 12, end: 14 },
+  ];
+  const sounds = { whoosh: { url: 'u/w', lead: 0.12 }, 'dl-aaaaaaaa': { url: 'u/d', lead: 0 }, ding: { url: '', lead: 0 } };
+  const overlays = [{ id: 'o1', start: 0.5, sfx: 'whoosh' }, { id: 'o2', start: 2, sfx: 'missing' }, { id: 'o3', start: 1, sfx: 'none' }];
+  const cues = buildCues(rows, overlays, sounds);
+  assert.deepStrictEqual(cues.map((c) => [c.at, c.id]), [[0.38, 'whoosh'], [3.88, 'whoosh'], [8, 'dl-aaaaaaaa']], 'no url or unknown id = no sound; the lead moves it before the cut');
+  assert.deepStrictEqual(cuesBetween(cues, 3.8, 3.9).map((c) => c.at), [3.88]);
+  assert.deepStrictEqual(cuesBetween(cues, 3.88, 3.95), [], 'the start of the range is exclusive: no double play');
+  assert.deepStrictEqual(cuesBetween(cues, 3.0, 8.5), [], 'a jump is a seek, not playing');
+  assert.deepStrictEqual(cuesBetween(cues, 3.95, 3.8), []);
+  assert.deepStrictEqual(buildCues([{ clip: { sfx: 'whoosh' }, start: 0.05, end: 1 }], [], sounds).map((c) => c.at), [0], 'never before time 0');
+});

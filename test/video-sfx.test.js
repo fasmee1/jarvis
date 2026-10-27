@@ -54,11 +54,11 @@ test('sfx library: a good sound is checked, converted, kept with its source and 
   lib.remove(e.id);
   assert.deepStrictEqual(lib.list(), []);
   assert.ok(!fs.existsSync(path.join(dir, `${e.id}.wav`)));
-  assert.throws(() => lib.remove(e.id), /ไม่พบเสียง/);
+  assert.throws(() => lib.remove(e.id), /ไม่พบไฟล์นี้ในคลัง/);
 });
 
 test('sfx library: refuses what is not a short sound, and leaves nothing behind', async () => {
-  for (const [opts, re] of [[{ audio: false }, /ไม่มีเสียง/], [{ duration: 42 }, /ไม่ใช่เสียงเอฟเฟกต์สั้น/], [{ duration: 0 }, /ไม่ใช่เสียงเอฟเฟกต์สั้น/], [{ convertFails: true }, /แปลงไฟล์เสียงไม่สำเร็จ/]]) {
+  for (const [opts, re] of [[{ audio: false }, /ไม่มีเสียง/], [{ duration: 42 }, /ไม่ใช่เสียงเอฟเฟกต์สั้น/], [{ duration: 0 }, /ไม่ใช่เสียงเอฟเฟกต์สั้น/], [{ convertFails: true }, /แปลงไฟล์ไม่สำเร็จ/]]) {
     const { lib, dir } = fakeLib(opts);
     await assert.rejects(lib.add({ audioUrl: GOOD, title: 't' }), re);
     assert.deepStrictEqual(fs.readdirSync(dir), [], 'no half-made file');

@@ -183,3 +183,14 @@
 .ve-fx-cap.cap-classic { text-shadow: 0 calc(var(--u) * 3px) calc(var(--u) * 12px) rgba(0, 0, 0, .95), 0 0 calc(var(--u) * 3px) rgba(0, 0, 0, .9); }
 .ve-fx-cap.cap-pop { color: #ffe14d; -webkit-text-stroke: calc(var(--u) * 6px) #000; paint-order: stroke fill; }
 .ve-fx-cap.cap-bar { background: rgba(0, 0, 0, .62); border-radius: 0.26em; padding: 0.2em 0.4em; width: fit-content; max-width: 88%; margin: 0 auto; }
+
+/* moving stickers */
+.ve-ov-item.ov-sticker { left: auto; right: auto; text-shadow: none; }
+.ve-ov-item.ov-sticker svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.ve-color { width: 36px; height: 26px; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+
+/* emoji library */
+.ve-emoji-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ve-emoji-item { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.ve-emoji-item img { display: block; }
+.ve-ov-item.ov-sticker img { width: 100%; height: 100%; display: block; }

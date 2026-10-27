@@ -5,7 +5,7 @@
 
 import { el } from '../blocks.js';
 import { StylePicker } from './video-styles.js';
-import { FxLayer } from './video-preview.js';
+import { FxLayer, buildCues, cuesBetween } from './video-preview.js';
 import { layout, locate, timelineTime, mapRanges, fmtTime, ticks, fitZoom, frameStep, totalLength } from './video-timeline.js';
 
 const $ = (id) => document.getElementById(id);
@@ -62,7 +62,11 @@ export class VideoEditor {
     api.on('video:render', (c) => this.setRenderState(c));
     api.on('video:sfx', (c) => this.setSfxState(c));
     this.sounds = [];
+    this.images = [];
     this._soundsKey = '';
+    this._imagesKey = '';
+    this.cues = [];
+    this.playingSfx = new Set();
     this.presets = [];
     api.invoke('video:export-presets').then((r) => this._fillPresets(r)).catch(() => {});
     api.invoke('video:state').then((s) => this.setState(s)).catch(() => {});
@@ -133,6 +137,12 @@ export class VideoEditor {
   _ovFields() {
     const kind = $('ve-ov-kind').value;
     $('ve-ov-text').placeholder = kind === 'counter' ? 'คำใต้ตัวเลข เช่น ผู้ติดตาม (ไม่บังคับ)' : kind === 'lower' ? 'ชื่อ เช่น ฟัซมี' : 'ข้อความหัวข้อ เช่น ข้อ 1 ห้ามพลาด!';
+    const sticker = !!(this.stickers && this.stickers[kind]);
+    const pic = kind === 'emoji';
+    $('ve-ov-text').hidden = sticker || pic;
+    for (const id of ['ve-ov-pos', 've-ov-size']) $(id).hidden = !(sticker || pic);
+    $('ve-ov-color').hidden = !sticker;
+    $('ve-ov-image').hidden = !pic;
     $('ve-ov-text2').hidden = kind !== 'lower';
     for (const id of ['ve-ov-from', 've-ov-to', 've-ov-suffix']) $(id).hidden = kind !== 'counter';
   }
@@ -168,6 +178,7 @@ export class VideoEditor {
     $('ve-ov-suffix').value = '';
     $('ve-ov-start').value = '';
     $('ve-ov-sfx').value = 'none';
+    $('ve-ov-size').value = '20';
     $('ve-ov-save').textContent = '＋ เพิ่มอนิเมชั่น';
     $('ve-ov-cancel').hidden = true;
     this._ovFields();
@@ -186,6 +197,13 @@ export class VideoEditor {
     $('ve-ov-start').value = String(o.start);
     $('ve-ov-len').value = String(Math.round((o.end - o.start) * 10) / 10);
     $('ve-ov-sfx').value = o.sfx || 'none';
+    if ((this.stickers && this.stickers[o.kind]) || o.kind === 'emoji') {
+      const near = (this.places || []).reduce((best, p) => (Math.hypot(p.x - o.x, p.y - o.y) < Math.hypot(best.x - o.x, best.y - o.y) ? p : best), this.places[0] || { x: 50, y: 50, id: 'center' });
+      $('ve-ov-pos').value = near.id;
+      $('ve-ov-size').value = String(o.size);
+      if (o.color) $('ve-ov-color').value = o.color;
+      if (o.image) $('ve-ov-image').value = o.image;
+    }
     $('ve-ov-save').textContent = 'บันทึกการแก้';
     $('ve-ov-cancel').hidden = false;
     this._ovFields();
@@ -199,6 +217,13 @@ export class VideoEditor {
     const start = startIn === undefined ? Math.round(this.t * 10) / 10 : startIn;
     const len = num('ve-ov-len') || 3;
     const overlay = { kind, text: $('ve-ov-text').value, start, end: start + len, sfx: $('ve-ov-sfx').value || 'none' };
+    if ((this.stickers && this.stickers[kind]) || kind === 'emoji') {
+      const place = (this.places || []).find((p) => p.id === $('ve-ov-pos').value) || { x: 50, y: 50 };
+      Object.assign(overlay, { x: place.x, y: place.y, size: Number($('ve-ov-size').value) || 20 });
+      if (kind === 'emoji') overlay.image = $('ve-ov-image').value;
+      else overlay.color = $('ve-ov-color').value;
+      delete overlay.text;
+    }
     if (kind === 'lower') overlay.text2 = $('ve-ov-text2').value;
     if (kind === 'counter') {
       overlay.from = num('ve-ov-from') ?? 0;
@@ -218,7 +243,7 @@ export class VideoEditor {
       ? items.map((o) => el('li', { class: o.id === this.ovEditing ? 've-ov-row on' : 've-ov-row' },
         el('button', { class: 've-line', type: 'button', title: 'ไปที่อนิเมชั่นนี้', onclick: () => { this.pause(); this.seek(o.start); } },
           el('span', { class: 'mono dim', text: fmtTime(o.start) }),
-          el('span', { text: `${OV_NAMES[o.kind] || o.kind}: ${o.text || (o.kind === 'counter' ? `${o.from} → ${o.to}${o.suffix}` : '')}` })),
+          el('span', { text: `${OV_NAMES[o.kind] || o.kind}${o.text ? `: ${o.text}` : o.kind === 'counter' ? `: ${o.from} → ${o.to}${o.suffix}` : ''}` })),
         el('span', { class: 've-line-tools show' },
           el('button', { class: 've-mini', type: 'button', title: 'แก้', 'aria-label': 'แก้อนิเมชั่น', text: '✎', onclick: () => this.loadOverlay(o) }),
           el('button', { class: 've-mini', type: 'button', title: 'ลบ', 'aria-label': 'ลบอนิเมชั่น', text: '🗑', onclick: () => { if (this.ovEditing === o.id) this._ovReset(); this.edit({ op: 'overlay-remove', id: o.id }); } }))))
@@ -233,6 +258,7 @@ export class VideoEditor {
       return;
     }
     this._fillSounds();
+    this._buildCues();
     this._renderSfx();
   }
 
@@ -249,6 +275,70 @@ export class VideoEditor {
     if (keepClip) $('ve-sfx').value = keepClip;
     if (keepOv) $('ve-ov-sfx').value = keepOv;
     this._renderTools();
+  }
+
+  async _loadImages() {
+    try {
+      this.images = (await this.api.invoke('video:assets')).images;
+    } catch {
+      return;
+    }
+    this.fx.key = '';
+    this._fillImages();
+    this._renderEmoji();
+    this._paintFx();
+  }
+
+  /** The picture choices of an "emoji" animation. */
+  _fillImages() {
+    const keep = $('ve-ov-image').value;
+    $('ve-ov-image').replaceChildren(...(this.images.length ? this.images.map((x) => el('option', { value: x.id, text: x.label })) : [el('option', { value: '', text: 'ยังไม่มีอิโมจิในคลัง' })]));
+    if (keep) $('ve-ov-image').value = keep;
+  }
+
+  async addEmoji(auto) {
+    const query = auto ? '' : $('ve-emoji-q').value.trim();
+    if (!auto && !query) return this.notice('พิมพ์อิโมจิ (เช่น 🔥) หรือคำ (เช่น ไฟ) ก่อน', 'warn');
+    try {
+      await this.api.invoke('video:emoji-find', { query });
+      this.notice(auto ? 'JARVIS กำลังเลือกอิโมจิให้ตรงกับคำพูด — ทำอย่างอื่นต่อได้' : 'กำลังเพิ่มอิโมจิเข้าคลัง', 'info', null, 4000);
+      if (!auto) $('ve-emoji-q').value = '';
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
+    }
+  }
+
+  _renderEmoji() {
+    const list = $('ve-emoji-list');
+    $('ve-emoji-add').disabled = !!(this.sfxState && this.sfxState.running);
+    $('ve-emoji-auto').disabled = !!(this.sfxState && this.sfxState.running) || !this.snap.clips.length;
+    list.replaceChildren(...(this.images.length ? this.images.map((x) => el('li', { class: 've-emoji-item', title: `${x.label} · ${x.license}` },
+      el('img', { src: x.url, alt: x.label, width: '36', height: '36' }),
+      el('button', { class: 've-mini', type: 'button', title: 'เอาออกจากคลัง (อนิเมชั่นที่ใช้อยู่จะถูกลบด้วย)', 'aria-label': 'เอาอิโมจิออกจากคลัง', text: '🗑', onclick: () => { if (confirm(`เอาอิโมจิ "${x.label}" ออกจากคลัง? อนิเมชั่นที่ใช้อิโมจินี้จะถูกลบด้วย`)) this.api.invoke('video:sfx-remove', { id: x.id }).then((s) => this.setState(s)).catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn')); } }))) : [el('li', { class: 'dim', text: 'ยังไม่มีอิโมจิในคลัง' })]));
+  }
+
+  /** The moments on the timeline where a sound starts (rebuilt whenever the timeline or the sounds change). */
+  _buildCues() {
+    const sounds = Object.fromEntries(this.sounds.filter((x) => x.url).map((x) => [x.id, x]));
+    this.cues = buildCues(layout(this.snap.clips), this.snap.overlays || [], sounds);
+  }
+
+  /** While playing: start the sounds the playhead just passed. */
+  _fireCues(from, to) {
+    for (const c of cuesBetween(this.cues, from, to)) {
+      try {
+        const a = new Audio(c.url);
+        a.volume = 0.9;
+        this.playingSfx.add(a);
+        a.addEventListener('ended', () => this.playingSfx.delete(a));
+        a.play().catch(() => this.playingSfx.delete(a));
+      } catch { /* no sound device */ }
+    }
+  }
+
+  _stopSfx() {
+    for (const a of this.playingSfx) { try { a.pause(); } catch { /* gone */ } }
+    this.playingSfx.clear();
   }
 
   async findSounds(auto) {
@@ -286,9 +376,9 @@ export class VideoEditor {
       if (!r.ok) box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? 'ยกเลิกการหาเสียงแล้ว' : `หาเสียงไม่สำเร็จ: ${r.error}` }));
       else {
         box.replaceChildren(
-          el('div', { class: 've-cut-title', text: r.auto ? `ใส่เสียงให้ ${r.assigned} จุดแล้ว · โหลดใหม่ ${r.added.length} เสียง` : `โหลดเสียงแล้ว ${r.added.length} เสียง: ${r.added.join(', ')}` }),
+          el('div', { class: 've-cut-title', text: r.emoji ? (r.auto ? `ใส่อิโมจิ ${r.assigned} จุดแล้ว (ย้อนกลับได้ในขั้นเดียว)` : `เพิ่มอิโมจิเข้าคลังแล้ว: ${r.added.join(' ')}`) : r.auto ? `ใส่เสียงให้ ${r.assigned} จุดแล้ว · โหลดใหม่ ${r.added.length} เสียง` : `โหลดเสียงแล้ว ${r.added.length} เสียง: ${r.added.join(', ')}` }),
           ...r.failed.map((f) => el('div', { class: 've-warn', text: f })),
-          el('div', { class: 'dim', text: r.auto ? 'ย้อนกลับด้วยปุ่ม "ย้อนกลับ" ได้ในขั้นเดียว · เปลี่ยนเสียงของแต่ละช่วงได้ที่ช่อง "เสียง"' : 'เลือกใช้ได้ที่ช่อง "เสียง" ของคลิปหรืออนิเมชั่น' }));
+          el('div', { class: 'dim', text: r.emoji ? (r.auto ? 'แก้ตำแหน่ง/ขนาด หรือลบได้ที่รายการ "อนิเมชั่นซ้อนคลิป"' : 'ใช้ได้ที่ "อนิเมชั่นซ้อนคลิป" เลือกชนิด "อิโมจิ (จากคลัง)"') : r.auto ? 'ย้อนกลับด้วยปุ่ม "ย้อนกลับ" ได้ในขั้นเดียว · เปลี่ยนเสียงของแต่ละช่วงได้ที่ช่อง "เสียง"' : 'เลือกใช้ได้ที่ช่อง "เสียง" ของคลิปหรืออนิเมชั่น' }));
       }
     } else box.hidden = true;
 
@@ -313,8 +403,18 @@ export class VideoEditor {
     }
   }
 
-  _fillPresets({ presets, fits, fx, sfx, fxOut }) {
+  _fillPresets({ presets, fits, fx, sfx, fxOut, stickers = [], places = [] }) {
     this.presets = presets;
+    this.stickers = Object.fromEntries(stickers.map((x) => [x.id, x]));
+    this.places = places;
+    for (const x of stickers) OV_NAMES[x.id] = x.label;
+    const kind = $('ve-ov-kind');
+    OV_NAMES.emoji = 'อิโมจิ';
+    if (![...kind.options].some((o) => o.value === 'emoji')) kind.append(el('option', { value: 'emoji', text: 'อิโมจิ (จากคลัง)' }));
+    for (const x of stickers) if (![...kind.options].some((o) => o.value === x.id)) kind.append(el('option', { value: x.id, text: x.label }));
+    $('ve-ov-pos').replaceChildren(...places.map((p) => el('option', { value: p.id, text: p.label })));
+    $('ve-ov-pos').value = 'center';
+    this.fx.key = '';
     this.fxLabels = Object.fromEntries(fx.map((x) => [x.id, x.label]));
     this.sfxLabels = Object.fromEntries(sfx.map((x) => [x.id, x.label]));
     this.fxOutLabels = Object.fromEntries(fxOut.map((x) => [x.id, x.label]));
@@ -635,6 +735,9 @@ export class VideoEditor {
     $('ve-sfx').onchange = (e) => this.setClipFx({ sfx: e.target.value });
     $('ve-fxout').onchange = (e) => this.setClipFx({ fxOut: e.target.value });
     $('ve-ov-kind').onchange = () => this._ovFields();
+    $('ve-emoji-add').onclick = (e) => e.isTrusted && this.addEmoji(false);
+    $('ve-emoji-auto').onclick = (e) => e.isTrusted && this.addEmoji(true);
+    $('ve-emoji-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.addEmoji(false); } else e.stopPropagation(); });
     $('ve-sfx-find').onclick = (e) => e.isTrusted && this.findSounds(false);
     $('ve-sfx-auto').onclick = (e) => e.isTrusted && this.findSounds(true);
     $('ve-sfx-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.findSounds(false); } else e.stopPropagation(); });
@@ -791,6 +894,11 @@ export class VideoEditor {
     else if (!this.cutState || !this.cutState.running) this.cutState = s.lastCut ? { running: false, result: s.lastCut } : null;
     if (s.sfx) this.sfxState = { running: true, ...s.sfx };
     else if (!this.sfxState || !this.sfxState.running) this.sfxState = s.lastSfx ? { running: false, result: s.lastSfx } : null;
+    const imagesKey = JSON.stringify(s.images || []);
+    if (imagesKey !== this._imagesKey) {
+      this._imagesKey = imagesKey;
+      this._loadImages();
+    }
     const soundsKey = JSON.stringify(s.sounds || []);
     if (soundsKey !== this._soundsKey) {
       this._soundsKey = soundsKey;
@@ -872,6 +980,7 @@ export class VideoEditor {
     if (this.t >= this.snap.duration - 0.01) await this.seek(0);
     else if (this.index < 0) await this.seek(this.t);
     this.playing = true;
+    this._fireCues(this.t - 0.001, this.t + 0.001); // a sound exactly at the playhead
     $('ve-play').textContent = '❚❚';
     $('ve-play').setAttribute('aria-label', 'หยุดชั่วคราว');
     try {
@@ -888,6 +997,7 @@ export class VideoEditor {
 
   pause() {
     this.playing = false;
+    this._stopSfx();
     cancelAnimationFrame(this.raf);
     if (!this.video.paused) this.video.pause();
     $('ve-play').textContent = '▶';
@@ -901,7 +1011,9 @@ export class VideoEditor {
     if (!clip) return;
     const st = this.video.currentTime;
     if (st >= clip.out - 0.02) return this._clipEnded();
+    const prev = this.t;
     this.t = timelineTime(clips, this.index, st);
+    this._fireCues(prev, this.t);
     this._renderTime();
     this._scrollToPlayhead(true);
   }
@@ -917,6 +1029,7 @@ export class VideoEditor {
       return;
     }
     const token = ++this.seekToken;
+    this._fireCues(this.t, next.start);
     this.t = next.start;
     await this._show({ index: next.index, clip: next.clip, sourceTime: next.clip.in }, token);
     if (this.playing && token === this.seekToken) this.video.play().catch(() => {});
@@ -942,6 +1055,8 @@ export class VideoEditor {
     this._renderExportNote();
     this._renderOverlays();
     this._renderSfx();
+    this._renderEmoji();
+    this._buildCues();
     this._renderTools();
     if (!has) return;
     this._renderPreviewShape();
@@ -1187,7 +1302,7 @@ export class VideoEditor {
   /** The live look of effects, animations and subtitles at the playhead (see ui/video-preview.js). */
   _paintFx() {
     if (!this.snap.clips.length) return this.fx.clear();
-    this.fx.build(this.snap.overlays || [], $('ve-cap-style').value);
+    this.fx.build(this.snap.overlays || [], $('ve-cap-style').value, this.stickers || {}, Object.fromEntries((this.images || []).filter((x) => x.url).map((x) => [x.id, x.url])));
     this.fx.paint(this.t, { rows: layout(this.snap.clips), captions: this.snap.captions || [] });
   }
 

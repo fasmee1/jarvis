@@ -66,8 +66,12 @@ test('sounds: a search by words fetches what Claude suggests, only from allowed 
   assert.match(h.asked[0].prompt, /sound effect: เสียง เปิดกล่อง/);
   const snap = h.svc.snapshot();
   assert.deepStrictEqual(snap.sounds.map((x) => x.label), ['Box open']);
-  const list = h.svc.soundList();
-  assert.ok(list.some((x) => x.id === 'whoosh' && !x.custom));
+  const list = await h.svc.soundList();
+  const whoosh = list.find((x) => x.id === 'whoosh');
+  assert.ok(whoosh && !whoosh.custom);
+  assert.match(whoosh.url, /^app:\/\/jarvis\/media\//, 'built-in sounds can be played in the preview too');
+  assert.strictEqual(whoosh.lead, 0.12);
+  assert.strictEqual(list.find((x) => x.id === 'none').url, undefined);
   const mine = list.find((x) => x.custom);
   assert.match(mine.url, /^app:\/\/jarvis\/media\//);
   assert.match(mine.license, /ไม่ต้องให้เครดิต/);
@@ -169,5 +173,5 @@ test('sounds: a downloaded sound reaches the render; removing it clears where it
   assert.deepStrictEqual(s.sounds, []);
   assert.strictEqual(s.clips[1].sfx, 'none');
   assert.strictEqual(s.overlays[0].sfx, 'none');
-  assert.throws(() => h.svc.removeSound(id), /ไม่พบเสียง/);
+  assert.throws(() => h.svc.removeSound(id), /ไม่พบไฟล์นี้ในคลัง/);
 });

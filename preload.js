@@ -90,6 +90,8 @@ const INVOKE = [
   'video:sfx-find',
   'video:sfx-cancel',
   'video:sfx-remove',
+  'video:assets',
+  'video:emoji-find',
   'video:caption-edit',
   'video:caption-restore',
   'video:caption-time',

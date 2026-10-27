@@ -386,6 +386,10 @@
                 <input id="ve-ov-from" class="ve-num" type="number" step="any" placeholder="จาก" aria-label="ตัวเลขเริ่มต้น" hidden>
                 <input id="ve-ov-to" class="ve-num" type="number" step="any" placeholder="ถึง" aria-label="ตัวเลขสุดท้าย" hidden>
                 <input id="ve-ov-suffix" class="ve-num" type="text" maxlength="6" placeholder="+ หรือ %" aria-label="ท้ายตัวเลข" hidden>
+                <select id="ve-ov-pos" class="ve-speed" aria-label="ตำแหน่งสติกเกอร์" hidden></select>
+                <input id="ve-ov-size" class="ve-num" type="number" min="3" max="90" step="1" value="20" aria-label="ขนาดสติกเกอร์ (% ของด้านสั้นของจอ)" title="ขนาด (% ของด้านสั้นของจอ)" hidden>
+                <input id="ve-ov-color" class="ve-color" type="color" value="#ffe14d" aria-label="สีสติกเกอร์" hidden>
+                <select id="ve-ov-image" class="ve-speed" aria-label="อิโมจิจากคลัง" hidden></select>
               </div>
               <div class="ve-fix">
                 <label class="dim">เริ่ม <input id="ve-ov-start" class="ve-num" type="number" step="0.1" min="0" placeholder="หัวอ่าน"> วิ</label>
@@ -397,6 +401,15 @@
                 <button id="ve-ov-cancel" class="btn small" type="button" hidden>ยกเลิกการแก้</button>
               </div>
               <ul id="ve-ov-list" class="ve-ov-list"></ul>
+            </div>
+            <h2 class="ve-h">อิโมจิสติกเกอร์ <span class="dim">· Google Noto Emoji ฟรี ไม่ต้องให้เครดิต</span></h2>
+            <div class="ve-ov">
+              <div class="ve-fix">
+                <input id="ve-emoji-q" class="ve-fix-hint" type="text" maxlength="80" autocomplete="off" placeholder="พิมพ์อิโมจิ เช่น 🔥 หรือคำ เช่น ไฟ, หัวเราะ" aria-label="อิโมจิหรือคำค้นหา">
+                <button id="ve-emoji-add" class="btn small" type="button" title="เพิ่มอิโมจิเข้าคลัง (ถ้าพิมพ์เป็นคำ JARVIS จะเลือกอิโมจิให้)">＋ เพิ่ม</button>
+              </div>
+              <button id="ve-emoji-auto" class="btn small primary" type="button" title="JARVIS อ่านคำพูดในคลิป เลือกอิโมจิที่เข้ากัน แล้ววางตรงจังหวะที่พูด (ย้อนกลับได้ในขั้นเดียว)">😀 ให้ JARVIS ใส่อิโมจิตามคำพูด</button>
+              <ul id="ve-emoji-list" class="ve-emoji-list"></ul>
             </div>
             <h2 class="ve-h">เสียงเอฟเฟกต์จากเว็บ <span class="dim">· ฟรี ไม่ต้องให้เครดิต</span></h2>
             <div class="ve-ov">

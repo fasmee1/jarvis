@@ -37,6 +37,7 @@ const { SfxLibrary } = require('./lib/video/sfx-library');
 const { CAPTION_STYLES } = require('./lib/video/hf-project');
 const exportPresets = require('./lib/video/export-presets');
 const effects = require('./lib/video/effects');
+const stickerLib = require('./lib/video/stickers');
 const { PACES } = require('./lib/video/presets');
 const { WakeAssets } = require('./lib/installer/wake-assets');
 const { pcm16ToWav } = require('./lib/stt/wav');
@@ -1034,7 +1035,7 @@ function registerIpc() {
         const o = p.overlay;
         const text = (k, max) => (o[k] === undefined ? undefined : v.str(o[k], max, k, { optional: true }) || '');
         const n = (k) => (o[k] === undefined ? undefined : num2(o[k], k));
-        const overlay = { kind: o.kind === undefined ? undefined : v.str(o.kind, 20, 'kind'), text: text('text', 200), text2: text('text2', 200), suffix: text('suffix', 20), from: n('from'), to: n('to'), start: n('start'), end: n('end') };
+        const overlay = { kind: o.kind === undefined ? undefined : v.str(o.kind, 20, 'kind'), text: text('text', 200), text2: text('text2', 200), suffix: text('suffix', 20), sfx: o.sfx === undefined ? undefined : v.str(o.sfx, 20, 'sfx'), image: o.image === undefined ? undefined : v.str(o.image, 20, 'image'), x: n('x'), y: n('y'), size: n('size'), color: o.color === undefined ? undefined : v.str(o.color, 20, 'color', { optional: true }) || '', from: n('from'), to: n('to'), start: n('start'), end: n('end') };
         for (const k of Object.keys(overlay)) if (overlay[k] === undefined) delete overlay[k];
         return p.op === 'overlay-add' ? video.edit({ op: 'overlay-add', overlay }) : video.edit({ op: 'overlay-update', id: id(), overlay });
       }
@@ -1075,6 +1076,8 @@ function registerIpc() {
     fx: Object.values(effects.FX).map((x) => ({ id: x.id, label: x.label })),
     sfx: Object.values(effects.SFX).map((x) => ({ id: x.id, label: x.label })),
     fxOut: Object.values(effects.FX_OUT).map((x) => ({ id: x.id, label: x.label })),
+    stickers: Object.values(stickerLib.KINDS).map((x) => ({ id: x.id, label: x.label, color: x.color, svg: stickerLib.svgFor(x.id, x.color) })),
+    places: Object.entries(stickerLib.POSITIONS).map(([id, p]) => ({ id, label: p.label, x: p.x, y: p.y })),
   }));
   handle('video:export-start', async (p) => {
     v.obj(p);
@@ -1099,6 +1102,11 @@ function registerIpc() {
     return video.startSfxSearch({ query: v.str(p.query, 200, 'query', { optional: true }) || '' });
   });
   handle('video:sfx-cancel', () => video.cancelSfx());
+  handle('video:assets', () => ({ images: video.imageList() }));
+  handle('video:emoji-find', (p) => {
+    v.obj(p);
+    return video.startEmoji({ query: v.str(p.query, 200, 'query', { optional: true }) || '' });
+  });
   handle('video:sfx-remove', (p) => {
     v.obj(p);
     return video.removeSound(v.str(p.id, 20, 'id'));

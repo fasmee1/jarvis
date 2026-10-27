@@ -104,3 +104,9 @@ JARVIS ตัดต่อรอบแรกตาม "แนว" (style) ที�
 - UI: ส่วน "เสียงเอฟเฟกต์จากเว็บ" (ค้นด้วยคำ / ให้ JARVIS เลือกให้ทั้งคลิป / รายการเสียงที่โหลด เล่นฟัง ลบ), ช่องเสียงในฟอร์มอนิเมชั่น, ช่อง "เสียง" ของคลิปแสดงเสียงที่โหลดมา (🌐)
 - ทดสอบจริง: ค้น 75 วิ ได้ 4 เสียงจาก Mixkit ใส่ให้ 3 จุด เรนเดอร์แล้ววัดเสียงตรงรอยตัด; ตรวจ 205/205 ทดสอบ 392/392
 - ยังไม่ทำ: แหล่งอื่น (เพิ่มได้ใน ALLOWED_HOSTS เมื่อรู้ใบอนุญาต), รูป/สติกเกอร์/เพลงพื้นหลัง/Lottie จากเว็บ (ผู้ใช้เลือกรอบนี้แค่เสียงเอฟเฟกต์), เสียงในพรีวิวสด
+
+## Stickers, emoji, live-preview sounds (uncommitted at time of writing)
+- Stickers: 5 app-drawn kinds (`lib/video/stickers.js`), animated by GSAP in the render and by `stickerState` in the preview.
+- Emoji: `lib/video/emoji.js`; pictures come only from fonts.gstatic.com Noto Emoji static PNG (Apache-2.0), stored via `SfxLibrary` kind `image`. Animated Noto GIFs are CC-BY, so not used.
+- Live preview plays sound cues during playback (`_buildCues` / `_fireCues` in video-editor.js).
+- Not done: background music (library kind `music` is ready; needs list.music model, ops, finder, page audio with ducking, UI).
