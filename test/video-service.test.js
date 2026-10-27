@@ -212,6 +212,8 @@ test('cut: JARVIS plan replaces the timeline in one undoable step', async () => 
   assert.strictEqual(snap.lastCut.ok, true);
   const stages = events.filter(([ch, p]) => ch === 'video:cut' && p.running).map(([, p]) => p.stage);
   assert.deepStrictEqual([...new Set(stages)], ['wait', 'prepare', 'think', 'apply']);
+  assert.deepStrictEqual(snap.clips.map((c) => [c.fx, c.sfx, c.fxOut]), [['fade', 'none', 'none'], ['zoom', 'whoosh', 'fade']], 'effects and sounds are chosen without the user');
+  assert.match(done.result.done[0], /เอฟเฟกต์/);
   svc.history.undo();
   assert.deepStrictEqual(svc.snapshot().clips.map((c) => [c.in, c.out]), [[0, 10]]);
 });

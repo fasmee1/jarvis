@@ -97,7 +97,7 @@ export class VideoEditor {
     const c = this.cutState;
     const running = !!(c && c.running);
     btn.disabled = running || !this.snap.clips.length;
-    btn.textContent = running ? 'JARVIS กำลังตัดต่อ…' : '✂ ให้ JARVIS ตัดต่อตามแนวนี้';
+    btn.textContent = running ? 'JARVIS กำลังตัดต่อ…' : '✂ ให้ JARVIS ตัดต่อให้ทั้งหมด';
     if (running) {
       const pct = Math.round((c.overall || 0) * 100);
       box.hidden = false;
@@ -124,10 +124,11 @@ export class VideoEditor {
     const kids = [
       el('div', { class: 've-cut-title', text: `ตัดแนว "${r.styleName}" เสร็จ · ${r.clips} ช่วง · ยาว ${fmtTime(r.length)}` }),
       r.summary ? el('div', { class: 've-sum', text: r.summary }) : null,
+      ...(r.done || []).map((d) => el('div', { class: 've-sum', text: `✓ ${d}` })),
       ...r.warnings.map((w) => el('div', { class: 've-warn', text: w })),
       el('div', { class: 've-actions' },
         el('button', { class: 'btn small', type: 'button', text: 'เล่นดูตั้งแต่ต้น', onclick: () => { this.seek(0).then(() => this.play()); } }),
-        el('button', { class: 'btn small', type: 'button', text: 'ย้อนกลับไปก่อนตัด', onclick: () => this.undo() })),
+        el('button', { class: 'btn small', type: 'button', text: 'ย้อนกลับไปก่อนตัดต่อ', onclick: () => this.undo() })),
     ];
     box.replaceChildren(...kids.filter(Boolean));
   }
