@@ -13,7 +13,7 @@ import './ease.js';
 const gsap = window.gsap;
 if (gsap) gsap.config({ nullTargetWarn: false });
 const $ = (id) => document.getElementById(id);
-const PANEL_ORDER = ['reply', 'mic', 'tts', 'latency', 'tokens', 'elapsed', 'step', 'camera'];
+const PANEL_ORDER = ['reply', 'mic', 'tts', 'latency', 'tokens', 'edit', 'step', 'camera'];
 const PREF = { mode: 'jarvis.bootMode', seen: 'jarvis.booted' };
 const IN = { opacity: 0, y: 8, scale: 0.98 }; // how every element starts
 

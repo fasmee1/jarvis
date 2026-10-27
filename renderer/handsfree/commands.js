@@ -88,7 +88,7 @@ export const CARD_ALIASES = {
   latency: ['latency', 'เลเทนซี', 'เลเทนซี่', 'ความหน่วง', 'ความเร็ว'],
   step: ['step', 'steps', 'สเต็ป', 'สเตป', 'ขั้นตอน'],
   tokens: ['tokens', 'token', 'โทเคน', 'โทเค็น', 'โทเคิ่น', 'โทเคนส์'],
-  elapsed: ['elapsed', 'อีแลปส์', 'อีแลป', 'เวลา', 'เวลาที่ผ่านไป', 'จับเวลา'],
+  edit: ['edit', 'เอดิท', 'ตัดต่อ', 'การ์ดตัดต่อ'],
   camera: ['camera', 'cam', 'กล้อง', 'คาเมร่า', 'แคม'],
 };
 const ALIASES = Object.entries(CARD_ALIASES).flatMap(([id, names]) => names.map((n) => [id, tight(n)]));
@@ -311,13 +311,36 @@ function viewerCommand(t, ctx) {
   return null;
 }
 
-/** ctx: { viewer: the Result Viewer is open, video: a video is loaded in it } */
+// ---------- EDIT page (the video editor is the current page) ----------
+const EDIT = {
+  split: R('^(?:ตัดตรงนี้|ตัดตรงนี|ตัดตรงหัวอ่าน|ตัดตรงนั้น|ตัดตรงนี้เลย|แบ่งคลิป|แบ่งตรงนี้|แบ่งตรงนี|แบ่ง|ตัดคลิป|ตัดแบ่ง|ผ่าคลิป|ตัด|split|splitclip|cut|cuthere|splithere)$'),
+  delete: R('^(?:ลบคลิป|ลบช่วงนี้|ลบช่วงนี|ลบอันนี้|ลบอันนี|ลบตรงนี้|ลบตรงนี|ลบช่วง|ลบ|ตัดทิ้ง|ตัดช่วงนี้ทิ้ง|ตัดช่วงนี|deleteclip|delete|deletethis|remove|removeclip)$'),
+  faster: R('^(?:เร็วขึ้น|เร็วขึ้นอีก|เร่งความเร็ว|เร่งหน่อย|เร่งขึ้น|เร่ง|เพิ่มความเร็ว|เล่นเร็วขึ้น|speedup|faster)$'),
+  slower: R('^(?:ช้าลง|ช้าลงอีก|ช้าลงหน่อย|ลดความเร็ว|ชะลอ|สโลว์|เล่นช้าลง|slowdown|slower)$'),
+  normal: R('^(?:ความเร็วปกติ|เร็วปกติ|ปกติ|กลับเป็นปกติ|ความเร็วเดิม|normalspeed)$'),
+  undo: R('^(?:ย้อนกลับ|ยกเลิกล่าสุด|ยกเลิกการแก้ล่าสุด|ทำย้อนกลับ|undo)$'),
+  redo: R('^(?:ทำซ้ำ|ทำใหม่|ย้อนกลับไปข้างหน้า|redo)$'),
+  play: R('^(?:เล่น|เล่นดู|เล่นคลิป|เล่นต่อ|เริ่มเล่น|play|playit)$'),
+  pause: R('^(?:หยุดเล่น|พักคลิป|พักก่อน|หยุดคลิป|หยุดชั่วคราว|หยุดดู|pause)$'),
+  start: R('^(?:กลับไปต้น|กลับไปต้นคลิป|ไปต้นคลิป|ไปเริ่มต้น|กลับไปเริ่มต้น|ไปที่ต้น|เริ่มต้น|ต้นคลิป|gotostart|backtostart)$'),
+};
+
+function editCommand(t) {
+  for (const op of Object.keys(EDIT)) if (EDIT[op].test(t)) return { action: 'edit', op };
+  return null;
+}
+
+/** ctx: { edit: the EDIT page is showing, viewer: the Result Viewer is open, video: a video is loaded in it } */
 export function parseCommand(transcript, ctx = {}) {
   const raw = stripWake(transcript).trim();
   const t = tight(raw);
   if (!t) return null;
   if (CMD.talkOpen.test(t)) return { action: 'talk-open' };
   if (CMD.talkClose.test(t)) return { action: 'talk-close' };
+  if (ctx.edit) {
+    const ec = editCommand(t);
+    if (ec) return ec;
+  }
   if (ctx.viewer && ctx.web) {
     const wc = webCommand(t, raw);
     if (wc) return wc;

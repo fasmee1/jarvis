@@ -28,7 +28,7 @@ export const ICONS = {
   latency: 'M12 14l4-4 M3.34 19a10 10 0 1 1 17.32 0',
   step: 'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.3 7 12 12l8.7-5 M12 22V12',
   tokens: 'M12 3c4.97 0 9 1.34 9 3s-4.03 3-9 3-9-1.34-9-3 4.03-3 9-3z M3 6v12c0 1.66 4.03 3 9 3s9-1.34 9-3V6 M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3',
-  elapsed: 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20z M12 6v6l4 2',
+  edit: 'M6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M20 4 8.1 15.9 M14.5 14.5 20 20 M8.1 8.1 12 12',
   camera: 'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
   x: 'M18 6 6 18 M6 6l12 12',
   chev: 'm9 18 6-6-6-6',
@@ -48,13 +48,13 @@ const TIPS = {
   latency: 'เวลาตั้งแต่กดส่งจนเริ่มพูดประโยคแรก (t3−t0) — กราฟ 13 รอบล่าสุด · แท่งจางคือรอบที่ไม่มีเสียง จึงใช้เวลาถึงข้อความแรก (t2−t0) · คลิกเพื่อดู DIAGNOSTICS',
   step: 'ขั้นตอนปัจจุบันจากโหมดสอนประดิษฐ์ (บล็อก jarvis-steps ล่าสุด) — คลิกเพื่อเปิด MAKER',
   tokens: 'การใช้งาน Claude Code จริง: ลิมิตรายสัปดาห์ (%) และรอบ 5 ชั่วโมง พร้อมเวลารีเซ็ต — คลิกเพื่อดูรายละเอียด token ใน DIAGNOSTICS',
-  elapsed: 'เวลาที่อยู่ในสถานะปัจจุบัน วงแหวนครบรอบทุก 60 วินาที',
+  edit: 'JARVIS ตัดต่อคลิปอยู่เบื้องหลังถึงไหนแล้ว — คลิกเพื่อเปิดหน้า EDIT (เวลาที่อยู่ในสถานะปัจจุบันดูได้ที่แกนกลาง)',
   camera: 'กล้อง — เปิดเองด้วยปุ่มหรือ Ctrl+Shift+C เท่านั้น ไม่เปิดอัตโนมัติ · ภาพจะส่งให้ Claude เฉพาะตอนกด "ดูนี่" หรือพูดคำเรียกให้ดู',
 };
 
-export const NAMES = { reply: 'Last Reply', mic: 'Mic', tts: 'TTS', latency: 'Latency', step: 'Step', tokens: 'Tokens', elapsed: 'Elapsed', camera: 'Camera' };
+export const NAMES = { reply: 'Last Reply', mic: 'Mic', tts: 'TTS', latency: 'Latency', step: 'Step', tokens: 'Tokens', edit: 'Editing', camera: 'Camera' };
 
-const OPEN = { camera: null, reply: 'talk', latency: 'diagnostics', step: 'maker', tokens: 'diagnostics', mic: 'talk', tts: 'settings', elapsed: 'activity' };
+const OPEN = { camera: null, reply: 'talk', latency: 'diagnostics', step: 'maker', tokens: 'diagnostics', mic: 'talk', tts: 'settings', edit: 'video' };
 
 function framePath(w, hh, cut, size = CUT, pad = 6) {
   const c = (k) => (cut.includes(k) ? size : 0);
@@ -286,16 +286,15 @@ export class Cards {
     inner.append(b);
     return { val, hint, seg };
   }
-  _body_elapsed(inner) {
+  _body_edit(inner) {
     const b = h('div', 'body');
-    const val = h('div', 'val', '0.0');
-    const ring = svgEl('svg', { class: 'ring', viewBox: '0 0 40 40' });
-    ring.append(svgEl('circle', { class: 'bg', cx: 20, cy: 20, r: 17 }));
-    const fg = svgEl('circle', { class: 'fg', cx: 20, cy: 20, r: 17, 'stroke-dasharray': `0 ${2 * Math.PI * 17}` });
-    ring.append(fg);
-    b.append(val, ring);
+    const val = h('div', 'val na', '—');
+    const sub = h('div', 'sub', 'ยังไม่ได้ตัดต่อ');
+    const seg = this._meter();
+    seg.classList.add('short');
+    b.append(val, sub, icon('chev', 'chev'), seg);
     inner.append(b);
-    return { val, fg };
+    return { val, sub, seg };
   }
 
   /** A single thin 2px progress line. */
@@ -503,15 +502,33 @@ export class Cards {
     this._seg(c.parts.seg, Math.min(1, main.utilization));
   }
 
-  setElapsed(ms) {
-    const c = this.cards.get('elapsed');
+  /** Style cut running in the background ('video:cut' payload): percent, step name and a progress line. */
+  setEdit(cut) {
+    const c = this.cards.get('edit');
     if (!c) return;
-    const s = ms / 1000;
-    const text = s < 60 ? s.toFixed(1) : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-    // no roll every tick — update directly
-    c.parts.val.replaceChildren(h('span', '', text), h('span', 'u', s < 60 ? 's' : ''));
-    const circ = 2 * Math.PI * 17;
-    c.parts.fg.setAttribute('stroke-dasharray', `${((s % 60) / 60) * circ} ${circ}`);
+    if (cut && cut.running) {
+      const pct = Math.round((cut.overall || 0) * 100);
+      this._setVal('edit', c.parts.val, String(pct), '%', { live: true });
+      c.parts.sub.textContent = cut.label || 'กำลังตัดต่อ';
+      this._seg(c.parts.seg, cut.overall || 0);
+      return;
+    }
+    const r = cut && cut.result;
+    if (!r) {
+      this._setVal('edit', c.parts.val, '—', '', { na: true });
+      c.parts.sub.textContent = 'ยังไม่ได้ตัดต่อ';
+      this._seg(c.parts.seg, 0);
+      return;
+    }
+    if (r.ok) {
+      this._setVal('edit', c.parts.val, String(r.clips), 'ช่วง');
+      c.parts.sub.textContent = `ตัดแนว "${r.styleName}" เสร็จแล้ว`;
+      this._seg(c.parts.seg, 1);
+    } else {
+      this._setVal('edit', c.parts.val, '—', '', { na: true });
+      c.parts.sub.textContent = r.cancelled ? 'ยกเลิกการตัดต่อแล้ว' : 'ตัดต่อไม่สำเร็จ';
+      this._seg(c.parts.seg, 0);
+    }
   }
 
   /** Real TTS envelope sample for the reply waveform (null when silent). */

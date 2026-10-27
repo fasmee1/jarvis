@@ -372,12 +372,25 @@
             <div id="ve-cut-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
             <h2 class="ve-h">คลิปที่นำเข้า</h2>
             <div id="ve-sources" class="ve-sources"></div>
-            <h2 class="ve-h">คำพูดในคลิป <span class="dim">· กดเพื่อไปที่ประโยคนั้น</span></h2>
+            <h2 class="ve-h">คำพูดในคลิป <span class="dim">· กดเพื่อไปที่ประโยค · กด ✎ เพื่อแก้คำ</span></h2>
+            <div class="ve-fix">
+              <input id="ve-fix-hint" class="ve-fix-hint" type="text" maxlength="500" autocomplete="off" placeholder="เรื่องของคลิป / คำที่น่าจะมี เช่น สอนใช้ Claude Code, cmd, IDE (ไม่บังคับ)" aria-label="เรื่องของคลิปและคำที่น่าจะมี">
+              <button id="ve-fix" class="btn small" type="button" title="JARVIS ตรวจคำที่ถอดผิด โดยเฉพาะคำอังกฤษที่ถูกเขียนเป็นคำไทย (ใช้โควต้า Claude เล็กน้อย) — ประโยคที่คุณแก้เองจะไม่ถูกแตะ">✨ ให้ JARVIS ตรวจคำ</button>
+            </div>
             <ul id="ve-transcript" class="ve-transcript"></ul>
           </aside>
         </div>
         <div class="ve-tl-bar">
           <span class="dim">แถบเวลา</span>
+          <span class="ve-tools" role="group" aria-label="เครื่องมือตัดต่อ">
+            <button id="ve-split" class="btn small" type="button" title="แบ่งคลิปตรงหัวอ่าน (S)">✂ แบ่ง</button>
+            <button id="ve-delete" class="btn small" type="button" title="ลบคลิปที่เลือก แล้วดึงคลิปถัดไปมาชิด (Delete)">🗑 ลบ</button>
+            <select id="ve-speed" class="ve-speed" title="ความเร็วคลิปที่เลือก" aria-label="ความเร็วคลิปที่เลือก">
+              <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
+              <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option>
+            </select>
+            <span id="ve-sel-hint" class="dim ve-sel-hint"></span>
+          </span>
           <button id="ve-zoom-out" class="btn small" type="button" title="ย่อ (-)" aria-label="ย่อแถบเวลา">−</button>
           <button id="ve-zoom-in" class="btn small" type="button" title="ขยาย (+ หรือ Ctrl+ล้อเมาส์)" aria-label="ขยายแถบเวลา">＋</button>
           <button id="ve-zoom-fit" class="btn small" type="button">พอดีจอ</button>

@@ -167,3 +167,29 @@ test('askClaude: errors, exit, timeout and cancel', async () => {
   await assert.rejects(p, (e) => e.code === 'ABORTED');
   await assert.rejects(askClaude({ ...fake(), resolveCommand: () => { throw new Error('no claude'); }, prompt: 'x' }), (e) => e.code === 'SPAWN');
 });
+
+test('captions: hand-typed text is cleaned and bounded', () => {
+  const { cleanText, CaptionError } = require('../lib/video/captions');
+  assert.strictEqual(cleanText('  เปิด   cmd \n แล้ว '), 'เปิด cmd แล้ว');
+  assert.throws(() => cleanText('   '), CaptionError);
+  assert.throws(() => cleanText('ก'.repeat(301)), /ยาวเกินไป/);
+});
+
+test('captions: Claude fixes are checked line by line', () => {
+  const { buildFixPrompt, parseFixes, CaptionError } = require('../lib/video/captions');
+  const segs = [{ text: 'พิมพ์คำว่า cmd ใน คอร์ดโค้ด' }, { text: 'ขั้นตอนแรกเข้าไปที่ไอดีอี' }, { text: 'จากนั้นเย้' }];
+  assert.match(buildFixPrompt(segs, 'สอนใช้ Claude Code'), /0: พิมพ์คำว่า cmd/);
+  assert.match(buildFixPrompt(segs, 'สอนใช้ Claude Code'), /สอนใช้ Claude Code/);
+  const ok = parseFixes('```json\n{"fixes":[{"i":0,"text":"พิมพ์คำว่า cmd ใน Claude Code"},{"i":1,"text":"ขั้นตอนแรกเข้าไปที่ IDE"}]}\n```', segs);
+  assert.deepStrictEqual(ok.map((f) => f.i), [0, 1]);
+  const bad = parseFixes(JSON.stringify({ fixes: [
+    { i: 2, text: 'จากนั้นเย้' },
+    { i: 9, text: 'ไม่มีบรรทัดนี้' },
+    { i: 1, text: 'ก' },
+    { i: 0, text: '' },
+    { i: '0', text: 'x' },
+  ] }), segs);
+  assert.deepStrictEqual(bad, []);
+  assert.throws(() => parseFixes('ขอโทษ ทำไม่ได้', segs), CaptionError);
+  assert.throws(() => parseFixes('{"x":1}', segs), CaptionError);
+});

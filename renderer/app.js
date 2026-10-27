@@ -1276,9 +1276,14 @@ async function openSite(cmd, fallback) {
   else fallback(cmd.text);
 }
 
+/** What local voice commands may assume: the Result Viewer state, and whether the EDIT page is showing. */
+function voiceContext() {
+  return { ...(resultViewer ? resultViewer.context() : {}), edit: !!videoEditor && sections.current === 'video' };
+}
+
 function afterTranscript(text, latency) {
   if (takeVoiceAsk(text)) return;
-  const cmd = parseCommand(text, resultViewer ? resultViewer.context() : {});
+  const cmd = parseCommand(text, voiceContext());
   if (cmd && (cmd.action === 'talk-open' || cmd.action === 'talk-close')) {
     talkCommand(cmd.action);
     return;
@@ -1286,6 +1291,11 @@ function afterTranscript(text, latency) {
   if (cmd && cmd.action === 'viewer' && resultViewer && resultViewer.isOpen) {
     addSystemMsg(`🎙 ${text}`);
     resultViewer.command(cmd);
+    return;
+  }
+  if (cmd && cmd.action === 'edit' && videoEditor) {
+    addSystemMsg(`🎙 ${text}`);
+    videoEditor.voice(cmd.op);
     return;
   }
   if (cmd && cmd.action === 'open-site') {
@@ -1561,6 +1571,7 @@ function hfLocal(cmd) {
     case 'talk-open':
     case 'talk-close': talkCommand(cmd.action); break;
     case 'viewer': resultViewer.command(cmd); break;
+    case 'edit': if (videoEditor) videoEditor.voice(cmd.op); break;
     case 'open-site': openSite(cmd, (t) => hfSend(t)); break;
     case 'code': codeCommand(cmd); break;
     case 'serial': serialCommand(cmd); break;
@@ -1574,7 +1585,7 @@ hands = new HandsFree({
   transcribe: hfTranscribe,
   send: hfSend,
   local: hfLocal,
-  context: () => resultViewer.context(),
+  context: () => voiceContext(),
   stopSpeaking: (ms) => speaker.stop(ms),
   abortTurn: () => {
     // running tools are never killed by voice: they finish silently instead
@@ -2616,6 +2627,15 @@ function wireDom() {
   wireSettings();
   wireHandsFree();
   videoEditor = new VideoEditor({ api, notice, openSettings, isOpen: () => sections.current === 'video' });
+  // the home EDIT card follows the background style cut (and is refilled whenever the cards are rebuilt)
+  let editCut = null;
+  const showEdit = () => home.cards.setEdit(editCut);
+  home.cards.onBuilt.push(showEdit);
+  api.on('video:cut', (c) => { editCut = c; showEdit(); });
+  api.invoke('video:state').then((s) => {
+    if (s && !editCut) editCut = s.cut ? { running: true, ...s.cut } : s.lastCut ? { running: false, result: s.lastCut } : null;
+    showEdit();
+  }).catch(() => {});
   // real spectra for the reactor segments (mic: hands-free engine or push-to-talk; voice: TTS output)
   home.bandsProvider = (k) => (k === 'tts' ? speaker.bands() : hands.active ? hfEngine.bands() : mic.bands());
   const init = await api.invoke('app:init');

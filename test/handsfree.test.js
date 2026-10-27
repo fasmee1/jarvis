@@ -419,3 +419,25 @@ test('screen watching voice commands and window targets', async () => {
   assert.strictEqual(cmd.screenTarget('เปิดหน้าต่างใหม่'), null);
   assert.strictEqual(cmd.screenTarget('ดูหน้าต่างนี้'), null);
 });
+
+test('EDIT page voice commands: only while the page is showing', async () => {
+  const { parseCommand } = await import('../renderer/handsfree/commands.js');
+  const edit = { edit: true };
+  const op = (t, ctx = edit) => { const c = parseCommand(t, ctx); return c && c.action === 'edit' ? c.op : null; };
+  assert.strictEqual(op('ตัดตรงนี้'), 'split');
+  assert.strictEqual(op('ตัดตรงนี้เลยครับ'), 'split');
+  assert.strictEqual(op('แบ่งคลิป'), 'split');
+  assert.strictEqual(op('ลบคลิป'), 'delete');
+  assert.strictEqual(op('ลบช่วงนี้ครับ'), 'delete');
+  assert.strictEqual(op('เร็วขึ้น'), 'faster');
+  assert.strictEqual(op('ช้าลงหน่อย'), 'slower');
+  assert.strictEqual(op('ความเร็วปกติ'), 'normal');
+  assert.strictEqual(op('ย้อนกลับ'), 'undo');
+  assert.strictEqual(op('ทำซ้ำ'), 'redo');
+  assert.strictEqual(op('เล่น'), 'play');
+  assert.strictEqual(op('พักคลิป'), 'pause');
+  assert.strictEqual(op('กลับไปต้นคลิป'), 'start');
+  assert.strictEqual(op('ตัดตรงนี้', {}), null, 'not on other pages');
+  assert.strictEqual(op('ตัดคลิปนี้ให้เหลือสามสิบวินาทีแล้วใส่เพลง'), null, 'long requests still go to Claude');
+  assert.strictEqual(parseCommand('หยุด', edit).action, 'stop', 'plain stop is unchanged');
+});

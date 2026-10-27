@@ -24,6 +24,10 @@ function hasFiles(e) {
   return e.dataTransfer && [...e.dataTransfer.types].includes('Files');
 }
 
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+const MIN_CLIP = 0.1; // keep in step with lib/video/edit-list.js
+const DRAG_PX = 4;
+
 export class VideoEditor {
   /** api: window.jarvis · notice(text, level) · openSettings(tab) · isOpen(): is the EDIT section showing */
   constructor({ api, notice, openSettings, isOpen }) {
@@ -41,6 +45,8 @@ export class VideoEditor {
     this.autoFit = true;
     this.raf = 0;
     this.seekToken = 0;
+    this.sel = null; // id of the selected clip
+    this.editing = null; // { srcId, i }: a transcript line being typed over
 
     this.root = $('video-editor');
     this.styles = new StylePicker({ api, notice });
@@ -112,6 +118,177 @@ export class VideoEditor {
     box.replaceChildren(...kids.filter(Boolean));
   }
 
+  // ---------- words of the transcript ----------
+  async captionCall(channel, payload, okText) {
+    try {
+      this.setState(await this.api.invoke(channel, payload));
+      if (okText) this.notice(okText, 'info', null, 3000);
+      return true;
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
+      return false;
+    }
+  }
+
+  startCaptionEdit(srcId, i) {
+    this.editing = { srcId, i };
+    this._renderTranscript();
+    const box = document.querySelector('#ve-transcript .ve-line-input');
+    if (box) { box.focus(); box.select(); }
+  }
+
+  async finishCaptionEdit(save, text) {
+    const e = this.editing;
+    if (!e) return;
+    this.editing = null;
+    if (save) await this.captionCall('video:caption-edit', { sourceId: e.srcId, i: e.i, text });
+    this._renderSources();
+  }
+
+  /** JARVIS checks the words of every clip that has a transcript, one after the other. */
+  async fixCaptions() {
+    const withText = this.snap.sources.filter((s) => s.analysis && s.analysis.transcript && s.analysis.transcript.segments.length);
+    if (!withText.length) return this.notice('ยังไม่มีคำพูดที่ถอดได้ให้ตรวจ', 'warn');
+    const hint = $('ve-fix-hint').value;
+    this.notice('JARVIS กำลังตรวจคำที่ถอดผิด — คุยเรื่องอื่นหรือทำอย่างอื่นต่อได้', 'info', null, 4000);
+    let changed = 0;
+    try {
+      for (const s of withText) {
+        const r = await this.api.invoke('video:caption-fix', { sourceId: s.id, hint });
+        changed += r.changed;
+      }
+      this.notice(changed ? `JARVIS แก้คำให้ ${changed} ประโยค — กด ↺ ที่ประโยคเพื่อคืนค่าเดิมได้` : 'JARVIS ไม่พบคำที่ต้องแก้', 'info', null, 6000);
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
+    }
+  }
+
+  _renderTranscript() {
+    const words = [];
+    for (const s of this.snap.sources) {
+      const segs = s.analysis && s.analysis.transcript ? s.analysis.transcript.segments : [];
+      for (const g of mapRanges(this.snap.clips, s.id, segs)) words.push({ ...g, srcId: s.id });
+    }
+    words.sort((a, b) => a.start - b.start);
+    const list = $('ve-transcript');
+    $('ve-fix').disabled = !!this.snap.fix || !words.length;
+    $('ve-fix').textContent = this.snap.fix ? 'JARVIS กำลังตรวจคำ…' : '✨ ให้ JARVIS ตรวจคำ';
+    list.replaceChildren(...(words.length ? words.map((w) => this._transcriptLine(w)) : [el('li', { class: 'dim', text: this.progress.running ? 'กำลังถอดเสียงพูด…' : 'ยังไม่มีคำพูดที่ถอดได้' })]));
+  }
+
+  _transcriptLine(w) {
+    const e = this.editing;
+    if (e && e.srcId === w.srcId && e.i === w.i) {
+      const input = el('input', { class: 've-line-input', type: 'text', maxlength: '300', value: w.text, 'aria-label': 'แก้ข้อความซับ' });
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); this.finishCaptionEdit(true, input.value); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); this.finishCaptionEdit(false); }
+        else ev.stopPropagation(); // typing must not trigger the editor's keys (S, Delete, space…)
+      });
+      return el('li', { class: 've-line-edit' }, input,
+        el('div', { class: 've-actions' },
+          el('button', { class: 'btn small', type: 'button', text: 'บันทึก', onclick: () => this.finishCaptionEdit(true, input.value) }),
+          el('button', { class: 'btn small', type: 'button', text: 'ยกเลิก', onclick: () => this.finishCaptionEdit(false) })));
+    }
+    return el('li', { class: w.edited ? 've-line-row edited' : 've-line-row' },
+      el('button', { class: 've-line', type: 'button', title: 'ไปที่ประโยคนี้', onclick: () => { this.pause(); this.seek(w.start); } },
+        el('span', { class: 'mono dim', text: fmtTime(w.start) }), el('span', { text: w.text })),
+      el('span', { class: 've-line-tools' },
+        w.edited ? el('button', { class: 've-mini', type: 'button', title: `คืนค่าเดิม: ${w.orig}`, 'aria-label': 'คืนค่าเดิม', text: '↺', onclick: () => this.captionCall('video:caption-restore', { sourceId: w.srcId, i: w.i }) }) : null,
+        el('button', { class: 've-mini', type: 'button', title: 'แก้คำ', 'aria-label': 'แก้ข้อความซับ', text: '✎', onclick: () => this.startCaptionEdit(w.srcId, w.i) })));
+  }
+
+  // ---------- editing (mouse, keys and voice all end up in edit()) ----------
+  async edit(op) {
+    try {
+      this.setState(await this.api.invoke('video:edit', op));
+      return true;
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
+      return false;
+    }
+  }
+
+  /** The selected clip, or else the one under the playhead. */
+  _target() {
+    const clips = this.snap.clips;
+    const picked = clips.find((c) => c.id === this.sel);
+    if (picked) return picked;
+    const loc = clips.length ? locate(clips, this.t) : null;
+    return loc ? loc.clip : null;
+  }
+
+  select(id) {
+    this.sel = id;
+    this._renderTimeline();
+    this._renderTools();
+  }
+
+  split() {
+    if (!this.snap.clips.length) return Promise.resolve(false);
+    this.pause();
+    return this.edit({ op: 'split', at: this.t });
+  }
+
+  async removeClip() {
+    const c = this._target();
+    if (!c) return false;
+    this.pause();
+    this.sel = null;
+    return this.edit({ op: 'remove', id: c.id });
+  }
+
+  async setClipSpeed(speed) {
+    const c = this._target();
+    if (!c) return false;
+    return this.edit({ op: 'speed', id: c.id, speed });
+  }
+
+  /** Voice / key helper: one step faster or slower than the clip's speed now. */
+  async nudgeSpeed(dir) {
+    const c = this._target();
+    if (!c) return false;
+    const next = dir > 0 ? SPEEDS.find((x) => x > c.speed + 1e-9) : [...SPEEDS].reverse().find((x) => x < c.speed - 1e-9);
+    if (next === undefined) {
+      this.notice(dir > 0 ? 'เร็วสุดแล้ว (3×)' : 'ช้าสุดแล้ว (0.5×)', 'info', null, 3000);
+      return false;
+    }
+    return this.setClipSpeed(next);
+  }
+
+  /** Voice commands from handsfree/commands.js (action 'edit'). */
+  voice(op) {
+    if (!this.snap.sources.length) return this.notice('ยังไม่มีคลิปในหน้าตัดต่อ', 'warn');
+    switch (op) {
+      case 'split': return this.split();
+      case 'delete': return this.removeClip();
+      case 'faster': return this.nudgeSpeed(1);
+      case 'slower': return this.nudgeSpeed(-1);
+      case 'normal': return this.setClipSpeed(1);
+      case 'undo': return this.snap.canUndo ? this.undo() : this.notice('ไม่มีอะไรให้ย้อนกลับ', 'info', null, 3000);
+      case 'redo': return this.snap.canRedo ? this.redo() : this.notice('ไม่มีอะไรให้ทำซ้ำ', 'info', null, 3000);
+      case 'play': return this.play();
+      case 'pause': return this.pause();
+      case 'start': return this.seek(0);
+      default: return null;
+    }
+  }
+
+  _renderTools() {
+    const has = this.snap.clips.length > 0 && !(this.cutState && this.cutState.running);
+    const c = this._target();
+    $('ve-split').disabled = !has;
+    $('ve-delete').disabled = !has || !c;
+    const sp = $('ve-speed');
+    sp.disabled = !has || !c;
+    if (c) {
+      if (![...sp.options].some((o) => Number(o.value) === c.speed)) sp.append(el('option', { value: String(c.speed), text: `${c.speed}×` }));
+      sp.value = String(c.speed);
+    }
+    const i = c ? this.snap.clips.findIndex((x) => x.id === c.id) : -1;
+    $('ve-sel-hint').textContent = c ? `${this.sel === c.id ? 'เลือก' : 'ใต้หัวอ่าน'}: ช่วงที่ ${i + 1}/${this.snap.clips.length}` : '';
+  }
+
   async undo() {
     try {
       this.setState(await this.api.invoke('video:undo'));
@@ -140,6 +317,10 @@ export class VideoEditor {
     $('ve-zoom-fit').onclick = () => { this.autoFit = true; this.render(); };
     $('ve-ffmpeg-open').onclick = () => this.openSettings('video');
     $('ve-cut').onclick = (e) => e.isTrusted && this.startCut();
+    $('ve-fix').onclick = (e) => e.isTrusted && this.fixCaptions();
+    $('ve-split').onclick = () => this.split();
+    $('ve-delete').onclick = () => this.removeClip();
+    $('ve-speed').onchange = (e) => this.setClipSpeed(Number(e.target.value));
     $('ve-undo').onclick = () => this.undo();
     $('ve-redo').onclick = () => this.redo();
 
@@ -165,7 +346,7 @@ export class VideoEditor {
       return Math.max(0, Math.min(this.snap.duration, (e.clientX - r.left) / this.pxPerSec));
     };
     tl.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || !this.snap.clips.length) return;
+      if (e.button !== 0 || !this.snap.clips.length || e.target.closest('.ve-clip')) return;
       dragging = true;
       tl.setPointerCapture(e.pointerId);
       this.wasPlaying = this.playing;
@@ -214,6 +395,9 @@ export class VideoEditor {
       Space: () => this.toggle(),
       ArrowLeft: () => { this.pause(); this.seek(this.t - (e.shiftKey ? 1 : step)); },
       ArrowRight: () => { this.pause(); this.seek(this.t + (e.shiftKey ? 1 : step)); },
+      KeyS: () => this.split(),
+      Delete: () => this.removeClip(),
+      Backspace: () => this.removeClip(),
       Home: () => this.seek(0),
       End: () => this.seek(this.snap.duration),
       Equal: () => this.zoom(1.5),
@@ -280,6 +464,10 @@ export class VideoEditor {
     if (!s) return;
     const clipsChanged = JSON.stringify(s.clips) !== JSON.stringify(this.snap.clips);
     this.snap = s;
+    if (this.sel && !s.clips.some((c) => c.id === this.sel)) this.sel = null;
+    // the snapshot carries the cut too, so a reopened page shows a running or finished cut
+    if (s.cut) this.cutState = { running: true, ...s.cut };
+    else if (!this.cutState || !this.cutState.running) this.cutState = s.lastCut ? { running: false, result: s.lastCut } : null;
     if (clipsChanged) {
       this.loadedSrc = null;
       this.index = -1;
@@ -417,6 +605,10 @@ export class VideoEditor {
     $('ve-empty').hidden = has;
     $('ve-work').hidden = !has;
     $('ve-clear').disabled = !has;
+    $('ve-undo').disabled = !this.snap.canUndo;
+    $('ve-redo').disabled = !this.snap.canRedo;
+    this._renderCut();
+    this._renderTools();
     if (!has) return;
     this._renderPreviewShape();
     this._renderSources();
@@ -434,18 +626,7 @@ export class VideoEditor {
     const box = $('ve-sources');
     if (!box) return;
     box.replaceChildren(...this.snap.sources.map((s) => this._sourceCard(s)));
-    const words = [];
-    for (const s of this.snap.sources) {
-      const segs = s.analysis && s.analysis.transcript ? s.analysis.transcript.segments : [];
-      for (const g of mapRanges(this.snap.clips, s.id, segs)) words.push(g);
-    }
-    words.sort((a, b) => a.start - b.start);
-    const list = $('ve-transcript');
-    list.replaceChildren(...(words.length
-      ? words.map((w) => el('li', {},
-        el('button', { class: 've-line', type: 'button', title: 'ไปที่ประโยคนี้', onclick: () => { this.pause(); this.seek(w.start); } },
-          el('span', { class: 'mono dim', text: fmtTime(w.start) }), el('span', { text: w.text }))))
-      : [el('li', { class: 'dim', text: this.progress.running ? 'กำลังถอดเสียงพูด…' : 'ยังไม่มีคำพูดที่ถอดได้' })]));
+    if (!this.editing) this._renderTranscript(); // never rebuild the list under a line being typed
   }
 
   _sourceCard(s) {
@@ -497,10 +678,13 @@ export class VideoEditor {
     const rows = layout(this.snap.clips);
     $('ve-lane-clips').replaceChildren(...rows.map((r) => {
       const src = this._source(r.clip.src);
-      const b = el('div', { class: `ve-clip ve-c${(Number(String(r.clip.src).slice(1)) || 0) % 4}`, title: `${src ? src.name : ''} · ${fmtTime(r.end - r.start)}` },
+      const b = el('div', { class: `ve-clip ve-c${(Number(String(r.clip.src).slice(1)) || 0) % 4}${r.clip.id === this.sel ? ' sel' : ''}`, title: `${src ? src.name : ''} · ${fmtTime(r.end - r.start)} — ลากเพื่อย้าย · ลากขอบเพื่อตัดหัว/ท้าย` },
+        el('span', { class: 've-grip ve-grip-l', 'data-edge': 'in' }),
         el('span', { class: 've-clip-name', text: src ? src.name : r.clip.src }),
-        r.clip.speed !== 1 ? el('span', { class: 've-clip-speed mono', text: `${r.clip.speed}×` }) : null);
+        r.clip.speed !== 1 ? el('span', { class: 've-clip-speed mono', text: `${r.clip.speed}×` }) : null,
+        el('span', { class: 've-grip ve-grip-r', 'data-edge': 'out' }));
       b.style.cssText = `left:${px(r.start)};width:${px(r.end - r.start)}`;
+      b.addEventListener('pointerdown', (e) => this._clipDown(e, r, b, src));
       return b;
     }));
 
@@ -522,6 +706,71 @@ export class VideoEditor {
       return b;
     }));
     for (const [k, label] of Object.entries(LANE_LABELS)) $(`ve-label-${k}`).textContent = label;
+  }
+
+  /** Press on a clip: click selects, dragging the body moves it, dragging an edge trims it. */
+  _clipDown(e, row, b, src) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const clip = row.clip;
+    const edge = e.target.dataset && e.target.dataset.edge;
+    const x0 = e.clientX;
+    const pps = this.pxPerSec;
+    const len = row.end - row.start;
+    const wasPlaying = this.playing;
+    this.pause();
+    b.setPointerCapture(e.pointerId);
+    let moved = false;
+    let result = null; // { in, out } for a trim, { to } for a move
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - x0;
+      if (!moved && Math.abs(dx) < DRAG_PX) return;
+      moved = true;
+      const dsec = dx / pps; // timeline seconds
+      if (edge) {
+        const top = src && Number.isFinite(src.duration) ? src.duration : Infinity;
+        let from = clip.in;
+        let out = clip.out;
+        if (edge === 'in') from = Math.max(0, Math.min(clip.out - MIN_CLIP, clip.in + dsec * clip.speed));
+        else out = Math.min(top, Math.max(clip.in + MIN_CLIP, clip.out + dsec * clip.speed));
+        result = { in: from, out };
+        const left = row.start + (from - clip.in) / clip.speed;
+        b.style.left = `${(left * pps).toFixed(1)}px`;
+        b.style.width = `${(((out - from) / clip.speed) * pps).toFixed(1)}px`;
+      } else {
+        b.classList.add('dragging');
+        const shift = Math.max(-row.start, Math.min(this.snap.duration - row.end, dsec));
+        b.style.transform = `translateX(${(shift * pps).toFixed(1)}px)`;
+        const mid = row.start + len / 2 + shift;
+        result = { to: layout(this.snap.clips).filter((o) => o.clip.id !== clip.id && (o.start + o.end) / 2 <= mid + 1e-6).length };
+      }
+    };
+    const done = async (ev) => {
+      b.removeEventListener('pointermove', onMove);
+      b.removeEventListener('pointerup', done);
+      b.removeEventListener('pointercancel', done);
+      try { b.releasePointerCapture(ev.pointerId); } catch { /* already released */ }
+      b.classList.remove('dragging');
+      b.style.transform = '';
+      if (!moved) {
+        // a plain click: select the clip and put the playhead where it was clicked
+        this.select(clip.id);
+        const r = $('ve-track').getBoundingClientRect();
+        await this.seek(Math.max(row.start, Math.min(row.end - 0.001, (ev.clientX - r.left) / pps)));
+        if (wasPlaying) this.play();
+        return;
+      }
+      this.sel = clip.id;
+      let ok = false;
+      if (result && edge) ok = (result.in === clip.in && result.out === clip.out) || (await this.edit({ op: 'trim', id: clip.id, in: result.in, out: result.out }));
+      else if (result) ok = result.to === row.index || (await this.edit({ op: 'move', id: clip.id, to: result.to }));
+      if (!ok) this._renderTimeline(); // put the clip back where it was
+      this._renderTools();
+    };
+    b.addEventListener('pointermove', onMove);
+    b.addEventListener('pointerup', done);
+    b.addEventListener('pointercancel', done);
   }
 
   _renderTime() {

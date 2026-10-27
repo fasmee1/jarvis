@@ -51,7 +51,10 @@
 .ve-line .mono { flex: 0 0 auto; font-size: 12px; padding-top: 1px; }
 
 .ve-tl-bar { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.ve-tl-bar > .dim { margin-right: auto; }
+.ve-tools { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; margin-left: 10px; }
+.ve-speed { background: var(--surface); color: var(--text-1); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 12px; padding: 3px 4px; }
+.ve-speed:disabled { opacity: 0.5; }
+.ve-sel-hint { font-size: 12px; margin-left: 4px; }
 
 .ve-tl { flex: 0 0 auto; display: grid; grid-template-columns: 76px 1fr; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
 .ve-labels { display: flex; flex-direction: column; border-right: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
@@ -109,3 +112,33 @@
 .ve-sd textarea { resize: vertical; font: inherit; line-height: 1.6; }
 .ve-sd-count { align-self: flex-end; font-size: 11px; }
 .ve-sd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* JARVIS style cut */
+.ve-cut-btn { width: 100%; margin-top: 8px; }
+.ve-cut-status { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
+.ve-cut-status.running { border-color: var(--accent); }
+.ve-cut-status.ok { border-color: var(--ok, #4ade80); }
+.ve-cut-status.bad { border-color: var(--bad, #f87171); }
+.ve-cut-title { font-weight: 600; }
+
+/* clip editing */
+.ve-clip { cursor: grab; user-select: none; touch-action: none; }
+.ve-clip.sel { box-shadow: 0 0 0 1px var(--accent), 0 0 10px var(--accent-faint); border-color: var(--accent); }
+.ve-clip.dragging { cursor: grabbing; opacity: 0.85; z-index: 5; }
+.ve-grip { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+.ve-grip-l { left: 0; }
+.ve-grip-r { right: 0; }
+.ve-clip:hover .ve-grip, .ve-clip.sel .ve-grip { background: var(--accent-soft); }
+
+/* transcript lines you can fix */
+.ve-fix { display: flex; gap: 6px; align-items: center; }
+.ve-fix-hint { flex: 1; min-width: 0; background: var(--surface); color: var(--text-1); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 12px; padding: 4px 8px; }
+.ve-line-row { display: flex; align-items: flex-start; gap: 4px; }
+.ve-line-row .ve-line { flex: 1; min-width: 0; }
+.ve-line-row.edited .ve-line span:last-child { color: var(--accent); }
+.ve-line-tools { display: inline-flex; gap: 2px; flex: none; opacity: 0.35; }
+.ve-line-row:hover .ve-line-tools, .ve-line-row:focus-within .ve-line-tools { opacity: 1; }
+.ve-mini { background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text-2); cursor: pointer; font: inherit; font-size: 13px; padding: 0 5px; line-height: 22px; }
+.ve-mini:hover { border-color: var(--border-hover); color: var(--text-1); }
+.ve-line-edit { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
+.ve-line-input { width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text-1); border: 1px solid var(--accent); border-radius: var(--radius); font: inherit; font-size: 13px; padding: 4px 8px; }

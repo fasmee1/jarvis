@@ -251,3 +251,59 @@ test('cut: refuses with nothing to cut or an unknown style', async () => {
   await svc.importFiles([file('a.mp4')]);
   assert.throws(() => svc.startCut({ styleId: 'nope' }), /ไม่พบแนว/);
 });
+
+test('edit: split, trim, speed, move, remove through the service; undo each', async () => {
+  const { svc } = service();
+  await svc.importFiles([file('a.mp4'), file('b.mov')]); // two 10 s clips
+  let s = svc.edit({ op: 'split', at: 4 });
+  assert.deepStrictEqual(s.clips.map((c) => [c.src, c.in, c.out]), [['s1', 0, 4], ['s1', 4, 10], ['s2', 0, 10]]);
+  assert.strictEqual(s.canUndo, true);
+  const id = s.clips[1].id;
+  s = svc.edit({ op: 'trim', id, in: 5 });
+  assert.deepStrictEqual([s.clips[1].in, s.clips[1].out], [5, 10]);
+  s = svc.edit({ op: 'speed', id, speed: 2 });
+  assert.strictEqual(s.duration, 4 + 2.5 + 10);
+  s = svc.edit({ op: 'move', id, to: 0 });
+  assert.strictEqual(s.clips[0].id, id);
+  s = svc.edit({ op: 'remove', id });
+  assert.strictEqual(s.clips.length, 2);
+  svc.history.undo();
+  assert.strictEqual(svc.snapshot().clips.length, 3);
+});
+
+test('edit: a bad edit throws a Thai message and changes nothing', async () => {
+  const { svc } = service();
+  await svc.importFiles([file('a.mp4')]);
+  const before = JSON.stringify(svc.snapshot().clips);
+  assert.throws(() => svc.edit({ op: 'split', at: 0 }), /ตัดไม่ได้/);
+  assert.throws(() => svc.edit({ op: 'trim', id: 'c1', out: 0.05 }), /สั้นเกินไป/);
+  assert.throws(() => svc.edit({ op: 'trim', id: 'c1', out: 99 }), /เกินความยาว/);
+  assert.throws(() => svc.edit({ op: 'speed', id: 'c1', speed: 9 }), /ความเร็ว/);
+  assert.throws(() => svc.edit({ op: 'remove', id: 'nope' }), /ไม่พบคลิป/);
+  assert.throws(() => svc.edit({ op: 'explode' }), /ไม่รู้จัก/);
+  assert.strictEqual(JSON.stringify(svc.snapshot().clips), before);
+  assert.strictEqual(svc.snapshot().canUndo, true, 'only the import is in the history');
+  assert.strictEqual(svc.history.past.length, 1);
+});
+
+test('captions: edit by hand, restore, and a Claude fix that spares hand edits', async () => {
+  const { svc } = cutService({ ask: async () => '{"fixes":[{"i":0,"text":"สวัสดีครับ Claude"},{"i":1,"text":"แก้โดย Claude"}]}' });
+  await svc.importFiles([file('a.mp4')]);
+  await settle();
+  const segs = () => svc.snapshot().sources[0].analysis.transcript.segments;
+  assert.deepStrictEqual(segs().map((g) => g.i), [0, 1], 'every line carries its index');
+  const heard = segs()[1].text;
+  svc.editCaption({ sourceId: 's1', i: 1, text: '  แก้เอง   ครับ ' });
+  assert.strictEqual(segs()[1].text, 'แก้เอง ครับ');
+  assert.strictEqual(segs()[1].edited, true);
+  assert.throws(() => svc.editCaption({ sourceId: 's1', i: 1, text: ' ' }), /ว่างไม่ได้/);
+  assert.throws(() => svc.editCaption({ sourceId: 's1', i: 99, text: 'x' }), /ไม่พบประโยค/);
+  const r = await svc.fixCaptions({ sourceId: 's1', hint: 'สอน Claude Code' });
+  assert.strictEqual(r.changed, 1, 'the hand-edited line is left alone');
+  assert.strictEqual(segs()[0].text, 'สวัสดีครับ Claude');
+  assert.strictEqual(segs()[1].text, 'แก้เอง ครับ');
+  svc.restoreCaption({ sourceId: 's1', i: 1 });
+  assert.strictEqual(segs()[1].text, heard);
+  assert.strictEqual(segs()[1].edited, undefined);
+  assert.strictEqual(svc.snapshot().fix, null);
+});

@@ -242,7 +242,6 @@ export class Home {
     if (!this._lastEl || now - this._lastEl > 100) {
       this._lastEl = now;
       $('core-elapsed').textContent = formatElapsed(el);
-      this.cards.setElapsed(el);
     }
   }
 

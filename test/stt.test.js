@@ -78,3 +78,19 @@ test('service routes finals to typhoon; live previews stay local-only', async ()
   assert.strictEqual(await s.transcribe(pcm, { partial: true }), null);
   assert.strictEqual(s.status().typhoon.provider, 'typhoon');
 });
+
+test('whisper: clips use the Thai medium model when it is downloaded, voice commands keep the chosen one', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const { WhisperProvider } = require('../lib/stt/whisper');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jv-wh-'));
+  const w = new WhisperProvider({ dataDir: dir, tempDir: dir });
+  assert.strictEqual(w.fileModel(), 'small', 'not downloaded yet');
+  fs.mkdirSync(path.join(dir, 'models'), { recursive: true });
+  fs.writeFileSync(w.modelPath('thonburian-medium'), 'x');
+  assert.strictEqual(w.fileModel(), 'thonburian-medium');
+  assert.strictEqual(w.model, 'small', 'the voice-command model is unchanged');
+  w.model = 'large-v3-turbo';
+  assert.strictEqual(w.fileModel(), 'large-v3-turbo', 'an explicit bigger choice wins');
+});

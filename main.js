@@ -1010,6 +1010,32 @@ function registerIpc() {
     return video.startCut({ styleId: v.str(p.styleId, 20, 'styleId'), note: v.str(p.note, 1000, 'note', { optional: true }) || '' });
   });
   handle('video:cut-cancel', () => video.cancelCut());
+  handle('video:edit', (p) => {
+    v.obj(p);
+    const id = () => v.str(p.id, 20, 'id');
+    const num = (k) => { if (typeof p[k] !== 'number' || !Number.isFinite(p[k])) throw new Error(`${k} ต้องเป็นตัวเลข`); return p[k]; };
+    const opt = (k) => (p[k] === undefined ? undefined : num(k));
+    switch (p.op) {
+      case 'split': return video.edit({ op: 'split', at: num('at') });
+      case 'trim': return video.edit({ op: 'trim', id: id(), in: opt('in'), out: opt('out') });
+      case 'remove': return video.edit({ op: 'remove', id: id() });
+      case 'move': return video.edit({ op: 'move', id: id(), to: Math.trunc(num('to')) });
+      case 'speed': return video.edit({ op: 'speed', id: id(), speed: num('speed') });
+      default: throw new Error('คำสั่งตัดต่อนี้ไม่รู้จัก');
+    }
+  });
+  handle('video:caption-edit', (p) => {
+    v.obj(p);
+    return video.editCaption({ sourceId: v.str(p.sourceId, 20, 'sourceId'), i: Math.trunc(Number(p.i)), text: v.str(p.text, 400, 'text') });
+  });
+  handle('video:caption-restore', (p) => {
+    v.obj(p);
+    return video.restoreCaption({ sourceId: v.str(p.sourceId, 20, 'sourceId'), i: Math.trunc(Number(p.i)) });
+  });
+  handle('video:caption-fix', (p) => {
+    v.obj(p);
+    return video.fixCaptions({ sourceId: v.str(p.sourceId, 20, 'sourceId'), hint: v.str(p.hint, 500, 'hint', { optional: true }) || '' });
+  });
   handle('video:undo', () => {
     if (video.cut) throw new Error('รอให้ JARVIS ตัดต่อเสร็จก่อน');
     video.history.undo();

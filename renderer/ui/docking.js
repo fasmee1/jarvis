@@ -14,8 +14,8 @@ import './ease.js';
 const gsap = window.gsap;
 const NS = 'http://www.w3.org/2000/svg';
 const KEY = 'jarvis.dockedCards';
-const ORDER = ['reply', 'mic', 'tts', 'latency', 'step', 'tokens', 'camera', 'elapsed']; // Alt+1…8
-const SHORT = { reply: 'REPLY', mic: 'MIC', tts: 'TTS', latency: 'LATENCY', step: 'STEP', tokens: 'TOKENS', camera: 'CAM', elapsed: 'TIME' };
+const ORDER = ['reply', 'mic', 'tts', 'latency', 'step', 'tokens', 'camera', 'edit']; // Alt+1…8
+const SHORT = { reply: 'REPLY', mic: 'MIC', tts: 'TTS', latency: 'LATENCY', step: 'STEP', tokens: 'TOKENS', camera: 'CAM', edit: 'EDIT' };
 const WRAP = { x: 600, y: 180 }; // #core-wrap origin in stage px
 
 function loadDocked() {

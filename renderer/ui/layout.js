@@ -26,7 +26,7 @@ const BASE = [
   { id: 'tokens', col: 57, row: 21, w: 13, h: 7, tag: 'C7', size: 'medium', cut: ['tl', 'br'], anchor: { side: 'l', at: 36 / 168 }, node: 90, route: 'd', depth: 0 },
   // bottom pair: straight 45° connectors into the 225° / 135° nodes
   { id: 'camera', col: 15, row: 36, w: 13, h: 7, tag: 'B5', size: 'medium', cut: ['tl', 'br'], anchor: { side: 't', at: 276 / 312 }, node: 225, route: 'd', depth: 0 },
-  { id: 'elapsed', col: 52, row: 36, w: 13, h: 7, tag: 'D6', size: 'medium', cut: ['tl', 'br'], anchor: { side: 't', at: 36 / 312 }, node: 135, route: 'd', depth: 1 },
+  { id: 'edit', col: 52, row: 36, w: 13, h: 7, tag: 'D6', size: 'medium', cut: ['tl', 'br'], anchor: { side: 't', at: 36 / 312 }, node: 135, route: 'd', depth: 1 },
 ];
 
 // ~1440: pull the far cards a little closer to the core.
