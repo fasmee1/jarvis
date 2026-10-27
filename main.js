@@ -32,6 +32,8 @@ const { ClipAnalyzer } = require('./lib/video/analyze');
 const { VideoService } = require('./lib/video/service');
 const { StyleStore } = require('./lib/video/styles');
 const { askClaude } = require('./lib/video/ask-claude');
+const { HfRender, QUALITIES } = require('./lib/video/hf-render');
+const { CAPTION_STYLES } = require('./lib/video/hf-project');
 const { PACES } = require('./lib/video/presets');
 const { WakeAssets } = require('./lib/installer/wake-assets');
 const { pcm16ToWav } = require('./lib/stt/wav');
@@ -1036,6 +1038,15 @@ function registerIpc() {
     v.obj(p);
     return video.fixCaptions({ sourceId: v.str(p.sourceId, 20, 'sourceId'), hint: v.str(p.hint, 500, 'hint', { optional: true }) || '' });
   });
+  handle('video:render-start', (p) => {
+    v.obj(p);
+    const captionStyle = v.str(p.captionStyle, 20, 'captionStyle');
+    const quality = v.str(p.quality, 20, 'quality');
+    if (!CAPTION_STYLES[captionStyle]) throw new Error('แบบซับไม่ถูกต้อง');
+    if (!QUALITIES[quality]) throw new Error('คุณภาพไม่ถูกต้อง');
+    return video.startRender({ captionStyle, quality });
+  });
+  handle('video:render-cancel', () => video.cancelRender());
   handle('video:undo', () => {
     if (video.cut) throw new Error('รอให้ JARVIS ตัดต่อเสร็จก่อน');
     video.history.undo();
@@ -1366,6 +1377,7 @@ app.whenReady().then(async () => {
     ffmpeg,
     analyzer: new ClipAnalyzer({ ffmpeg, stt, tempDir: path.join(app.getPath('temp'), 'mee-jarvis') }),
     styles: videoStyles,
+    hf: new HfRender({ root: path.join(userData, 'video', 'projects'), gsapFile: path.join(__dirname, 'lib', 'video', 'vendor', 'gsap.min.js') }),
     // a separate Claude run with no tools (lib/video/ask-claude.js), not the user's conversation
     ask: (o) => {
       const env = { ...process.env };

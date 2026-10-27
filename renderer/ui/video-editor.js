@@ -55,6 +55,7 @@ export class VideoEditor {
     api.on('video:state', (s) => this.setState(s));
     api.on('video:progress', (p) => this.setProgress(p));
     api.on('video:cut', (c) => this.setCut(c));
+    api.on('video:render', (c) => this.setRenderState(c));
     api.invoke('video:state').then((s) => this.setState(s)).catch(() => {});
   }
 
@@ -116,6 +117,60 @@ export class VideoEditor {
         el('button', { class: 'btn small', type: 'button', text: 'ย้อนกลับไปก่อนตัด', onclick: () => this.undo() })),
     ];
     box.replaceChildren(...kids.filter(Boolean));
+  }
+
+  // ---------- video with subtitles (HyperFrames) ----------
+  async startRender() {
+    this.pause();
+    try {
+      await this.api.invoke('video:render-start', { captionStyle: $('ve-cap-style').value, quality: 'draft' });
+      this.notice('JARVIS เริ่มสร้างวิดีโอพร้อมซับแล้ว — คุยเรื่องอื่นหรือทำอย่างอื่นต่อได้', 'info', null, 5000);
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
+    }
+  }
+
+  /** 'video:render' events: progress while running, then the result. */
+  setRenderState(c) {
+    this.renderState = c;
+    this._renderRender();
+  }
+
+  _renderRender() {
+    const box = $('ve-render-status');
+    const btn = $('ve-render');
+    const c = this.renderState;
+    const running = !!(c && c.running);
+    btn.disabled = running || !this.snap.clips.length || !!(this.cutState && this.cutState.running);
+    btn.textContent = running ? 'กำลังสร้างวิดีโอ…' : '🎬 สร้างตัวอย่างพร้อมซับ';
+    if (running) {
+      const pct = Math.round((c.fraction || 0) * 100);
+      box.hidden = false;
+      box.className = 've-cut-status cut running';
+      box.replaceChildren(
+        el('div', { class: 've-job-label' }, el('span', { text: c.label || 'กำลังสร้างวิดีโอ' }), el('span', { class: 'mono', text: `${pct}%` })),
+        el('div', { class: 've-bar', role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, styled(el('div', { class: 've-bar-fill' }), `width:${pct}%`)),
+        el('div', { class: 've-actions' },
+          el('span', { class: 'dim mono', text: fmtTime((c.elapsedMs || 0) / 1000).replace(/\.\d$/, '') }),
+          el('button', { class: 'btn small', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:render-cancel') })));
+      return;
+    }
+    const r = c && c.result;
+    if (!r) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    box.className = `ve-cut-status cut ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
+    if (!r.ok) {
+      box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? 'ยกเลิกการสร้างวิดีโอแล้ว' : `สร้างวิดีโอไม่สำเร็จ: ${r.error}` }));
+      return;
+    }
+    const player = el('video', { class: 've-render-video', controls: '', playsinline: '', preload: 'metadata', src: r.url });
+    box.replaceChildren(
+      el('div', { class: 've-cut-title', text: `สร้างวิดีโอแล้ว · ${r.captions} บรรทัดซับ · ยาว ${fmtTime(r.duration)} · ใช้เวลา ${Math.round((r.elapsedMs || 0) / 1000)} วินาที` }),
+      player,
+      el('div', { class: 'dim', text: 'ตัวอย่างนี้สร้างจากแถบเวลาและซับตอนกดปุ่ม — แก้ซับหรือตัดต่อเพิ่มแล้วกดสร้างใหม่ได้ (ไฟล์ต้นฉบับไม่ถูกแตะ)' }));
   }
 
   // ---------- words of the transcript ----------
@@ -318,6 +373,7 @@ export class VideoEditor {
     $('ve-ffmpeg-open').onclick = () => this.openSettings('video');
     $('ve-cut').onclick = (e) => e.isTrusted && this.startCut();
     $('ve-fix').onclick = (e) => e.isTrusted && this.fixCaptions();
+    $('ve-render').onclick = (e) => e.isTrusted && this.startRender();
     $('ve-split').onclick = () => this.split();
     $('ve-delete').onclick = () => this.removeClip();
     $('ve-speed').onchange = (e) => this.setClipSpeed(Number(e.target.value));
@@ -468,6 +524,8 @@ export class VideoEditor {
     // the snapshot carries the cut too, so a reopened page shows a running or finished cut
     if (s.cut) this.cutState = { running: true, ...s.cut };
     else if (!this.cutState || !this.cutState.running) this.cutState = s.lastCut ? { running: false, result: s.lastCut } : null;
+    if (s.render) this.renderState = { running: true, ...s.render };
+    else if (!this.renderState || !this.renderState.running) this.renderState = s.lastRender ? { running: false, result: s.lastRender } : null;
     if (clipsChanged) {
       this.loadedSrc = null;
       this.index = -1;
@@ -608,6 +666,7 @@ export class VideoEditor {
     $('ve-undo').disabled = !this.snap.canUndo;
     $('ve-redo').disabled = !this.snap.canRedo;
     this._renderCut();
+    this._renderRender();
     this._renderTools();
     if (!has) return;
     this._renderPreviewShape();

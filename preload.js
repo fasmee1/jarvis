@@ -81,6 +81,8 @@ const INVOKE = [
   'video:cut-start',
   'video:cut-cancel',
   'video:edit',
+  'video:render-start',
+  'video:render-cancel',
   'video:caption-edit',
   'video:caption-restore',
   'video:caption-fix',
@@ -170,6 +172,7 @@ const EVENTS = [
   'video:state',
   'video:progress',
   'video:cut',
+  'video:render',
 ];
 
 contextBridge.exposeInMainWorld('jarvis', {

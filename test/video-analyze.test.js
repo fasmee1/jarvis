@@ -246,3 +246,89 @@ test('analyze: whisper segments are split at pauses and corrected', async () => 
   assert.deepStrictEqual(r.transcript.segments.map((s) => s.text), ['สวัสดีครับ วันนี้ผม', 'ยังแรกเลย 2 ช้อนกับนมสด']);
   assert.ok(r.transcript.segments.every((s) => !('tokens' in s) && !('raw' in s)), 'tokens stay in the main process');
 });
+
+// ---- one stretch of speech at a time (the Thai medium model has no usable word times) ----
+const { speechChunks } = require('../lib/video/analyze');
+const { pcm16ToWav, readWav, sliceWav } = require('../lib/stt/wav');
+
+test('speechChunks: stretches between pauses, padded by at most half a pause', () => {
+  const c = speechChunks([{ start: 4, end: 6 }, { start: 12, end: 12.2 }, { start: 15, end: 20 }], 20);
+  // the 0.2 s pause is too short to split; the last pause runs to the end
+  assert.deepStrictEqual(c, [{ start: 0, end: 4.12 }, { start: 5.88, end: 15.12 }]);
+  assert.deepStrictEqual(speechChunks([], 8), [{ start: 0, end: 8 }]);
+  assert.deepStrictEqual(speechChunks([{ start: 0, end: 8 }], 8), [], 'all silence → nothing to transcribe');
+  assert.deepStrictEqual(speechChunks([{ start: 1, end: 1.4 }], 3).length, 2);
+  const noise = speechChunks([{ start: 0.3, end: 5 }], 10);
+  assert.deepStrictEqual(noise, [{ start: 4.88, end: 10 }], 'a 0.3 s blip is dropped');
+});
+
+test('speechChunks: a long stretch is cut at its longest inner pause, else at the limit', () => {
+  const withPause = speechChunks([{ start: 14, end: 14.3 }, { start: 20, end: 20.2 }], 30, { minPause: 0.5, maxLen: 25 });
+  assert.strictEqual(withPause.length, 2);
+  assert.strictEqual(withPause[0].end, 14.15, 'cut in the middle of the longest pause that fits');
+  assert.ok(withPause.every((c) => c.end - c.start <= 25.001));
+  const hard = speechChunks([], 60, { maxLen: 25 });
+  assert.deepStrictEqual(hard, [{ start: 0, end: 25 }, { start: 25, end: 50 }, { start: 50, end: 60 }]);
+});
+
+test('wav: read back and slice by seconds', () => {
+  const pcm = Buffer.alloc(16000 * 2 * 3); // 3 s
+  for (let i = 0; i < pcm.length / 2; i++) pcm.writeInt16LE(i % 1000, i * 2);
+  const w = readWav(pcm16ToWav(pcm));
+  assert.strictEqual(w.rate, 16000);
+  assert.strictEqual(w.pcm.length, pcm.length);
+  const part = readWav(sliceWav(w, 1, 2.5));
+  assert.strictEqual(part.pcm.length, Math.round(1.5 * 16000) * 2);
+  assert.strictEqual(part.pcm.readInt16LE(0), 16000 % 1000);
+  assert.strictEqual(readWav(sliceWav(w, 2.9, 99)).pcm.length, Math.round(0.1 * 16000) * 2, 'past the end is clamped');
+  assert.throws(() => readWav(Buffer.from('nope')), /WAV/);
+});
+
+test('analyze: with the Thai medium model each stretch is transcribed alone and timed by its pauses', async () => {
+  const tempDir = tmp();
+  const ff = fakeFfmpeg({ silenceLog: 'silence_start: 4\nsilence_end: 6\nsize= time=00:00:20.00' });
+  const run = ff.run;
+  ff.run = async (exe, args, o) => { // a real (silent) WAV so it can be sliced
+    const r = await run(exe, args, o);
+    if (args.includes('pcm_s16le') && r.code === 0) fs.writeFileSync(args[args.length - 1], pcm16ToWav(Buffer.alloc(16000 * 2 * 20)));
+    return r;
+  };
+  const heard = [];
+  const stt = {
+    needsChunks: () => true,
+    async transcribeFile(wav, { onProgress }) {
+      assert.ok(/-part\d+\.wav$/.test(wav), 'a slice, not the whole clip');
+      heard.push(readWav(fs.readFileSync(wav)).pcm.length / 32000);
+      onProgress(1);
+      return { model: 'thonburian-medium', segments: [{ start: 0, end: 30, text: heard.length === 1 ? 'ประโยคแรก' : ' ประโยค  สอง ' }] };
+    },
+  };
+  const steps = [];
+  const r = await new ClipAnalyzer({ ffmpeg: ff, stt, tempDir }).analyze(clipFile(), { onProgress: (p) => steps.push(p) });
+  assert.deepStrictEqual(r.transcript.segments, [{ start: 0, end: 4.12, text: 'ประโยคแรก' }, { start: 5.88, end: 20, text: 'ประโยค สอง' }]);
+  assert.strictEqual(r.transcript.model, 'thonburian-medium');
+  assert.deepStrictEqual(heard.map((x) => Math.round(x * 100) / 100), [4.12, 14.12]);
+  assert.ok(steps.every((p, i) => i === 0 || p.overall >= steps[i - 1].overall), 'progress never goes back');
+  assert.deepStrictEqual(fs.readdirSync(tempDir), [], 'slices and the WAV are removed');
+});
+
+test('analyze: chunked mode drops empty and hallucinated lines, and cancel stops between stretches', async () => {
+  const mk = (texts) => {
+    const ff = fakeFfmpeg({ silenceLog: 'silence_start: 4\nsilence_end: 6\nsize= time=00:00:20.00' });
+    const run = ff.run;
+    ff.run = async (exe, args, o) => {
+      const r = await run(exe, args, o);
+      if (args.includes('pcm_s16le') && r.code === 0) fs.writeFileSync(args[args.length - 1], pcm16ToWav(Buffer.alloc(16000 * 2 * 20)));
+      return r;
+    };
+    let n = 0;
+    return { ff, stt: { needsChunks: () => true, async transcribeFile() { return { model: 'm', segments: [{ start: 0, end: 1, text: texts[n++] }] }; } } };
+  };
+  const a = mk(['', 'ขอบคุณที่รับชม']);
+  assert.deepStrictEqual((await new ClipAnalyzer({ ffmpeg: a.ff, stt: a.stt, tempDir: tmp() }).analyze(clipFile())).transcript.segments, []);
+  const ac = new AbortController();
+  const b = mk(['หนึ่ง', 'สอง']);
+  const first = b.stt.transcribeFile;
+  b.stt.transcribeFile = async (...args) => { const x = await first(...args); ac.abort(); return x; };
+  await assert.rejects(new ClipAnalyzer({ ffmpeg: b.ff, stt: b.stt, tempDir: tmp() }).analyze(clipFile(), { signal: ac.signal }), (e) => e.code === 'ABORTED');
+});

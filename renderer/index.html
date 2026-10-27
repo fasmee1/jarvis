@@ -370,6 +370,16 @@
             </label>
             <button id="ve-cut" class="btn primary ve-cut-btn" type="button">✂ ให้ JARVIS ตัดต่อตามแนวนี้</button>
             <div id="ve-cut-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
+            <h2 class="ve-h">วิดีโอพร้อมซับ <span class="dim">· ดูตัวอย่างก่อนส่งออก</span></h2>
+            <div class="ve-fix">
+              <select id="ve-cap-style" class="ve-speed" title="แบบตัวอักษรซับ" aria-label="แบบตัวอักษรซับ">
+                <option value="classic">ซับขาวมีเงา</option>
+                <option value="pop">ซับเหลืองเด้ง</option>
+                <option value="bar">ซับพื้นดำโปร่ง</option>
+              </select>
+              <button id="ve-render" class="btn primary" type="button" title="สร้างวิดีโอจากแถบเวลาตอนนี้ พร้อมซับที่แก้แล้ว (ใช้เวลาราวเท่าความยาวคลิป)">🎬 สร้างตัวอย่างพร้อมซับ</button>
+            </div>
+            <div id="ve-render-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
             <h2 class="ve-h">คลิปที่นำเข้า</h2>
             <div id="ve-sources" class="ve-sources"></div>
             <h2 class="ve-h">คำพูดในคลิป <span class="dim">· กดเพื่อไปที่ประโยค · กด ✎ เพื่อแก้คำ</span></h2>

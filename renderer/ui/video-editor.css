@@ -142,3 +142,6 @@
 .ve-mini:hover { border-color: var(--border-hover); color: var(--text-1); }
 .ve-line-edit { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
 .ve-line-input { width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text-1); border: 1px solid var(--accent); border-radius: var(--radius); font: inherit; font-size: 13px; padding: 4px 8px; }
+
+/* video with subtitles */
+.ve-render-video { width: 100%; max-height: 420px; border-radius: 6px; background: #000; }

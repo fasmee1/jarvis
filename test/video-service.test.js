@@ -307,3 +307,79 @@ test('captions: edit by hand, restore, and a Claude fix that spares hand edits',
   assert.strictEqual(segs()[1].edited, undefined);
   assert.strictEqual(svc.snapshot().fix, null);
 });
+
+// ---- the video with subtitles (HyperFrames is faked) ----
+function renderService({ render } = {}) {
+  const events = [];
+  const prepared = [];
+  const out = tmp();
+  const hf = {
+    prepare(id, spec) { prepared.push({ id, ...spec }); return out; },
+    async render(dir, o) { return render ? render(dir, o) : (fs.writeFileSync(o.out, 'mp4'), o.out); },
+  };
+  const analyzer = {
+    async analyze() {
+      return { silences: [], transcript: { model: 'm', segments: [{ start: 0, end: 4, text: 'สวัสดีครับ วันนี้มาสอน' }, { start: 6, end: 9, text: 'ประโยคสอง' }] }, summary: {}, warnings: [] };
+    },
+  };
+  const ffmpeg = { async probe() { return { duration: 10, video: { width: 1080, height: 1920 }, audio: { codec: 'aac' } }; } };
+  const svc = new VideoService({ registry: new MediaRegistry(), ffmpeg, analyzer, styles: new StyleStore({ file: path.join(tmp(), 's.json') }), ask: async () => '', hf, emit: (ch, p) => events.push([ch, p]) });
+  return { svc, events, prepared };
+}
+const renderDone = (events) => new Promise((resolve) => {
+  const t = setInterval(() => {
+    const last = events.filter(([ch]) => ch === 'video:render').pop();
+    if (last && !last[1].running) { clearInterval(t); resolve(last[1]); }
+  }, 5);
+});
+
+test('render: builds the page from the edit list and the fixed transcript, then plays the new file', async () => {
+  const { svc, events, prepared } = renderService();
+  await svc.importFiles([file('a.mp4')]);
+  await settle();
+  svc.editCaption({ sourceId: 's1', i: 1, text: 'แก้แล้วครับ' });
+  svc.edit({ op: 'split', at: 5 });
+  const r = svc.startRender({ captionStyle: 'pop', quality: 'draft' });
+  assert.strictEqual(r.started, true);
+  assert.strictEqual(svc.snapshot().render.label, 'เตรียมโปรเจกต์');
+  const done = await renderDone(events);
+  assert.strictEqual(done.result.ok, true);
+  assert.match(done.result.url, /^app:\/\/jarvis\/media\//);
+  assert.strictEqual(done.result.duration, 10);
+  assert.strictEqual(prepared.length, 1);
+  assert.match(prepared[0].html, /แก้แล้วครับ/);
+  assert.match(prepared[0].html, /back\.out/, 'the chosen subtitle style');
+  assert.match(prepared[0].html, /data-media-start="5"/, 'the cut is in the page');
+  assert.deepStrictEqual(prepared[0].files.map((f) => f.id), ['s1']);
+  assert.strictEqual(svc.snapshot().lastRender.ok, true);
+  // a second render gets a different file (the browser must not show the old one)
+  svc.startRender({ captionStyle: 'classic', quality: 'draft' });
+  const again = await renderDone(events);
+  assert.strictEqual(again.result.ok, true);
+  assert.notStrictEqual(again.result.url, done.result.url);
+});
+
+test('render: progress, failure and cancel are reported; busy and empty are refused', async () => {
+  let release;
+  const slow = renderService({ render: (dir, o) => new Promise((resolve, reject) => { o.onProgress(0.4, 'capture'); release = () => resolve(o.out); o.signal.addEventListener('abort', () => reject(Object.assign(new Error('x'), { code: 'ABORTED' }))); }) });
+  assert.throws(() => slow.svc.startRender({}), /ยังไม่มีคลิป/);
+  await slow.svc.importFiles([file('a.mp4')]);
+  await settle();
+  slow.svc.startRender({});
+  await new Promise((r) => setTimeout(r, 10));
+  assert.strictEqual(slow.svc.snapshot().render.fraction, 0.4);
+  assert.strictEqual(slow.svc.snapshot().render.label, 'วาดภาพและซับทีละเฟรม');
+  assert.throws(() => slow.svc.startRender({}), /กำลังสร้างวิดีโออยู่/);
+  slow.svc.cancelRender();
+  const c = await renderDone(slow.events);
+  assert.strictEqual(c.result.cancelled, true);
+
+  const bad = renderService({ render: async () => { throw new Error('HyperFrames สร้างวิดีโอไม่สำเร็จ'); } });
+  await bad.svc.importFiles([file('a.mp4')]);
+  await settle();
+  bad.svc.startRender({});
+  const f = await renderDone(bad.events);
+  assert.strictEqual(f.result.ok, false);
+  assert.match(f.result.error, /ไม่สำเร็จ/);
+  assert.strictEqual(bad.svc.snapshot().render, null);
+});
