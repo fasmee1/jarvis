@@ -634,6 +634,10 @@ function registerIpc() {
     core.setCodingMode(v.bool(p, 'coding'));
     return { ok: true };
   });
+  handle('session:planning-mode', (p) => {
+    core.setPlanningMode(v.bool(p, 'planning'));
+    return { ok: true };
+  });
   handle('terminal:open-interactive', () => {
     try {
       return core.openInteractive();

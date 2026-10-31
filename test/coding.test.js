@@ -9,7 +9,7 @@ const path = require('path');
 const { buildWhisperPrompt, parseCorrections, applyCorrections, DEFAULT_CORRECTIONS } = require('../lib/stt/vocab');
 const { SttService } = require('../lib/stt');
 const { SettingsStore } = require('../lib/settings');
-const { JarvisCore, parseCodingModeCommand, isCodeProject, fmtDuration } = require('../lib/jarvis-core');
+const { JarvisCore, parseCodingModeCommand, parsePlanningModeCommand, isCodeProject, fmtDuration } = require('../lib/jarvis-core');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-coding-'));
 
@@ -93,6 +93,39 @@ test('coding mode: auto-on in a code project, prompt sent once with the next mes
 
   core.setCwd(plain);
   assert.strictEqual(core.codingMode, false);
+});
+
+test('planning mode voice command', () => {
+  assert.strictEqual(parsePlanningModeCommand('เปิดโหมดวางแผน'), true);
+  assert.strictEqual(parsePlanningModeCommand('เปิด โหมดวางแผนพัฒนาระบบ ครับ'), true);
+  assert.strictEqual(parsePlanningModeCommand('ปิดโหมดวางแผนระบบหน่อย'), false);
+  assert.strictEqual(parsePlanningModeCommand('เปิดโหมดวางแผนแล้วทำแอปขายของ'), null);
+  assert.strictEqual(parsePlanningModeCommand('เปิดโหมดโค้ด'), null);
+});
+
+test('planning mode: interview prompt sent once, off message sent once, new session resends', () => {
+  const core = new JarvisCore({ settings: new SettingsStore(tmp()), tempDir: tmp(), ui: () => {}, appRoot: tmp(), logDir: tmp() });
+  core.warm = () => {};
+  const sent = [];
+  core.ensureSession = () => ({ busy: false });
+  core._startTurn = (content) => { sent.push(content.at(-1).text); return 't'; };
+
+  assert.strictEqual(core.send({ text: 'เปิดโหมดวางแผน' }), null);
+  assert.strictEqual(core.planningMode, true);
+  assert.strictEqual(core.snapshot().planningMode, true);
+  core.send({ text: 'อยากทำแอปจองคิวร้านตัดผม' });
+  core.send({ text: 'ลูกค้าคือเจ้าของร้านเล็ก ๆ' });
+  assert.match(sent[0], /^\[JARVIS: เปิดโหมดวางแผนพัฒนาระบบ/);
+  assert.match(sent[0], /เร็ว.*ละเอียด/s);
+  assert.strictEqual(sent[1], 'ลูกค้าคือเจ้าของร้านเล็ก ๆ');
+
+  core.newSession(true);
+  core.send({ text: 'ต่อ' });
+  assert.match(sent[2], /^\[JARVIS: เปิดโหมดวางแผนพัฒนาระบบ/);
+
+  core.send({ text: 'ปิดโหมดวางแผน' });
+  core.send({ text: 'จบแล้ว' });
+  assert.match(sent[3], /^\[JARVIS: ปิดโหมดวางแผนพัฒนาระบบแล้ว/);
 });
 
 test('fmtDuration reads naturally in Thai', () => {

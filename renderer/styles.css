@@ -1434,6 +1434,51 @@ svg.diagram .edge-label {
   font-family: var(--font-mono);
 }
 
+svg.diagram line.edge {
+  stroke: var(--accent-soft);
+  stroke-width: 1.5;
+}
+
+svg.diagram .dg-arrow {
+  fill: var(--accent-soft);
+}
+
+svg.diagram .node polygon,
+svg.diagram .node rect.external {
+  fill: var(--bg-1);
+  stroke: var(--border-hover);
+}
+
+svg.diagram .node rect.external {
+  stroke-width: 2.5;
+}
+
+svg.diagram .node line {
+  stroke: var(--border-hover);
+}
+
+svg.diagram .node.shape-store rect {
+  fill: var(--bg-1);
+}
+
+svg.diagram .node.entity .entity-name {
+  font-weight: 600;
+}
+
+svg.diagram .node.entity .field {
+  font-size: 12px;
+}
+
+svg.diagram .key-pk {
+  fill: var(--accent-soft);
+}
+
+svg.diagram .card {
+  fill: var(--accent-soft);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
 .code-block {
   margin-bottom: 16px;
 }

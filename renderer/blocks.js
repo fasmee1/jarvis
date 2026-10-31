@@ -1,6 +1,8 @@
 // Render jarvis-* blocks with DOM APIs only (textContent — never innerHTML of
 // model output), both inline in chat and in the HUD display tabs.
 
+import { layoutGraph, borderPoint, textSize, wrapLabel } from './ui/diagram-layout.js';
+
 const SVGNS = 'http://www.w3.org/2000/svg';
 
 export function el(tag, props = {}, ...children) {
@@ -106,6 +108,126 @@ export function renderDiagram(data) {
   return wrap;
 }
 
+// ---- software planning diagrams: flowchart / DFD and ER ----
+
+let arrowSeq = 0;
+
+function arrowDefs(root) {
+  const id = `dg-arrow-${++arrowSeq}`;
+  root.dataset.arrow = id;
+  const defs = svg('defs');
+  const m = svg('marker', { id, viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '8', markerHeight: '8', orient: 'auto-start-reverse' });
+  m.append(svg('path', { d: 'M0,0 L10,5 L0,10 z', class: 'dg-arrow' }));
+  defs.append(m);
+  root.append(defs);
+}
+
+function multiline(g, lines, cx, cy, extra = {}) {
+  const lh = 16;
+  const top = cy - ((lines.length - 1) * lh) / 2;
+  lines.forEach((ln, i) => g.append(svg('text', { x: cx, y: top + i * lh + 4, 'text-anchor': 'middle', ...extra }, ln)));
+}
+
+function edgeLine(root, a, b, label) {
+  root.append(svg('line', { class: 'edge', x1: a.x, y1: a.y, x2: b.x, y2: b.y, 'marker-end': `url(#${root.dataset.arrow})` }));
+  if (label) root.append(svg('text', { class: 'edge-label', x: (a.x + b.x) / 2 + 4, y: (a.y + b.y) / 2 - 4 }, label));
+}
+
+function shell(data, root, width, height) {
+  root.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  root.style.maxWidth = `${Math.max(width, 320)}px`;
+  const wrap = el('div');
+  if (data.title) wrap.append(el('div', { class: 'accent', text: data.title }));
+  wrap.append(root);
+  return wrap;
+}
+
+export function renderFlow(data) {
+  const dfd = data.type === 'dfd';
+  const shapeOf = (n) => n.shape || (dfd ? 'process' : 'process');
+  const sized = data.nodes.map((n) => {
+    const shape = shapeOf(n);
+    const s = textSize(n.label, shape === 'decision' ? { min: 120, pad: 56, max: 200 } : {});
+    return { id: n.id, label: n.label, shape, w: shape === 'decision' ? s.w + 30 : s.w, h: shape === 'decision' ? Math.max(70, s.h + 30) : s.h };
+  });
+  const byId = new Map(sized.map((n) => [n.id, n]));
+  const edges = (data.edges || []).filter((e) => byId.has(e.from) && byId.has(e.to) && e.from !== e.to);
+  const { pos, width, height } = layoutGraph(sized, edges, data.direction === 'LR' ? 'LR' : 'TB');
+  const root = svg('svg', { class: 'diagram flow' });
+  arrowDefs(root);
+  const center = (n) => ({ x: pos.get(n.id).x + n.w / 2, y: pos.get(n.id).y + n.h / 2 });
+  for (const e of edges) {
+    const a = byId.get(e.from);
+    const b = byId.get(e.to);
+    const pa = borderPoint(a, pos.get(a.id), center(b), a.shape === 'decision');
+    const pb = borderPoint(b, pos.get(b.id), center(a), b.shape === 'decision');
+    edgeLine(root, pa, pb, e.label);
+  }
+  for (const n of sized) {
+    const { x, y } = pos.get(n.id);
+    const g = svg('g', { class: `node shape-${n.shape}` });
+    const cx = x + n.w / 2;
+    const cy = y + n.h / 2;
+    if (n.shape === 'decision') {
+      g.append(svg('polygon', { points: `${cx},${y} ${x + n.w},${cy} ${cx},${y + n.h} ${x},${cy}` }));
+    } else if (n.shape === 'io') {
+      const k = 14;
+      g.append(svg('polygon', { points: `${x + k},${y} ${x + n.w},${y} ${x + n.w - k},${y + n.h} ${x},${y + n.h}` }));
+    } else if (n.shape === 'store') {
+      g.append(svg('rect', { x, y, width: n.w, height: n.h, rx: 0, class: 'store-fill' }));
+      g.append(svg('line', { x1: x + 10, y1: y, x2: x + 10, y2: y + n.h }));
+    } else {
+      const rx = n.shape === 'start' || n.shape === 'end' ? n.h / 2 : dfd && n.shape === 'process' ? 18 : 6;
+      g.append(svg('rect', { x, y, width: n.w, height: n.h, rx, class: n.shape === 'external' ? 'external' : '' }));
+    }
+    multiline(g, wrapLabel(n.label, n.w - 28), cx + (n.shape === 'store' ? 6 : 0), cy);
+    root.append(g);
+  }
+  return shell(data, root, width, height);
+}
+
+const CARD_TEXT = { '1': '1', '0..1': '0..1', N: 'N', '0..N': '0..N' };
+
+export function renderEr(data) {
+  const ROW = 18;
+  const sized = data.entities.map((en) => {
+    const fields = (en.fields || []).slice(0, 30);
+    const longest = Math.max([...en.name].length, ...fields.map((f) => [...`${f.key ? f.key.toUpperCase() + ' ' : ''}${f.name}  ${f.type || ''}`].length));
+    return { id: en.id, name: en.name, fields, w: Math.min(280, Math.max(140, longest * 8 + 32)), h: 34 + Math.max(1, fields.length) * ROW + 8 };
+  });
+  const byId = new Map(sized.map((n) => [n.id, n]));
+  const rels = (data.relations || []).filter((r) => byId.has(r.from) && byId.has(r.to) && r.from !== r.to);
+  const { pos, width, height } = layoutGraph(sized, rels, 'LR');
+  const root = svg('svg', { class: 'diagram er' });
+  const center = (n) => ({ x: pos.get(n.id).x + n.w / 2, y: pos.get(n.id).y + n.h / 2 });
+  for (const r of rels) {
+    const a = byId.get(r.from);
+    const b = byId.get(r.to);
+    const pa = borderPoint(a, pos.get(a.id), center(b));
+    const pb = borderPoint(b, pos.get(b.id), center(a));
+    root.append(svg('line', { class: 'edge', x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y }));
+    const near = (p, q, t) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+    if (r.fromCard) { const c = near(pa, pb, 0.12); root.append(svg('text', { class: 'card', x: c.x, y: c.y - 5, 'text-anchor': 'middle' }, CARD_TEXT[r.fromCard])); }
+    if (r.toCard) { const c = near(pa, pb, 0.88); root.append(svg('text', { class: 'card', x: c.x, y: c.y - 5, 'text-anchor': 'middle' }, CARD_TEXT[r.toCard])); }
+    if (r.label) { const c = near(pa, pb, 0.5); root.append(svg('text', { class: 'edge-label', x: c.x, y: c.y - 5, 'text-anchor': 'middle' }, r.label)); }
+  }
+  for (const n of sized) {
+    const { x, y } = pos.get(n.id);
+    const g = svg('g', { class: 'node entity' });
+    g.append(svg('rect', { x, y, width: n.w, height: n.h, rx: 6 }));
+    g.append(svg('line', { x1: x, y1: y + 28, x2: x + n.w, y2: y + 28 }));
+    g.append(svg('text', { class: 'entity-name', x: x + n.w / 2, y: y + 19, 'text-anchor': 'middle' }, n.name));
+    n.fields.forEach((f, i) => {
+      const ty = y + 28 + 8 + (i + 1) * ROW - 5;
+      if (f.key) g.append(svg('text', { class: `pin key-${f.key}`, x: x + 8, y: ty }, f.key.toUpperCase()));
+      g.append(svg('text', { class: 'field', x: x + (f.key ? 30 : 8), y: ty }, f.name));
+      if (f.type) g.append(svg('text', { class: 'pin', x: x + n.w - 8, y: ty, 'text-anchor': 'end' }, f.type));
+    });
+    root.append(g);
+  }
+  return shell(data, root, width, height);
+}
+
 export function renderCode(kind, code) {
   const label = kind === 'arduino' ? 'Arduino (.ino)' : kind === 'scad' ? 'OpenSCAD (.scad)' : kind || 'code';
   const pre = el('pre', { class: 'mono', text: code });
@@ -131,17 +253,21 @@ export function blockCard(item, onOpen) {
   if (item.kind === 'steps') card.append(el('div', { class: 'dim', text: `${item.data.steps.length} ขั้นตอน${item.data.title ? ': ' + item.data.title : ''}` }));
   if (item.kind === 'bom') card.append(el('div', { class: 'dim', text: `${item.data.items.length} รายการ` }));
   if (item.kind === 'diagram') card.append(el('div', { class: 'dim', text: `${item.data.nodes.length} ชิ้นส่วน, ${(item.data.edges || []).length} สาย` }));
+  if (item.kind === 'flow') card.append(el('div', { class: 'dim', text: `${item.data.type === 'dfd' ? 'Data Flow Diagram' : 'Flowchart'} · ${item.data.nodes.length} กล่อง` }));
+  if (item.kind === 'er') card.append(el('div', { class: 'dim', text: `ER Diagram · ${item.data.entities.length} ตาราง` }));
   if (item.code) card.append(el('div', { class: 'dim', text: `${item.code.split('\n').length} บรรทัด` }));
   return card;
 }
 
-export const TAB_FOR_KIND = { steps: 'steps', diagram: 'diagram', bom: 'bom', arduino: 'code', scad: 'code' };
+export const TAB_FOR_KIND = { steps: 'steps', diagram: 'diagram', flow: 'diagram', er: 'diagram', bom: 'bom', arduino: 'code', scad: 'code' };
 
 export function renderForTab(item) {
   switch (item.kind) {
     case 'steps': return renderSteps(item.data);
     case 'bom': return renderBom(item.data);
     case 'diagram': return renderDiagram(item.data);
+    case 'flow': return renderFlow(item.data);
+    case 'er': return renderEr(item.data);
     case 'arduino':
     case 'scad': return renderCode(item.kind, item.code);
     default: return null;

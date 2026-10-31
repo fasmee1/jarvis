@@ -17,6 +17,7 @@ const INVOKE = [
   'session:new-from-summary',
   'session:teach-mode',
   'session:coding-mode',
+  'session:planning-mode',
   'build:reset',
   'code:run',
   'code:cancel',

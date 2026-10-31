@@ -1886,6 +1886,8 @@ function applyAppState(snap) {
   $('session-id').textContent = snap.sessionId ? `· ${snap.sessionId.slice(0, 8)}` : '';
   $('btn-teach').classList.toggle('on', !!snap.teachMode);
   $('btn-code').classList.toggle('on', !!snap.codingMode);
+  $('btn-plan').classList.toggle('on', !!snap.planningMode);
+  $('btn-plan').setAttribute('aria-pressed', String(!!snap.planningMode));
   renderAttachments(snap.attachments);
   applyBuildState(snap);
   $('btn-teach').setAttribute('aria-pressed', String(!!snap.teachMode));
@@ -2573,6 +2575,11 @@ function wireDom() {
     const on = !$('btn-code').classList.contains('on');
     await api.invoke('session:coding-mode', on);
     addSystemMsg(on ? 'เปิดโหมดโค้ด — JARVIS จะอ่านก่อนแก้ ตรวจผลก่อนสรุป และไม่อ่านโค้ดออกเสียง' : 'ปิดโหมดโค้ด');
+  };
+  $('btn-plan').onclick = async () => {
+    const on = !$('btn-plan').classList.contains('on');
+    await api.invoke('session:planning-mode', on);
+    addSystemMsg(on ? 'เปิดโหมดวางแผนพัฒนาระบบ — JARVIS จะสัมภาษณ์ขอบเขตงานก่อนเริ่มทำ' : 'ปิดโหมดวางแผนพัฒนาระบบ');
   };
   wireAttachments();
   $('build-reset').onclick = async () => {

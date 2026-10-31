@@ -279,7 +279,7 @@ export class ConversationPopup {
   // ---------- toolbar overflow ("⋯") ----------
   _wireOverflow() {
     // least-used first; the folder, the mode and × never collapse
-    this.slots = ['btn-sfx', 'btn-interactive', 'btn-new-summary', 'btn-new', 'btn-history', 'session-id', 'btn-code', 'btn-teach'].map((id) => {
+    this.slots = ['btn-sfx', 'btn-interactive', 'btn-new-summary', 'btn-new', 'btn-history', 'session-id', 'btn-code', 'btn-teach', 'btn-plan'].map((id) => {
       const el = $(id);
       const mark = document.createComment(id);
       el.before(mark);
