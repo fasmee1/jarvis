@@ -55,7 +55,7 @@ test('pieces: a very long clip is joined down to the limit', () => {
 test('prompt: style, note, target and quoted speech; no file paths', () => {
   const pieces = buildPieces([SOURCE], STYLE);
   const text = buildPlanPrompt({ style: STYLE, note: 'ตัดคำว่าเอ่อออก', pieces, sources: [SOURCE] });
-  assert.match(text, /## แนวคลิป: สอน/);
+  assert.match(text, /## สกิลการตัดต่อ: สอน/);
   assert.match(text, /เก็บทุกประโยค/);
   assert.match(text, /คำสั่งเพิ่มเฉพาะคลิปนี้[\s\S]*ตัดคำว่าเอ่อออก/);
   assert.match(text, /30 วินาที \(ห้ามยาวเกิน\)/);

@@ -1,5 +1,5 @@
-// "แนวคลิป" panel of the EDIT section: pick the style JARVIS edits by, add / change /
-// delete your own styles, reset a built-in, and write a note for this clip only.
+// "สกิล" tab of the EDIT section: pick the skill JARVIS edits by, upload a SKILL.md, write /
+// change / delete your own, reset a built-in, and write a note for this clip only.
 // Styles are stored in the main process (lib/video/styles.js); this only shows them.
 
 import { el } from '../blocks.js';
@@ -35,7 +35,7 @@ export class StylePicker {
     try {
       this._apply(await this.api.invoke('video:styles'));
     } catch (err) {
-      this.notice(`โหลดแนวคลิปไม่ได้: ${err.message}`, 'error');
+      this.notice(`โหลดสกิลไม่ได้: ${err.message}`, 'error');
     }
   }
 
@@ -54,6 +54,7 @@ export class StylePicker {
 
   _wire() {
     $('ve-style-add').onclick = () => this.openEditor(null);
+    $('ve-skill-import').onclick = (e) => e.isTrusted && this.importSkill();
     const dlg = $('ve-style-dialog');
     $('ve-sd-cancel').onclick = () => this.closeEditor();
     $('ve-sd-form').addEventListener('submit', (e) => {
@@ -90,15 +91,16 @@ export class StylePicker {
   _card(s) {
     const on = s.id === this.selected;
     const actions = el('span', { class: 've-style-actions' },
-      el('button', { class: 'btn small ghost', type: 'button', text: 'แก้', title: 'แก้ชื่อ คำอธิบาย และจังหวะของแนวนี้', onclick: (e) => { e.stopPropagation(); this.openEditor(s); } }),
-      s.builtin && s.edited ? el('button', { class: 'btn small ghost', type: 'button', text: 'คืนค่าเดิม', onclick: (e) => { e.stopPropagation(); this.reset(s); } }) : null,
-      !s.builtin ? el('button', { class: 'btn small ghost danger', type: 'button', text: 'ลบ', onclick: (e) => { e.stopPropagation(); this.remove(s); } }) : null);
+      el('button', { class: 've-mini', type: 'button', text: 'แก้', title: 'แก้ชื่อ คำแนะนำ และจังหวะของสกิลนี้', onclick: (e) => { e.stopPropagation(); this.openEditor(s); } }),
+      s.builtin && s.edited ? el('button', { class: 've-mini', type: 'button', text: 'คืนค่าเดิม', onclick: (e) => { e.stopPropagation(); this.reset(s); } }) : null,
+      !s.builtin ? el('button', { class: 've-mini danger', type: 'button', text: 'ลบ', onclick: (e) => { e.stopPropagation(); this.remove(s); } }) : null);
     const card = el('div', { class: `ve-style${on ? ' on' : ''}`, role: 'radio', 'aria-checked': String(on), tabindex: '0', title: s.prompt },
       el('div', { class: 've-style-head' },
         el('span', { class: 've-style-name', text: s.name }),
-        s.builtin ? null : el('span', { class: 've-style-tag', text: 'ของฉัน' }),
+        s.builtin ? el('span', { class: 've-style-tag', text: 'สำเร็จรูป' }) : el('span', { class: 've-style-tag', text: s.skill ? 'อัปโหลด' : 'เขียนเอง' }),
         s.builtin && s.edited ? el('span', { class: 've-style-tag', text: 'แก้แล้ว' }) : null),
-      el('div', { class: 've-style-meta dim', text: `${PACE_SHORT[s.pace] || s.pace} · ${fmtTarget(s.targetSec)}` }),
+      s.description ? el('div', { class: 've-style-desc', text: s.description }) : null,
+      el('div', { class: 've-style-meta', text: `${PACE_SHORT[s.pace] || s.pace} · ${fmtTarget(s.targetSec)}` }),
       actions);
     card.addEventListener('click', () => this.pick(s.id));
     card.addEventListener('keydown', (e) => {
@@ -112,18 +114,32 @@ export class StylePicker {
     return card;
   }
 
+  /** Upload a SKILL.md: the main process shows the file dialog and reads it. */
+  async importSkill() {
+    try {
+      const r = await this.api.invoke('video:skill-import');
+      if (r.cancelled) return;
+      this.selected = r.saved;
+      this._apply(r);
+      const s = this.styles.find((x) => x.id === r.saved);
+      this.notice(`เพิ่มสกิล "${s ? s.name : ''}" แล้ว และเลือกไว้ให้`, 'info', null, 3000);
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'error');
+    }
+  }
+
   async remove(s) {
-    if (!confirm(`ลบแนว "${s.name}"?`)) return;
+    if (!confirm(`ลบสกิล "${s.name}"?`)) return;
     try {
       this._apply(await this.api.invoke('video:style-remove', s.id));
-      this.notice(`ลบแนว ${s.name} แล้ว`, 'info', null, 3000);
+      this.notice(`ลบสกิล ${s.name} แล้ว`, 'info', null, 3000);
     } catch (err) {
       this.notice(err.message, 'error');
     }
   }
 
   async reset(s) {
-    if (!confirm(`คืนแนว "${s.name}" เป็นแบบเดิมของ JARVIS?`)) return;
+    if (!confirm(`คืนสกิล "${s.name}" เป็นแบบเดิมของ JARVIS?`)) return;
     try {
       this._apply(await this.api.invoke('video:style-reset', s.id));
     } catch (err) {
@@ -134,7 +150,7 @@ export class StylePicker {
   // ---------- add / edit dialog ----------
   openEditor(s) {
     this.editing = s ? s.id : '';
-    $('ve-sd-title').textContent = s ? `แก้แนว: ${s.name}` : 'เพิ่มแนวใหม่';
+    $('ve-sd-title').textContent = s ? `แก้สกิล: ${s.name}` : 'เขียนสกิลเอง';
     $('ve-sd-name').value = s ? s.name : '';
     $('ve-sd-prompt').value = s ? s.prompt : '';
     $('ve-sd-target').value = s ? String(s.targetSec) : '60';
@@ -153,7 +169,7 @@ export class StylePicker {
   }
 
   _count() {
-    $('ve-sd-count').textContent = `${$('ve-sd-prompt').value.length}/2000`;
+    $('ve-sd-count').textContent = `${$('ve-sd-prompt').value.length.toLocaleString()}/60,000`;
   }
 
   async saveEditor() {
@@ -170,7 +186,7 @@ export class StylePicker {
       this._apply(r);
       if (!this.editing) this.api.invoke('video:style-pick', r.saved).catch(() => {});
       this.closeEditor();
-      this.notice('บันทึกแนวแล้ว', 'info', null, 2500);
+      this.notice('บันทึกสกิลแล้ว', 'info', null, 2500);
     } catch (err) {
       // IPC errors arrive as "Error invoking remote method '…': Error: <message>"
       $('ve-sd-error').textContent = String(err.message || err).replace(/^.*Error: /, '');

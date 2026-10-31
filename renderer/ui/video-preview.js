@@ -53,70 +53,6 @@ export function bounceOut(p) {
 }
 const sineInOut = (p) => -(Math.cos(Math.PI * p) - 1) / 2;
 
-/** Sticker kinds drawn by the app (see lib/video/stickers.js): which of them draw a line. */
-export const STICKER_DRAW = { circle: 0.6, underline: 0.5 };
-export const STICKER_KINDS = ['arrow', 'circle', 'underline', 'heart', 'sparkle'];
-
-/**
- * How a moving sticker looks at timeline time t; null when it is not on screen.
- * { opacity, scale, y (design px), draw (0..1 for line stickers), stars: [{ scale, rot }] }
- */
-export function stickerState(o, t) {
-  if (t < o.start || t > o.end) return null;
-  const d = o.end - o.start;
-  const w = (1080 * o.size) / 100; // the sticker's box in design px
-  const local = t - o.start;
-  const fade = 1 - clamp01((t - (o.end - 0.25)) / 0.25);
-  const st = { opacity: fade, scale: 1, y: 0, draw: null, stars: null };
-  if (o.kind === 'arrow') {
-    st.y = -0.7 * w * (1 - bounceOut(clamp01(local / 0.45)));
-    if (local > 0.5) {
-      const reps = Math.max(1, Math.floor((d - 0.8) / 0.35) - 1);
-      const k = (local - 0.5) / 0.35;
-      const total = reps + 1;
-      const u = k >= total ? (total % 2 === 1 ? 1 : 0) : (k % 2 <= 1 ? k % 2 : 2 - (k % 2));
-      st.y = 0.24 * w * sineInOut(u);
-    }
-  } else if (STICKER_DRAW[o.kind]) {
-    st.draw = out2(clamp01(local / STICKER_DRAW[o.kind]));
-  } else if (o.kind === 'heart') {
-    st.scale = backOut(2.4)(clamp01(local / 0.4));
-    const q = clamp01((local - 0.5) / Math.max(0.4, d - 0.5));
-    st.y = -1.2 * w * in2(q);
-    st.opacity = 1 - in2(q);
-  } else if (o.kind === 'sparkle') {
-    st.stars = [0, 1, 2].map((i) => {
-      const p = clamp01((local - 0.12 * i) / 0.35);
-      let scale = backOut(3)(p);
-      const z = (local - (0.6 + 0.1 * i)) / 0.3;
-      if (z > 0) scale *= 1 - 0.4 * (z <= 1 ? z : z <= 2 ? 2 - z : 0);
-      return { scale, rot: -45 * (1 - p) };
-    });
-  }
-  return st;
-}
-
-/**
- * How an emoji picture looks at timeline time t; null when it is not on screen.
- * { opacity, scale, rot (deg), y (design px) } — pops in, bobs, fades out, like the render.
- */
-export function emojiState(o, t) {
-  if (t < o.start || t > o.end) return null;
-  const d = o.end - o.start;
-  const w = (1080 * o.size) / 100;
-  const local = t - o.start;
-  const p = clamp01(local / 0.45);
-  const st = { opacity: 1 - clamp01((t - (o.end - 0.25)) / 0.25), scale: backOut(2.6)(p), rot: -12 * (1 - p), y: 0 };
-  if (local > 0.5) {
-    const reps = Math.max(1, Math.floor((d - 0.7) / 0.4) - 1);
-    const k = (local - 0.5) / 0.4;
-    const total = reps + 1;
-    const u = k >= total ? (total % 2 === 1 ? 1 : 0) : (k % 2 <= 1 ? k % 2 : 2 - (k % 2));
-    st.y = -0.08 * w * sineInOut(u);
-  }
-  return st;
-}
-
 const thousands = (n) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 /**
@@ -188,6 +124,85 @@ export function cuesBetween(cues, from, to) {
   return cues.filter((c) => c.at > from && c.at <= to);
 }
 
+// ---- HyperFrames graphics (overlay kind 'hf', see lib/video/hf-graphics.js) ----
+
+/** The canvas the render uses for these sources (same rule as hf-project canvasFor). */
+export function canvasFor(sources) {
+  const v = sources.find((s) => s.video && s.video.width && s.video.height);
+  if (!v) return { width: 1080, height: 1920 };
+  const { width: w, height: h } = v.video;
+  if (h > w * 1.05) return { width: 1080, height: 1920 };
+  if (w > h * 1.05) return { width: 1920, height: 1080 };
+  return { width: 1080, height: 1080 };
+}
+
+const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** {{var}} → the variable's text (escaped), like the render. */
+export function fillMarkup(markup, vars) {
+  const text = Object.fromEntries((vars || []).filter((v) => v.type === 'text').map((v) => [v.id, v.value]));
+  return String(markup).replace(/\{\{\s*([a-z][a-z0-9_]{0,19})\s*\}\}/g, (_, id) => escHtml(text[id] || ''));
+}
+
+const EASE_POW = { power0: 1, linear: 1, none: 1, power1: 2, quad: 2, power2: 3, cubic: 3, power3: 4, quart: 4, power4: 5, quint: 5, strong: 5 };
+
+/** A GSAP ease name ("power3.out", "back.out(1.7)", "sine.inOut") as a function of 0..1. */
+export function parseEase(name) {
+  const m = /^([a-z]+\d?)(?:\.(inOut|in|out))?(?:\(([\d.]+))?/.exec(String(name || 'power1.out')) || [];
+  const kind = m[1] || 'power1';
+  const dir = m[2] || 'out';
+  const arg = Number(m[3]);
+  if (kind === 'none' || kind === 'linear' || kind === 'power0') return (p) => p;
+  let fin; // the "in" form
+  if (EASE_POW[kind]) fin = (p) => p ** EASE_POW[kind];
+  else if (kind === 'sine') fin = (p) => 1 - Math.cos((p * Math.PI) / 2);
+  else if (kind === 'expo') fin = (p) => (p === 0 ? 0 : 2 ** (10 * (p - 1)));
+  else if (kind === 'circ') fin = (p) => 1 - Math.sqrt(1 - p * p);
+  else if (kind === 'back' || kind === 'elastic') { const c = Number.isFinite(arg) ? arg : 1.70158; fin = (p) => p * p * ((c + 1) * p - c); }
+  else if (kind === 'bounce') fin = (p) => 1 - bounceOut(1 - p);
+  else fin = (p) => p;
+  if (dir === 'in') return fin;
+  if (dir === 'out') return (p) => 1 - fin(1 - p);
+  return (p) => (p < 0.5 ? fin(p * 2) / 2 : 1 - fin((1 - p) * 2) / 2);
+}
+
+const BASE = { x: 0, y: 0, xPercent: 0, yPercent: 0, scale: 1, scaleX: 1, scaleY: 1, rotation: 0, opacity: 1, autoAlpha: 1 };
+const num = (v) => (typeof v === 'number' ? v : Number.parseFloat(v));
+
+/**
+ * The tweened values of one element at time t (seconds from the graphic's start).
+ * entries: [{ tween, k }] — the tweens that target it, k = its index among the tween's targets (stagger).
+ * Numbers interpolate; other values switch once the tween starts.
+ */
+export function tweenValuesAt(entries, t) {
+  const out = {};
+  const begin = (e) => e.tween.at + e.k * (e.tween.stagger || 0);
+  const sorted = entries.slice().sort((a, b) => begin(a) - begin(b));
+  for (const e of sorted) {
+    const { tween } = e;
+    const start = begin(e);
+    const p = clamp01((t - start) / tween.dur);
+    const ease = parseEase(tween.ease);
+    for (const [prop, to] of Object.entries(tween.to)) {
+      if (prop === 'repeat' || prop === 'yoyo' || prop === 'delay') continue;
+      if (t < start) {
+        // a fromTo shows its start values before it plays, unless something earlier set them
+        if (tween.from && prop in tween.from && !(prop in out)) out[prop] = tween.from[prop];
+        continue;
+      }
+      const from = tween.from && prop in tween.from ? tween.from[prop] : prop in out ? out[prop] : BASE[prop];
+      const a = num(from);
+      const b = num(to);
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        const unit = typeof to === 'string' ? String(to).replace(/^[-\d.]+/, '') : '';
+        const v = a + (b - a) * ease(p);
+        out[prop] = unit ? `${v}${unit}` : v;
+      } else out[prop] = p > 0 ? to : from;
+    }
+  }
+  return out;
+}
+
 const OV_CLASS = { title: 'ov-title', lower: 'ov-lower', counter: 'ov-counter' };
 
 /** A layer over the preview <video> that shows subtitles, overlays and the white flash. */
@@ -202,53 +217,30 @@ export class FxLayer {
   }
 
   /** Rebuilds the elements when the overlays or the caption style change. */
-  build(overlays, captionStyle, stickers = {}, images = {}) {
-    const key = JSON.stringify([overlays, captionStyle, Object.keys(stickers), Object.keys(images)]);
+  build(overlays, captionStyle, canvas = { width: 1080, height: 1920 }) {
+    const key = JSON.stringify([overlays, captionStyle, canvas]);
     if (key === this.key) return;
     this.key = key;
     this.layer.replaceChildren();
     this.flash = document.createElement('div');
     this.flash.className = 've-fx-flash';
     this.layer.append(this.flash);
-    this.items = overlays.map((o) => {
+    this.canvas = canvas;
+    const sheet = [];
+    this.graphics = [];
+    overlays.forEach((o, i) => {
+      if (o.kind !== 'hf') return;
+      const g = this._graphic(o, i);
+      if (!g) return;
+      this.graphics.push(g);
+      if (o.css) sheet.push(`#pv-g-${i} { ${o.css} }`);
+    });
+    this._sheet(sheet.join('\n'));
+    this.items = overlays.filter((o) => o.kind !== 'hf').map((o) => {
       const node = document.createElement('div');
       node.className = `ve-ov-item ${OV_CLASS[o.kind] || ''}`;
       let num = null;
-      let svg = null;
-      let pic = null;
-      if (o.kind === 'emoji') {
-        if (images[o.image]) {
-          pic = document.createElement('img');
-          pic.src = images[o.image];
-          pic.alt = '';
-          node.append(pic);
-          node.className = 've-ov-item ov-sticker';
-          const w = (1080 * o.size) / 100;
-          node.style.left = `${o.x}%`;
-          node.style.top = `${o.y}%`;
-          node.style.width = u(w);
-          node.style.height = u(w);
-          node.style.margin = `${u(-w / 2)} 0 0 ${u(-w / 2)}`;
-        }
-      } else if (STICKER_KINDS.includes(o.kind)) {
-        const spec = stickers[o.kind];
-        if (spec) {
-          // the stored markup uses the sticker's own colour; swap in the chosen one
-          const text = o.color && o.color !== spec.color ? spec.svg.split(spec.color).join(o.color) : spec.svg;
-          const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-          svg = document.importNode(doc.documentElement, true);
-          node.append(svg);
-          node.className = 've-ov-item ov-sticker';
-          const w = (1080 * o.size) / 100;
-          node.style.left = `${o.x}%`;
-          node.style.top = `${o.y}%`;
-          node.style.width = u(w);
-          node.style.height = u(w);
-          node.style.margin = `${u(-w / 2)} 0 0 ${u(-w / 2)}`;
-          if (STICKER_DRAW[o.kind]) for (const p of svg.querySelectorAll('path')) p.style.strokeDasharray = '1';
-          for (const s of svg.querySelectorAll('.st')) { s.style.transformBox = 'fill-box'; s.style.transformOrigin = 'center'; }
-        }
-      } else if (o.kind === 'title') {
+      if (o.kind === 'title') {
         const span = document.createElement('span');
         span.textContent = o.text;
         node.append(span);
@@ -274,12 +266,51 @@ export class FxLayer {
       }
       node.hidden = true;
       this.layer.append(node);
-      return { o, node, num, svg, pic };
+      return { o, node, num };
     });
     this.cap = document.createElement('div');
     this.cap.className = `ve-fx-cap cap-${captionStyle}`;
     this.cap.hidden = true;
     this.layer.append(this.cap);
+  }
+
+  /** One HyperFrames graphic: the real markup in a canvas-sized box, scaled to the preview. */
+  _graphic(o, i) {
+    const doc = new DOMParser().parseFromString(`<div class="g-in">${fillMarkup(o.markup, o.vars)}</div>`, 'text/html');
+    const inner = doc.body.firstElementChild;
+    if (!inner) return null;
+    const box = document.createElement('div');
+    box.className = 'pv-hfg';
+    box.id = `pv-g-${i}`;
+    for (const v of o.vars || []) if (v.type === 'color') box.style.setProperty(`--${v.id}`, v.value);
+    box.style.width = `${this.canvas.width}px`;
+    box.style.height = `${this.canvas.height}px`;
+    const node = document.importNode(inner, true);
+    box.append(node);
+    box.hidden = true;
+    this.layer.append(box);
+    // which elements each tween moves (and their order, for stagger)
+    const targets = new Map();
+    for (const tween of o.tweens || []) {
+      let els = [];
+      try { els = tween.sel ? [...node.querySelectorAll(tween.sel)] : [node]; } catch { els = []; }
+      els.forEach((el, k) => {
+        if (!targets.has(el)) targets.set(el, []);
+        targets.get(el).push({ tween, k });
+      });
+    }
+    return { o, box, targets };
+  }
+
+  /** The graphics' CSS, as a constructed sheet (the page's CSP allows no inline <style>). */
+  _sheet(text) {
+    if (!this.css) {
+      this.css = new CSSStyleSheet();
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.css];
+    }
+    try {
+      this.css.replaceSync(`.pv-hfg { position: absolute; left: 0; top: 0; transform-origin: 0 0; color: #000; font-weight: 400; text-shadow: none; text-align: left; }\n.pv-hfg[hidden] { display: none; }\n.pv-hfg > .g-in { position: absolute; inset: 0; }\n${text}`);
+    } catch { /* a bad rule only loses the look */ }
   }
 
   /** Sets --u: how many screen pixels one design pixel is (the short side of the preview / 1080). */
@@ -307,25 +338,15 @@ export class FxLayer {
       v.filter = '';
       this.flash.style.opacity = '0';
     }
+    const scale = this.layer.clientWidth / ((this.canvas && this.canvas.width) || 1080);
+    for (const g of this.graphics || []) {
+      const on = t >= g.o.start && t <= g.o.end;
+      g.box.hidden = !on;
+      if (!on) continue;
+      g.box.style.transform = `scale(${scale.toFixed(5)})`;
+      for (const [el, entries] of g.targets) paintProps(el, tweenValuesAt(entries, t - g.o.start));
+    }
     for (const it of this.items) {
-      if (it.pic) {
-        const k = emojiState(it.o, t);
-        it.node.hidden = !k;
-        if (!k) continue;
-        it.node.style.opacity = String(k.opacity);
-        it.node.style.transform = `translateY(${u(k.y)}) scale(${k.scale.toFixed(4)}) rotate(${k.rot.toFixed(1)}deg)`;
-        continue;
-      }
-      if (it.svg) {
-        const k = stickerState(it.o, t);
-        it.node.hidden = !k;
-        if (!k) continue;
-        it.node.style.opacity = String(k.opacity);
-        it.node.style.transform = `translateY(${u(k.y)}) scale(${k.scale.toFixed(4)})`;
-        if (k.draw !== null) for (const p of it.svg.querySelectorAll('path')) p.style.strokeDashoffset = String((1 - k.draw).toFixed(4));
-        if (k.stars) it.svg.querySelectorAll('.st').forEach((el, i) => { el.style.transform = `scale(${k.stars[i].scale.toFixed(4)}) rotate(${k.stars[i].rot.toFixed(1)}deg)`; });
-        continue;
-      }
       const s = overlayState(it.o, t);
       it.node.hidden = !s;
       if (!s) continue;
@@ -348,9 +369,32 @@ export class FxLayer {
     this.key = '';
     this.layer.replaceChildren();
     this.items = [];
+    this.graphics = [];
     const v = this.video.style;
     v.opacity = '';
     v.transform = '';
     v.filter = '';
+  }
+}
+
+const TRANSFORM = new Set(['x', 'y', 'xPercent', 'yPercent', 'scale', 'scaleX', 'scaleY', 'rotation']);
+const PX = /^(width|height|top|left|right|bottom|fontSize|letterSpacing|borderRadius|padding\w*|margin\w*|strokeWidth)$/;
+const kebab = (k) => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+
+/** Puts tweened values on an element like GSAP does (transform parts combined, numbers in px where GSAP would). */
+function paintProps(el, v) {
+  const st = el.style;
+  const n = (k, d) => (k in v ? Number.parseFloat(v[k]) || 0 : d);
+  if ([...TRANSFORM].some((k) => k in v)) {
+    const sx = n('scaleX', n('scale', 1));
+    const sy = n('scaleY', n('scale', 1));
+    st.transform = `translate(${n('xPercent', 0)}%, ${n('yPercent', 0)}%) translate(${n('x', 0)}px, ${n('y', 0)}px) rotate(${n('rotation', 0)}deg) scale(${sx}, ${sy})`;
+  }
+  for (const [k, val] of Object.entries(v)) {
+    if (TRANSFORM.has(k)) continue;
+    if (k === 'autoAlpha') {
+      st.opacity = String(val);
+      st.visibility = Number(val) > 0 ? '' : 'hidden';
+    } else st.setProperty(kebab(k), typeof val === 'number' && PX.test(k) ? `${val}px` : String(val));
   }
 }

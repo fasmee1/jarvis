@@ -2633,7 +2633,7 @@ function wireDom() {
   wireEvents();
   wireSettings();
   wireHandsFree();
-  videoEditor = new VideoEditor({ api, notice, openSettings, isOpen: () => sections.current === 'video' });
+  videoEditor = new VideoEditor({ api, notice, openSettings, isOpen: () => sections.current === 'video', openProject: (id) => projectsPanel.open(id) });
   // the home EDIT card follows the background style cut (and is refilled whenever the cards are rebuilt)
   let editCut = null;
   const showEdit = () => home.cards.setEdit(editCut);

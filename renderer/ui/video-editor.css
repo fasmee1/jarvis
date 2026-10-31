@@ -1,172 +1,244 @@
-/* EDIT section: preview + clip panel on top, timeline lanes below (ui/video-editor.js). */
+/* EDIT section (ui/video-editor.js): a desktop editor layout.
+   top bar · library (left) · monitor (center) · inspector (right) · timeline (bottom).
+   Neutral dark surfaces from the app tokens; cyan only for selection, playhead and the main action. */
 
-.ve-head-actions { margin-left: auto; display: flex; gap: 8px; }
-.ve-body { gap: 12px; }
-#video-editor.drop { outline: 1px dashed var(--accent-soft); outline-offset: -8px; background: var(--accent-ghost); }
-
-.ve-banner { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid rgba(255, 181, 71, 0.4); background: rgba(255, 181, 71, 0.06); color: var(--warning); }
-.ve-banner .btn { margin-left: auto; }
-
-.ve-empty { flex: 1; min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px dashed var(--border-hover); background: var(--surface); text-align: center; padding: 24px; }
-.ve-empty-title { font-size: 18px; color: var(--text-1); letter-spacing: 0.02em; }
-.ve-empty p { margin: 0; max-width: 560px; }
-
-.ve-work { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-.ve-top { flex: 1; min-height: 0; display: flex; gap: 16px; }
-
-.ve-stage { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.ve-preview { position: relative; flex: 1 1 auto; min-height: 0; max-width: 100%; aspect-ratio: var(--ve-ratio, 9 / 16); background: #000; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.ve-preview video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
-.ve-audio-only { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; }
-
-.ve-transport { display: flex; align-items: center; gap: 8px; }
-.ve-play { min-width: 44px; }
-.ve-time { font-size: 14px; color: var(--text-1); min-width: 150px; text-align: center; }
-.ve-keys { font-size: 12px; }
-
-.ve-side { flex: 0 0 400px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
-.ve-h { margin: 4px 0 0; font-size: 13px; font-weight: 500; color: var(--text-2); letter-spacing: 0.04em; }
-.ve-h .dim { font-weight: 400; font-size: 12px; }
-.ve-sources { display: flex; flex-direction: column; gap: 8px; }
-.ve-src { padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-.ve-src-head { display: flex; gap: 8px; align-items: baseline; }
-.ve-src-name { flex: 1; min-width: 0; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ve-src-meta { font-size: 12px; }
-.ve-sum { color: var(--text-2); }
-.ve-warn { color: var(--warning); font-size: 12px; }
-.ve-err { color: var(--error); font-size: 12px; }
-.ve-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.ve-src > .btn { align-self: flex-start; }
-
-.ve-job { display: flex; flex-direction: column; gap: 6px; }
-.ve-job .btn { align-self: flex-start; }
-.ve-job-label { display: flex; justify-content: space-between; color: var(--accent); }
-.ve-bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
-.ve-bar-fill { height: 100%; background: var(--accent); transition: width var(--fast) linear; }
-
-.ve-transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
-.ve-transcript > li.dim { padding: 6px 2px; }
-.ve-line { width: 100%; display: flex; gap: 10px; text-align: left; padding: 6px 8px; background: none; border: 1px solid transparent; border-radius: 4px; color: var(--text-1); font: inherit; cursor: pointer; }
-.ve-line:hover, .ve-line:focus-visible { border-color: var(--border-hover); background: var(--surface-2); }
-.ve-line .mono { flex: 0 0 auto; font-size: 12px; padding-top: 1px; }
-
-.ve-tl-bar { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.ve-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-right: auto; margin-left: 10px; }
-.ve-speed { background: var(--surface); color: var(--text-1); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 12px; padding: 3px 4px; }
-.ve-speed:disabled { opacity: 0.5; }
-.ve-sel-hint { font-size: 12px; margin-left: 4px; }
-
-.ve-tl { flex: 0 0 auto; display: grid; grid-template-columns: 76px 1fr; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
-.ve-labels { display: flex; flex-direction: column; border-right: 1px solid var(--border); font-size: 12px; color: var(--text-2); }
-.ve-label { height: 40px; display: flex; align-items: center; padding: 0 10px; }
-.ve-label-ruler, .ve-ruler { height: 22px; }
-#ve-label-silence, .ve-lane-thin { height: 20px; }
-#ve-label-clips, #ve-lane-clips { height: 46px; }
-#ve-label-anim, #ve-lane-anim { height: 26px; }
-
-.ve-timeline { position: relative; overflow-x: auto; overflow-y: hidden; cursor: pointer; padding: 0 12px; touch-action: none; }
-.ve-track { position: relative; min-width: 100%; }
-.ve-lane { position: relative; height: 40px; }
-.ve-ruler { position: relative; border-bottom: 1px solid var(--line); }
-.ve-tick { position: absolute; top: 0; bottom: 0; padding-left: 4px; border-left: 1px solid var(--line); font: 11px var(--font-mono); color: var(--text-3); line-height: 22px; white-space: nowrap; }
-
-.ve-clip { position: absolute; top: 5px; bottom: 5px; border-radius: 4px; border: 1px solid var(--accent-soft); background: var(--accent-faint); display: flex; align-items: center; gap: 6px; padding: 0 8px; overflow: hidden; font-size: 12px; color: var(--text-1); box-sizing: border-box; }
-.ve-clip.ve-c1 { border-color: var(--orange-soft); background: rgba(255, 154, 61, 0.12); }
-.ve-clip.ve-c2 { border-color: rgba(167, 139, 250, 0.55); background: rgba(167, 139, 250, 0.12); }
-.ve-clip.ve-c3 { border-color: rgba(110, 231, 160, 0.5); background: rgba(110, 231, 160, 0.1); }
-.ve-clip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ve-clip-speed { color: var(--accent); }
-
-.ve-sil { position: absolute; top: 4px; bottom: 4px; border-radius: 2px; background: repeating-linear-gradient(135deg, rgba(255, 181, 71, 0.35) 0 4px, rgba(255, 181, 71, 0.08) 4px 8px); }
-.ve-say { position: absolute; top: 6px; bottom: 6px; border-left: 2px solid var(--accent); background: var(--accent-ghost); padding: 0 6px; font-size: 12px; line-height: 28px; color: var(--text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; box-sizing: border-box; }
-
-.ve-playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; box-shadow: 0 0 8px var(--accent-soft); }
-.ve-playhead::before { content: ''; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top-color: var(--accent); }
-
-@media (max-width: 1100px) {
-  .ve-side { flex-basis: 300px; }
-  .ve-styles { grid-template-columns: 1fr; }
+#view-video {
+  --ve-panel: var(--bg-1);
+  --ve-raise: #141a22;
+  --ve-raise-2: #1a212b;
+  --ve-sep: rgba(255, 255, 255, 0.07);
+  --ve-r: 4px;
+  background: var(--bg-0);
+  animation: none;
 }
 
-/* ---- style picker (ui/video-styles.js) ---- */
-.ve-styles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.ve-style { position: relative; padding: 8px 10px 30px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; }
-.ve-style:hover { border-color: var(--border-hover); }
-.ve-style:focus-visible { outline: 2px solid var(--accent-soft); outline-offset: 1px; }
-.ve-style.on { border-color: var(--accent); background: var(--accent-ghost); box-shadow: inset 0 0 0 1px var(--accent-faint); }
-.ve-style-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.ve-style-name { color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ve-style.on .ve-style-name { color: var(--accent); }
-.ve-style-tag { flex: none; font-size: 11px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--border-hover); color: var(--text-2); }
-.ve-style-meta { font-size: 11.5px; }
-.ve-style-actions { position: absolute; left: 6px; bottom: 4px; display: flex; gap: 2px; }
-.ve-style-actions .btn { padding: 1px 6px; font-size: 11.5px; min-height: 0; }
-.ve-style-add { align-self: flex-start; }
-.ve-style-detail { font-size: 12.5px; }
-.ve-style-detail summary { cursor: pointer; }
-.ve-style-detail p { margin: 6px 0 0; white-space: pre-wrap; color: var(--text-2); line-height: 1.6; }
-.ve-note-label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-2); }
-.ve-note-label textarea { resize: vertical; min-height: 56px; font: inherit; }
+/* ---- top bar ---- */
+#view-video .ve-topbar { padding: 40px 12px 8px 192px; min-height: 0; gap: 12px; flex-wrap: nowrap; border-bottom: 1px solid var(--ve-sep); }
+#view-video .ve-topbar .btn.back { padding: 4px 10px; }
+.ve-proj { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
+.ve-proj-name { font-size: 13px; font-weight: 500; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ve-proj-meta { font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+.ve-tb-group { display: flex; gap: 2px; }
+.ve-tb-right { display: flex; gap: 8px; align-items: center; }
 
-.ve-sd { width: min(640px, 92vw); }
+/* ---- controls ---- */
+.ve-tb-btn {
+  height: 28px; padding: 0 12px; border-radius: var(--ve-r); border: 1px solid var(--ve-sep);
+  background: var(--ve-raise); color: var(--text-1); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease);
+}
+.ve-tb-btn:hover:not(:disabled) { background: var(--ve-raise-2); border-color: var(--border-hover); }
+.ve-tb-btn:disabled { opacity: 0.4; cursor: default; }
+.ve-tb-btn:focus-visible, .ve-icon-btn:focus-visible, .ve-tab:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ve-tb-primary { background: var(--accent); border-color: var(--accent); color: #041014; font-weight: 600; }
+.ve-tb-primary:hover:not(:disabled) { background: #7fe9f5; border-color: #7fe9f5; }
+.ve-wide { width: 100%; }
+
+.ve-icon-btn {
+  width: 28px; height: 28px; padding: 0; display: inline-grid; place-items: center; border-radius: var(--ve-r);
+  border: 1px solid transparent; background: transparent; color: var(--text-2); cursor: pointer; font: inherit; font-size: 13px;
+}
+.ve-icon-btn:hover:not(:disabled) { background: var(--ve-raise-2); color: var(--text-1); }
+.ve-icon-btn:disabled { opacity: 0.35; cursor: default; }
+.ve-icon-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+#view-video select, #view-video input, #view-video textarea { border-radius: var(--ve-r); border-color: var(--ve-sep); background: var(--bg-0); }
+.ve-select { height: 28px; padding: 0 6px; font-size: 12px; min-width: 0; }
+.ve-input { flex: 1; min-width: 0; height: 28px; padding: 0 8px; font-size: 12px; }
+.ve-num { width: 72px; height: 28px; padding: 0 6px; font-size: 12px; }
+.ve-row { display: flex; gap: 6px; align-items: center; }
+.ve-inline { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); }
+.ve-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
+.ve-field textarea { resize: vertical; min-height: 44px; font-size: 12px; }
+
+/* ---- page body ---- */
+#view-video .ve-body { padding: 0; gap: 0; }
+#video-editor.drop { outline: 1px dashed var(--accent-soft); outline-offset: -6px; }
+
+.ve-banner { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid rgba(255, 181, 71, 0.35); background: rgba(255, 181, 71, 0.06); color: var(--warning); font-size: 12px; }
+.ve-banner .ve-tb-btn { margin-left: auto; }
+
+.ve-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; margin: 16px; border: 1px dashed var(--border-hover); border-radius: var(--ve-r); text-align: center; }
+.ve-empty-title { font-size: 14px; color: var(--text-1); }
+.ve-empty p { margin: 0; font-size: 12px; }
+
+.ve-work {
+  flex: 1; min-height: 0; display: grid; gap: 1px; background: var(--ve-sep);
+  grid-template-columns: clamp(240px, 21vw, 360px) minmax(0, 1fr) clamp(240px, 22vw, 340px);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas: "left mon right" "tl tl tl";
+}
+.ve-work[hidden] { display: none; }
+.ve-panel { background: var(--ve-panel); min-height: 0; overflow-y: auto; }
+.ve-left { grid-area: left; display: flex; flex-direction: column; overflow: hidden; }
+.ve-right { grid-area: right; }
+.ve-monitor { grid-area: mon; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-0); }
+.ve-tl-wrap { grid-area: tl; background: var(--ve-panel); min-width: 0; }
+
+/* ---- library ---- */
+.ve-tabs { flex: none; display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--ve-sep); }
+.ve-tab { flex: 1; height: 30px; border: none; border-bottom: 2px solid transparent; background: none; color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer; }
+.ve-tab:hover { color: var(--text-1); }
+.ve-tab.on { color: var(--text-1); border-bottom-color: var(--accent); }
+.ve-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.ve-pane[hidden] { display: none; }
+.ve-pane-head { display: flex; align-items: center; gap: 6px; min-height: 28px; }
+.ve-pane-title { flex: 1; font-size: 12px; font-weight: 600; color: var(--text-1); }
+.ve-pane-note { font-size: 11px; color: var(--text-3); }
+.ve-form { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--ve-sep); }
+
+.ve-sources { display: flex; flex-direction: column; gap: 6px; }
+.ve-src { padding: 8px 10px; background: var(--ve-raise); border: 1px solid var(--ve-sep); border-radius: var(--ve-r); display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ve-src-head { display: flex; gap: 8px; align-items: baseline; }
+.ve-src-name { flex: 1; min-width: 0; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-src-meta { font-size: 11px; color: var(--text-3); }
+.ve-sum { color: var(--text-2); font-size: 12px; }
+.ve-warn { color: var(--warning); font-size: 12px; }
+.ve-warn:empty { display: none; }
+.ve-err { color: var(--error); font-size: 12px; }
+.ve-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.ve-src > .ve-tb-btn { align-self: flex-start; }
+
+.ve-job { display: flex; flex-direction: column; gap: 4px; }
+.ve-job .ve-tb-btn { align-self: flex-start; }
+.ve-job-label { display: flex; justify-content: space-between; color: var(--text-2); font-size: 12px; }
+.ve-bar { height: 3px; background: var(--ve-raise-2); border-radius: 2px; overflow: hidden; }
+.ve-bar-fill { height: 100%; background: var(--accent); transition: width var(--fast) linear; }
+
+/* status of a running / finished job (cut, sounds, preview) */
+.ve-status { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--ve-raise); border: 1px solid var(--ve-sep); border-left: 2px solid var(--text-3); border-radius: var(--ve-r); font-size: 12px; }
+.ve-status[hidden] { display: none; }
+.ve-status.running { border-left-color: var(--accent); }
+.ve-status.ok { border-left-color: #4ade80; }
+.ve-status.bad { border-left-color: var(--error); }
+.ve-cut-title { font-weight: 600; color: var(--text-1); }
+
+/* skills */
+.ve-styles { display: flex; flex-direction: column; gap: 4px; }
+.ve-style { position: relative; padding: 7px 10px; border: 1px solid var(--ve-sep); border-radius: var(--ve-r); background: var(--ve-raise); cursor: pointer; display: flex; flex-direction: column; gap: 2px; font-size: 12px; min-width: 0; }
+.ve-style:hover { border-color: var(--border-hover); }
+.ve-style:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ve-style.on { border-color: var(--accent); }
+.ve-style-head { display: flex; align-items: center; gap: 6px; min-width: 0; padding-right: 64px; }
+.ve-style-name { color: var(--text-1); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-style-tag { flex: none; font-size: 10.5px; padding: 0 4px; border-radius: 2px; background: var(--ve-raise-2); color: var(--text-3); }
+.ve-style-desc { color: var(--text-2); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-style-meta { font-size: 11px; color: var(--text-3); }
+.ve-style-actions { position: absolute; right: 4px; top: 4px; display: flex; gap: 0; opacity: 0; }
+.ve-style:hover .ve-style-actions, .ve-style:focus-within .ve-style-actions, .ve-style.on .ve-style-actions { opacity: 1; }
+.ve-style-detail { font-size: 12px; color: var(--text-2); }
+.ve-style-detail summary { cursor: pointer; }
+.ve-style-detail p { margin: 6px 0 0; max-height: 220px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; padding: 8px; background: var(--bg-0); border-radius: var(--ve-r); }
+
+.ve-sd { width: min(720px, 92vw); }
 .ve-sd label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-2); position: relative; }
 .ve-sd textarea { resize: vertical; font: inherit; line-height: 1.6; }
 .ve-sd-count { align-self: flex-end; font-size: 11px; }
 .ve-sd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-/* JARVIS style cut */
-.ve-cut-btn { width: 100%; margin-top: 8px; }
-.ve-cut-status { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
-.ve-cut-status.running { border-color: var(--accent); }
-.ve-cut-status.ok { border-color: var(--ok, #4ade80); }
-.ve-cut-status.bad { border-color: var(--bad, #f87171); }
-.ve-cut-title { font-weight: 600; }
+/* lists: transcript, graphics, sounds */
+.ve-transcript, .ve-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; font-size: 12px; }
+.ve-transcript > li.dim, .ve-list > li.dim { padding: 6px 2px; }
+.ve-line { width: 100%; display: flex; gap: 8px; text-align: left; padding: 5px 6px; background: none; border: 1px solid transparent; border-radius: var(--ve-r); color: var(--text-1); font: inherit; cursor: pointer; }
+.ve-line:hover, .ve-line:focus-visible { background: var(--ve-raise); }
+.ve-line .mono { flex: 0 0 auto; font-size: 11px; color: var(--text-3); padding-top: 1px; }
+.ve-line-row, .ve-ov-row { display: flex; align-items: flex-start; gap: 2px; }
+.ve-line-row .ve-line, .ve-ov-row .ve-line { flex: 1; min-width: 0; }
+.ve-line-row.edited .ve-line span:last-child { color: var(--accent); }
+.ve-ov-row.on .ve-line { border-color: var(--accent); }
+.ve-line-tools { display: inline-flex; gap: 0; flex: none; opacity: 0; }
+.ve-line-row:hover .ve-line-tools, .ve-line-row:focus-within .ve-line-tools, .ve-line-tools.show { opacity: 1; }
+.ve-mini { background: transparent; border: 1px solid transparent; border-radius: var(--ve-r); color: var(--text-2); cursor: pointer; font: inherit; font-size: 11.5px; padding: 0 6px; line-height: 22px; }
+.ve-mini:hover { background: var(--ve-raise-2); color: var(--text-1); }
+.ve-mini.danger:hover { color: var(--error); }
+.ve-line-edit { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
+.ve-line-input { width: 100%; box-sizing: border-box; color: var(--text-1); border: 1px solid var(--accent) !important; font: inherit; font-size: 12px; padding: 4px 8px; }
 
-/* clip editing */
-.ve-clip { cursor: grab; user-select: none; touch-action: none; }
-.ve-clip.sel { box-shadow: 0 0 0 1px var(--accent), 0 0 10px var(--accent-faint); border-color: var(--accent); }
+/* ---- monitor ---- */
+.ve-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px; container-type: size; }
+/* the largest box of the clip's shape that fits the stage (--ve-ar = width / height, set by the editor) */
+.ve-preview { position: relative; width: min(100cqw, calc(100cqh * var(--ve-ar, 0.5625))); aspect-ratio: var(--ve-ratio, 9 / 16); background: #000; overflow: hidden; }
+.ve-preview video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+.ve-audio-only { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.ve-transport { flex: none; height: 40px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 12px; border-top: 1px solid var(--ve-sep); background: var(--ve-panel); }
+.ve-time { font-size: 12px; color: var(--text-1); }
+.ve-transport-mid { display: flex; gap: 2px; align-items: center; }
+.ve-play { width: 32px; height: 32px; color: var(--text-1); font-size: 14px; }
+.ve-ratio { justify-self: end; font-size: 11px; color: var(--text-3); }
+
+/* ---- inspector ---- */
+.ve-sec { border-bottom: 1px solid var(--ve-sep); }
+.ve-sec > summary { list-style: none; cursor: pointer; padding: 9px 12px; font-size: 12px; font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap: 6px; }
+.ve-sec > summary::-webkit-details-marker { display: none; }
+.ve-sec > summary::before { content: ''; width: 0; height: 0; border: 4px solid transparent; border-left-color: var(--text-3); transform: translateX(2px); transition: transform var(--fast) var(--ease); }
+.ve-sec[open] > summary::before { transform: translate(0, 2px) rotate(90deg); }
+.ve-sec-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ve-prop { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+.ve-sel-hint { font-size: 11.5px; color: var(--text-3); }
+.ve-gfx-name { font-size: 12px; color: var(--text-1); font-weight: 500; }
+.ve-gfx-vars { display: flex; flex-direction: column; gap: 8px; }
+.ve-prop input[type=color] { width: 44px; height: 26px; padding: 0 2px; }
+.ve-prop .ve-input { width: 100%; }
+.ve-anim.hf { background: #123040; border-color: rgba(91, 225, 240, 0.35); }
+.ve-render-video { width: 100%; max-height: 320px; border-radius: var(--ve-r); background: #000; }
+
+/* ---- timeline ---- */
+.ve-tl-bar { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; border-bottom: 1px solid var(--ve-sep); }
+.ve-tools { display: inline-flex; align-items: center; gap: 2px; margin-right: auto; }
+.ve-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.ve-zoom .ve-tb-btn { height: 24px; padding: 0 8px; background: none; border-color: transparent; color: var(--text-2); }
+
+.ve-tl { display: grid; grid-template-columns: 84px 1fr; }
+.ve-labels { display: flex; flex-direction: column; border-right: 1px solid var(--ve-sep); font-size: 11px; color: var(--text-3); background: var(--ve-panel); }
+.ve-label { height: 40px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid var(--ve-sep); box-sizing: border-box; }
+.ve-label-ruler, .ve-ruler { height: 24px; }
+#ve-label-silence, .ve-lane-thin { height: 22px; }
+#ve-label-clips, #ve-lane-clips { height: 52px; }
+#ve-label-anim, #ve-lane-anim { height: 28px; }
+#ve-label-clips { color: var(--text-1); }
+
+.ve-timeline { position: relative; overflow-x: auto; overflow-y: hidden; cursor: text; padding: 0 12px; touch-action: none; background: var(--bg-0); }
+.ve-track { position: relative; min-width: 100%; }
+.ve-lane { position: relative; height: 40px; border-bottom: 1px solid var(--ve-sep); box-sizing: border-box; }
+.ve-ruler { position: relative; border-bottom: 1px solid var(--ve-sep); background: var(--ve-panel); box-sizing: border-box; }
+.ve-tick { position: absolute; top: 0; bottom: 0; padding-left: 4px; border-left: 1px solid var(--ve-sep); font: 10.5px var(--font-mono); color: var(--text-3); line-height: 24px; white-space: nowrap; }
+
+.ve-clip {
+  position: absolute; top: 4px; bottom: 4px; border-radius: 3px; border: 1px solid rgba(91, 225, 240, 0.28); background: #12313a;
+  display: flex; align-items: center; gap: 6px; padding: 0 10px; overflow: hidden; font-size: 11.5px; color: var(--text-1); box-sizing: border-box;
+  cursor: grab; user-select: none; touch-action: none;
+}
+.ve-clip.ve-c1 { background: #1b2b45; border-color: rgba(120, 160, 255, 0.3); }
+.ve-clip.ve-c2 { background: #262640; border-color: rgba(167, 139, 250, 0.3); }
+.ve-clip.ve-c3 { background: #173528; border-color: rgba(110, 231, 160, 0.28); }
+.ve-clip:hover { border-color: rgba(255, 255, 255, 0.3); }
+.ve-clip.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .ve-clip.dragging { cursor: grabbing; opacity: 0.85; z-index: 5; }
-.ve-grip { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+.ve-clip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ve-clip-speed { color: var(--accent); }
+.ve-clip-fx { flex: none; font: 9.5px var(--font-mono); line-height: 14px; padding: 0 3px; border-radius: 2px; background: rgba(0, 0, 0, 0.35); color: var(--text-2); }
+.ve-grip { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
 .ve-grip-l { left: 0; }
 .ve-grip-r { right: 0; }
-.ve-clip:hover .ve-grip, .ve-clip.sel .ve-grip { background: var(--accent-soft); }
+.ve-clip:hover .ve-grip, .ve-clip.sel .ve-grip { background: rgba(255, 255, 255, 0.18); }
+.ve-clip.sel .ve-grip { background: var(--accent); }
 
-/* transcript lines you can fix */
-.ve-fix { display: flex; gap: 6px; align-items: center; }
-.ve-fix-hint { flex: 1; min-width: 0; background: var(--surface); color: var(--text-1); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 12px; padding: 4px 8px; }
-.ve-line-row { display: flex; align-items: flex-start; gap: 4px; }
-.ve-line-row .ve-line { flex: 1; min-width: 0; }
-.ve-line-row.edited .ve-line span:last-child { color: var(--accent); }
-.ve-line-tools { display: inline-flex; gap: 2px; flex: none; opacity: 0.35; }
-.ve-line-row:hover .ve-line-tools, .ve-line-row:focus-within .ve-line-tools { opacity: 1; }
-.ve-mini { background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text-2); cursor: pointer; font: inherit; font-size: 13px; padding: 0 5px; line-height: 22px; }
-.ve-mini:hover { border-color: var(--border-hover); color: var(--text-1); }
-.ve-line-edit { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
-.ve-line-input { width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text-1); border: 1px solid var(--accent); border-radius: var(--radius); font: inherit; font-size: 13px; padding: 4px 8px; }
-
-/* video with subtitles */
-.ve-render-video { width: 100%; max-height: 420px; border-radius: 6px; background: #000; }
-
-.ve-clip-fx { font-size: 11px; line-height: 1; flex: none; }
-
-/* animations over the picture */
-.ve-ov { display: flex; flex-direction: column; gap: 6px; }
-.ve-num { width: 84px; background: var(--surface); color: var(--text-1); border: 1px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 12px; padding: 4px 6px; }
-.ve-ov label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
-.ve-ov-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.ve-ov-row { display: flex; align-items: flex-start; gap: 4px; }
-.ve-ov-row .ve-line { flex: 1; min-width: 0; }
-.ve-ov-row.on .ve-line { border-color: var(--accent); }
-.ve-line-tools.show { opacity: 1; }
-.ve-anim { position: absolute; top: 3px; bottom: 3px; border-radius: 4px; border: 1px solid rgba(167, 139, 250, 0.6); background: rgba(167, 139, 250, 0.18); font-size: 11px; line-height: 18px; padding: 0 6px; overflow: hidden; white-space: nowrap; cursor: pointer; box-sizing: border-box; color: var(--text-1); }
-.ve-anim.on { border-color: var(--accent); }
-
-/* subtitle blocks you can retime */
+.ve-sil { position: absolute; top: 5px; bottom: 5px; border-radius: 2px; background: rgba(255, 181, 71, 0.22); }
+.ve-say { position: absolute; top: 6px; bottom: 6px; border-radius: 2px; background: var(--ve-raise-2); padding: 0 6px; font-size: 11px; line-height: 26px; color: var(--text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; box-sizing: border-box; }
 .ve-say.drag { cursor: grab; touch-action: none; user-select: none; }
 .ve-say .ve-say-text { pointer-events: none; }
-.ve-say.drag:hover .ve-grip { background: var(--accent-soft); }
+.ve-say.drag:hover .ve-grip { background: rgba(255, 255, 255, 0.2); }
+.ve-anim { position: absolute; top: 4px; bottom: 4px; border-radius: 3px; border: 1px solid rgba(167, 139, 250, 0.4); background: #2a2440; font-size: 11px; line-height: 18px; padding: 0 6px; overflow: hidden; white-space: nowrap; cursor: pointer; box-sizing: border-box; color: var(--text-1); }
+.ve-anim.on { border-color: var(--accent); }
 
-/* live look of effects, animations and subtitles over the preview (sizes follow --u, set by FxLayer.measure) */
+.ve-playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent); pointer-events: none; z-index: 6; }
+.ve-playhead::before { content: ''; position: absolute; top: 0; left: -5px; width: 11px; height: 12px; background: var(--accent); clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%); }
+
+@media (max-width: 1200px) {
+  .ve-work { grid-template-columns: 240px minmax(0, 1fr) 240px; }
+}
+
+/* ---- live look of effects, graphics and subtitles over the preview (sizes follow --u, set by FxLayer.measure) ---- */
 .ve-preview { --u: 0.35; }
 .ve-fx-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; font-family: "IBM Plex Sans Thai Looped", "Leelawadee UI", Tahoma, sans-serif; font-weight: 700; color: #fff; }
 .ve-fx-flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
@@ -181,16 +253,30 @@
 .ve-fx-cap { position: absolute; left: 6%; right: 6%; bottom: 17%; text-align: center; font-size: calc(var(--u) * 71px); line-height: 1.35; }
 .ve-fx-cap[hidden] { display: none; }
 .ve-fx-cap.cap-classic { text-shadow: 0 calc(var(--u) * 3px) calc(var(--u) * 12px) rgba(0, 0, 0, .95), 0 0 calc(var(--u) * 3px) rgba(0, 0, 0, .9); }
+.ve-fx-cap.cap-word { text-shadow: 0 calc(var(--u) * 3px) calc(var(--u) * 12px) rgba(0, 0, 0, .95), 0 0 calc(var(--u) * 3px) rgba(0, 0, 0, .9); }
 .ve-fx-cap.cap-pop { color: #ffe14d; -webkit-text-stroke: calc(var(--u) * 6px) #000; paint-order: stroke fill; }
 .ve-fx-cap.cap-bar { background: rgba(0, 0, 0, .62); border-radius: 0.26em; padding: 0.2em 0.4em; width: fit-content; max-width: 88%; margin: 0 auto; }
 
-/* moving stickers */
-.ve-ov-item.ov-sticker { left: auto; right: auto; text-shadow: none; }
-.ve-ov-item.ov-sticker svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.ve-color { width: 36px; height: 26px; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+/* start and progress dialogs of the director flow */
+.ve-run-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.ve-run-steps li { display: flex; gap: 8px; align-items: center; color: var(--text-3); }
+.ve-run-steps li::before { content: "○"; }
+.ve-run-steps li.done { color: var(--text-2); }
+.ve-run-steps li.done::before { content: "✓"; color: #4ade80; }
+.ve-run-steps li.now { color: var(--text-1, #fff); }
+.ve-run-steps li.now::before { content: "●"; color: var(--accent); }
+.ve-revise { display: flex; gap: 6px; margin-top: 4px; }
+.ve-revise input { flex: 1; min-width: 0; }
 
-/* emoji library */
-.ve-emoji-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.ve-emoji-item { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
-.ve-emoji-item img { display: block; }
-.ve-ov-item.ov-sticker img { width: 100%; height: 100%; display: block; }
+/* simple mode: the video, the skill picker, a prompt bar and export — changes are asked for in words */
+.ve-simple .ve-work { grid-template-columns: clamp(240px, 21vw, 360px) minmax(0, 1fr); grid-template-areas: "left mon"; grid-template-rows: minmax(0, 1fr); }
+.ve-simple .ve-right, .ve-simple .ve-tl-wrap { display: none; }
+.ve-simple .ve-tab[data-tab="text"], .ve-simple .ve-tab[data-tab="graphic"], .ve-simple .ve-tab[data-tab="audio"] { display: none; }
+.ve-prompt { display: flex; gap: 6px; padding: 8px 10px; background: var(--ve-panel); border-top: 1px solid var(--ve-sep); }
+.ve-prompt[hidden] { display: none; }
+.ve-prompt input { flex: 1; min-width: 0; }
+
+/* the finished video from Claude Code plays on the monitor instead of the source clips */
+.ve-final { max-width: 100%; max-height: 100%; height: 100%; background: #000; border-radius: var(--ve-r); }
+.ve-final[hidden] { display: none; }
+.ve-showing-final .ve-preview, .ve-showing-final .ve-transport { display: none; }

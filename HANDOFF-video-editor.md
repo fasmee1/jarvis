@@ -110,3 +110,17 @@ JARVIS ตัดต่อรอบแรกตาม "แนว" (style) ที�
 - Emoji: `lib/video/emoji.js`; pictures come only from fonts.gstatic.com Noto Emoji static PNG (Apache-2.0), stored via `SfxLibrary` kind `image`. Animated Noto GIFs are CC-BY, so not used.
 - Live preview plays sound cues during playback (`_buildCues` / `_fireCues` in video-editor.js).
 - Not done: background music (library kind `music` is ready; needs list.music model, ops, finder, page audio with ducking, UI).
+
+## Skills and HyperFrames graphics (uncommitted at time of writing)
+- Stickers and emoji were removed. "แนวคลิป" became editing skills: upload a SKILL.md (lib/video/skills.js; text only, references/*.md|txt beside it, 60,000 chars max, nothing in it is run) or write one; stored by StyleStore.
+- "ให้ JARVIS ตัดต่อตามสกิลนี้": cut (planner) → Claude designs HyperFrames graphics as data (lib/video/hf-graphics.js: markup from a tag/attribute allowlist, CSS without external url(), GSAP tweens as JSON whose code the app writes) → web sounds where needed → one undo step → a HyperFrames preview render starts by itself.
+- Graphics are overlays of kind 'hf'; the inspector edits their variables ({{text}}, --color) and timing (op 'overlay-vars' / 'overlay-update'). The live preview shows the real markup + CSS (constructed stylesheet, CSP-safe) and a GSAP-like tween evaluator (video-preview.js tweenValuesAt).
+- The EDIT page layout is now a desktop editor: top bar, library tabs (left), monitor (center), inspector (right), timeline (bottom).
+
+## Pro-editing round (2026-10-28): vision, word-by-word captions, review, skill rules (uncommitted)
+- Word timing: `lib/video/words.js` (thaiWords / alignWords / isKeyWord / phrases / validWords). Chunk transcription keeps whisper token times when they spell the text, never go back and are not mostly equal; otherwise words are spread over the line by letters (`wordTiming: 'estimated'`). With the thonburian model token times are usually not trusted, so most captions are ESTIMATED inside the exact speech-chunk times (not forced alignment). Hand-edited text or dragged times drop the stored words (`validWords`).
+- Caption style `word` (first in the select): phrases of ≤4 words, each word pops at its time, earlier words dim, AI/CODE/numbers cyan (`wordCaptions` in hf-project.js). The live preview in the editor still shows whole lines; only the HyperFrames render is word by word.
+- Vision: `lib/video/frames.js` pulls small JPEGs with ffmpeg; `askClaude({content})` takes text+image blocks (tools stay off). Used for the cut (pictures from the middle of ≤12 pieces), for graphics design (8 pictures, "don't cover face/hands"), and for the review.
+- Review: after a cut-started preview render, `_reviewRender` looks at frames from the rendered video (≤8: graphics + subtitle moments); a problem naming a graphic redesigns it once (`updateOverlay`, separate undo step), then the page is rendered again; other problems are only reported (`lastRender.review`, shown under the player).
+- Skill rules (`skillRules` in skills.js): "ห้าม…ซูม" → zoom effects removed from the cut; "Downloads/<name>" → looked up in the Downloads folder only (`findLocalSound`/`addLocalSound`: first 2 s, quiet, WAV into the sfx library), put on ≤4 text animations ≥4 s apart.
+- Verified: real HyperFrames render of `word` style (Thai correct, AI cyan, words appear in turn); real Claude call with a frame attached read the picture. Not verified: word timing on real thonburian token output, a full real cut+review run. Tests: test/video-words-vision.test.js.

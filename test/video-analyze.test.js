@@ -305,7 +305,13 @@ test('analyze: with the Thai medium model each stretch is transcribed alone and 
   };
   const steps = [];
   const r = await new ClipAnalyzer({ ffmpeg: ff, stt, tempDir }).analyze(clipFile(), { onProgress: (p) => steps.push(p) });
-  assert.deepStrictEqual(r.transcript.segments, [{ start: 0, end: 4.12, text: 'ประโยคแรก' }, { start: 5.88, end: 20, text: 'ประโยค สอง' }]);
+  assert.deepStrictEqual(r.transcript.segments.map(({ words, wordTiming, ...g }) => g), [{ start: 0, end: 4.12, text: 'ประโยคแรก' }, { start: 5.88, end: 20, text: 'ประโยค สอง' }]);
+  // no token times from this model → the words are spread over each line and say so
+  for (const g of r.transcript.segments) {
+    assert.strictEqual(g.wordTiming, 'estimated');
+    assert.strictEqual(g.words[0].start, g.start);
+    assert.strictEqual(g.words[g.words.length - 1].end, g.end);
+  }
   assert.strictEqual(r.transcript.model, 'thonburian-medium');
   assert.deepStrictEqual(heard.map((x) => Math.round(x * 100) / 100), [4.12, 14.12]);
   assert.ok(steps.every((p, i) => i === 0 || p.overall >= steps[i - 1].overall), 'progress never goes back');

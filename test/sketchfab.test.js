@@ -88,3 +88,13 @@ test('model-search block validates and rejects an empty query', () => {
   assert.strictEqual(items.filter((i) => i.type === 'block' && i.kind === 'model-search').length, 1);
   assert.strictEqual(items.filter((i) => i.type === 'block-error').length, 1);
 });
+
+test('rule: hand-built model is refused while Sketchfab is connected, allowed after a miss or without a token', () => {
+  const { JarvisCore } = require('../lib/jarvis-core');
+  const parts = { type: 'model', parts: [{ shape: 'box', color: '#fff' }] };
+  const check = (src, missed) => JarvisCore.prototype._isHandmadeModel.call({ modelSource: src, modelSearchMissed: missed }, parts);
+  assert.strictEqual(check({ getToken: () => 'tok' }, false), true);
+  assert.strictEqual(check({ getToken: () => 'tok' }, true), false);
+  assert.strictEqual(check({ getToken: () => '' }, false), false);
+  assert.strictEqual(check(null, false), false);
+});

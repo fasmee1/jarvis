@@ -31,13 +31,13 @@ const { MediaRegistry } = require('./lib/video/media');
 const { ClipAnalyzer } = require('./lib/video/analyze');
 const { VideoService } = require('./lib/video/service');
 const { StyleStore } = require('./lib/video/styles');
+const { readSkill } = require('./lib/video/skills');
 const { askClaude } = require('./lib/video/ask-claude');
 const { HfRender, QUALITIES } = require('./lib/video/hf-render');
 const { SfxLibrary } = require('./lib/video/sfx-library');
 const { CAPTION_STYLES } = require('./lib/video/hf-project');
 const exportPresets = require('./lib/video/export-presets');
 const effects = require('./lib/video/effects');
-const stickerLib = require('./lib/video/stickers');
 const { PACES } = require('./lib/video/presets');
 const { WakeAssets } = require('./lib/installer/wake-assets');
 const { pcm16ToWav } = require('./lib/stt/wav');
@@ -741,8 +741,7 @@ function registerIpc() {
       return { ok: false, error: err.message };
     }
   });
-  handle('tts:gemini-status', () => geminiTts.status());
-  handle('tts:set-gemini-key', (p) => {
+  handle('tts:gemini-status', () => geminiTts.status());  handle('tts:set-gemini-key', (p) => {
     v.str(p, 200, 'key');
     mapsKeys.gemini.set(p);
     geminiTts.downUntil = 0; // a new key gets a fresh try
@@ -1014,12 +1013,20 @@ function registerIpc() {
     return video.importFiles(p);
   });
   handle('video:analyze', (p) => video.analyze(v.str(p, 16, 'sourceId')));
+  handle('video:subtitles', () => video.makeSubtitles());
   handle('video:cancel', () => video.cancel());
   handle('video:cut-start', (p) => {
     v.obj(p);
-    return video.startCut({ styleId: v.str(p.styleId, 20, 'styleId'), note: v.str(p.note, 1000, 'note', { optional: true }) || '' });
+    const captionStyle = p.captionStyle === undefined ? 'classic' : v.str(p.captionStyle, 20, 'captionStyle');
+    if (!CAPTION_STYLES[captionStyle]) throw new Error('แบบซับไม่ถูกต้อง');
+    if (p.director === true) return video.startDirect({ styleId: v.str(p.styleId, 20, 'styleId'), note: v.str(p.note, 1000, 'note', { optional: true }) || '' });
+    return video.startCut({ styleId: v.str(p.styleId, 20, 'styleId'), note: v.str(p.note, 1000, 'note', { optional: true }) || '', captionStyle });
   });
   handle('video:cut-cancel', () => video.cancelCut());
+  handle('video:direct-revise', (p) => {
+    v.obj(p);
+    return video.reviseDirect({ instruction: v.str(p.instruction, 1000, 'instruction') });
+  });
   handle('video:edit', (p) => {
     v.obj(p);
     const id = () => v.str(p.id, 20, 'id');
@@ -1039,11 +1046,22 @@ function registerIpc() {
         const o = p.overlay;
         const text = (k, max) => (o[k] === undefined ? undefined : v.str(o[k], max, k, { optional: true }) || '');
         const n = (k) => (o[k] === undefined ? undefined : num2(o[k], k));
-        const overlay = { kind: o.kind === undefined ? undefined : v.str(o.kind, 20, 'kind'), text: text('text', 200), text2: text('text2', 200), suffix: text('suffix', 20), sfx: o.sfx === undefined ? undefined : v.str(o.sfx, 20, 'sfx'), image: o.image === undefined ? undefined : v.str(o.image, 20, 'image'), x: n('x'), y: n('y'), size: n('size'), color: o.color === undefined ? undefined : v.str(o.color, 20, 'color', { optional: true }) || '', from: n('from'), to: n('to'), start: n('start'), end: n('end') };
+        const overlay = { kind: o.kind === undefined ? undefined : v.str(o.kind, 20, 'kind'), text: text('text', 200), text2: text('text2', 200), suffix: text('suffix', 20), sfx: o.sfx === undefined ? undefined : v.str(o.sfx, 20, 'sfx'), x: n('x'), y: n('y'), size: n('size'), color: o.color === undefined ? undefined : v.str(o.color, 20, 'color', { optional: true }) || '', from: n('from'), to: n('to'), start: n('start'), end: n('end') };
         for (const k of Object.keys(overlay)) if (overlay[k] === undefined) delete overlay[k];
         return p.op === 'overlay-add' ? video.edit({ op: 'overlay-add', overlay }) : video.edit({ op: 'overlay-update', id: id(), overlay });
       }
       case 'overlay-remove': return video.edit({ op: 'overlay-remove', id: id() });
+      case 'overlay-vars': {
+        v.obj(p.values);
+        const entries = Object.entries(p.values);
+        if (entries.length > 8) throw new Error('ตัวแปรมากเกินไป');
+        const values = {};
+        for (const [k, x] of entries) {
+          if (!/^[a-z][a-z0-9_]{0,19}$/.test(k)) throw new Error('ชื่อตัวแปรไม่ถูกต้อง');
+          values[k] = v.str(x, 80, k, { optional: true }) || '';
+        }
+        return video.edit({ op: 'overlay-vars', id: id(), values });
+      }
       case 'fx': return video.edit({ op: 'fx', id: id(), fx: optStr('fx'), sfx: optStr('sfx'), fxOut: optStr('fxOut') });
       case 'fx-all': return video.edit({ op: 'fx-all', fx: optStr('fx'), sfx: optStr('sfx'), fxOut: optStr('fxOut') });
       default: throw new Error('คำสั่งตัดต่อนี้ไม่รู้จัก');
@@ -1080,8 +1098,6 @@ function registerIpc() {
     fx: Object.values(effects.FX).map((x) => ({ id: x.id, label: x.label })),
     sfx: Object.values(effects.SFX).map((x) => ({ id: x.id, label: x.label })),
     fxOut: Object.values(effects.FX_OUT).map((x) => ({ id: x.id, label: x.label })),
-    stickers: Object.values(stickerLib.KINDS).map((x) => ({ id: x.id, label: x.label, color: x.color, svg: stickerLib.svgFor(x.id, x.color) })),
-    places: Object.entries(stickerLib.POSITIONS).map(([id, p]) => ({ id, label: p.label, x: p.x, y: p.y })),
   }));
   handle('video:export-start', async (p) => {
     v.obj(p);
@@ -1106,11 +1122,6 @@ function registerIpc() {
     return video.startSfxSearch({ query: v.str(p.query, 200, 'query', { optional: true }) || '' });
   });
   handle('video:sfx-cancel', () => video.cancelSfx());
-  handle('video:assets', () => ({ images: video.imageList() }));
-  handle('video:emoji-find', (p) => {
-    v.obj(p);
-    return video.startEmoji({ query: v.str(p.query, 200, 'query', { optional: true }) || '' });
-  });
   handle('video:sfx-remove', (p) => {
     v.obj(p);
     return video.removeSound(v.str(p.id, 20, 'id'));
@@ -1137,6 +1148,18 @@ function registerIpc() {
     v.obj(p);
     const id = v.str(p.id, 20, 'id', { optional: true });
     const style = videoStyles.save({ id, name: p.name, prompt: p.prompt, pace: p.pace, targetSec: p.targetSec });
+    return stylesReply({ saved: style.id });
+  });
+  // the path comes from the main-process dialog only, never from the page
+  handle('video:skill-import', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: 'เลือกไฟล์สกิลการตัดต่อ (SKILL.md)',
+      properties: ['openFile'],
+      filters: [{ name: 'สกิล (Markdown)', extensions: ['md', 'markdown', 'txt'] }],
+    });
+    if (r.canceled || !r.filePaths.length) return stylesReply({ cancelled: true });
+    const style = videoStyles.importSkill(readSkill(r.filePaths[0]));
+    videoStyles.setLast(style.id);
     return stylesReply({ saved: style.id });
   });
   handle('video:style-remove', (p) => {
@@ -1464,6 +1487,10 @@ app.whenReady().then(async () => {
       fs.mkdirSync(dir, { recursive: true });
       return askClaude({ ...o, resolveCommand: () => resolveClaudeCommand({ customPath: settings.get().claudePath }), cwd: dir, env, model: settings.get().model });
     },
+    // clip projects are edited by Claude Code as background projects (lib/projects.js); the folder must not be in AppData
+    workspaceRoot: path.join(app.getPath('videos'), 'JARVIS-edits'),
+    startProject: (o) => projects.start(o),
+    stopProject: (id) => projects.stop(id),
     emit: send,
   });
   wakeAssets = new WakeAssets({ dataDir: path.join(userData, 'handsfree') });
@@ -1503,6 +1530,7 @@ app.whenReady().then(async () => {
     settings,
     ui: (channel, payload) => {
       coreUi(channel, payload);
+      if (channel === 'project:status') video.onProjectStatus(payload);
       if (channel === 'project:status') {
         const say = awayDigest.record(payload);
         if (say && settings.get().speakProjectEvents) coreUi('tts:announce', { text: say });
@@ -1609,8 +1637,7 @@ app.on('will-quit', () => {
   if (orb) orb.destroy();
   if (projects) projects.disposeAll(); // every project's CLI tree: taskkill /T
   else if (core) core.cleanup();
-  if (tts) tts.dispose();
-  if (stt) stt.dispose();
+  if (tts) tts.dispose();  if (stt) stt.dispose();
   if (video) video.cancel(); // ffmpeg / whisper trees are killed
 });
 

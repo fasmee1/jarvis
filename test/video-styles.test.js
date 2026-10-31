@@ -11,20 +11,20 @@ const tmpFile = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'jv-styles
 const mine = { name: '  รีวิวอาหาร  ', prompt: 'เปิดด้วยจานที่น่ากินที่สุด\r\nตัดช่วงเคี้ยวเงียบ ๆ ออก', pace: 'normal', targetSec: 45 };
 
 test('cleanStyle: trims and checks every field', () => {
-  assert.deepStrictEqual(cleanStyle(mine), { name: 'รีวิวอาหาร', prompt: 'เปิดด้วยจานที่น่ากินที่สุด\nตัดช่วงเคี้ยวเงียบ ๆ ออก', pace: 'normal', targetSec: 45 });
+  assert.deepStrictEqual(cleanStyle(mine), { name: 'รีวิวอาหาร', prompt: 'เปิดด้วยจานที่น่ากินที่สุด\nตัดช่วงเคี้ยวเงียบ ๆ ออก', pace: 'normal', targetSec: 45, description: '', skill: false });
   assert.strictEqual(cleanStyle({ ...mine, targetSec: '' }).targetSec, 0);
   assert.strictEqual(cleanStyle({ ...mine, targetSec: undefined }).targetSec, 0);
   assert.throws(() => cleanStyle(null), /ไม่ถูกต้อง/);
-  assert.throws(() => cleanStyle({ ...mine, name: '   ' }), /ชื่อแนว/);
+  assert.throws(() => cleanStyle({ ...mine, name: '   ' }), /ชื่อสกิล/);
   assert.throws(() => cleanStyle({ ...mine, name: 'ก'.repeat(41) }), /ไม่เกิน 40/);
-  assert.throws(() => cleanStyle({ ...mine, prompt: '' }), /คำอธิบาย/);
-  assert.throws(() => cleanStyle({ ...mine, prompt: 'ก'.repeat(2001) }), /ไม่เกิน 2000/);
+  assert.throws(() => cleanStyle({ ...mine, prompt: '' }), /คำแนะนำ/);
+  assert.throws(() => cleanStyle({ ...mine, prompt: 'ก'.repeat(60001) }), /ไม่เกิน 60,000/);
   assert.throws(() => cleanStyle({ ...mine, pace: 'turbo' }), /จังหวะ/);
   assert.throws(() => cleanStyle({ ...mine, pace: 'constructor' }), /จังหวะ/);
   assert.throws(() => cleanStyle({ ...mine, targetSec: -1 }), /ความยาว/);
   assert.throws(() => cleanStyle({ ...mine, targetSec: 1.5 }), /ความยาว/);
   assert.throws(() => cleanStyle({ ...mine, targetSec: 601 }), /ความยาว/);
-  assert.throws(() => cleanStyle({ ...mine, name: 7 }), /ชื่อแนว/);
+  assert.throws(() => cleanStyle({ ...mine, name: 7 }), /ชื่อสกิล/);
 });
 
 test('store: starts with the four built-ins, nothing written yet', () => {
@@ -63,7 +63,7 @@ test('store: built-ins can be edited and reset, not deleted', () => {
   assert.throws(() => s.remove('vlog'), /ลบไม่ได้/);
   const r = s.reset('vlog');
   assert.deepStrictEqual([r.name, r.edited], ['วล็อกชิล', false]);
-  assert.throws(() => s.reset('u12345678'), /เฉพาะแนวสำเร็จรูป/);
+  assert.throws(() => s.reset('u12345678'), /เฉพาะสกิลสำเร็จรูป/);
 });
 
 test('store: limit on own styles', () => {

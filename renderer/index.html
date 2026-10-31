@@ -324,166 +324,235 @@
     </div>
   </section>
 
-  <section class="view" id="view-video" hidden>
-    <header class="view-head">
+  <section class="view ve-view ve-simple" id="view-video" hidden>
+    <header class="view-head ve-topbar">
       <button class="btn back" data-home>◂ HOME</button>
-      <h1>EDIT <span class="th">ตัดต่อคลิป</span></h1>
-      <div class="ve-head-actions">
-        <button id="ve-undo" class="btn small" type="button" title="ย้อนกลับ (Ctrl+Z)" disabled>↶ ย้อนกลับ</button>
-        <button id="ve-redo" class="btn small" type="button" title="ทำซ้ำ (Ctrl+Y)" disabled>↷ ทำซ้ำ</button>
-        <button id="ve-import" class="btn small" type="button">＋ นำเข้าคลิป</button>
-        <button id="ve-clear" class="btn small" type="button" disabled>ล้างทั้งหมด</button>
+      <div class="ve-proj">
+        <span id="ve-proj-name" class="ve-proj-name">ตัดต่อคลิป</span>
+        <span id="ve-proj-meta" class="ve-proj-meta mono"></span>
+      </div>
+      <div class="ve-tb-group" role="group" aria-label="ย้อนกลับและทำซ้ำ">
+        <button id="ve-undo" class="ve-icon-btn" type="button" title="ย้อนกลับ (Ctrl+Z)" aria-label="ย้อนกลับ" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3 2 6l3 3M2.5 6H10a4 4 0 0 1 0 8H7"/></svg></button>
+        <button id="ve-redo" class="ve-icon-btn" type="button" title="ทำซ้ำ (Ctrl+Y)" aria-label="ทำซ้ำ" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m11 3 3 3-3 3m2.5-3H6a4 4 0 0 0 0 8h3"/></svg></button>
+      </div>
+      <div class="ve-tb-right">
+        <button id="ve-clear" class="ve-tb-btn" type="button" title="เอาคลิปทั้งหมดออกจากโปรเจกต์ (ไฟล์ต้นฉบับไม่ถูกลบ)" disabled>ล้างโปรเจกต์</button>
+        <button id="ve-export" class="ve-tb-btn ve-tb-primary" type="button" title="สร้างไฟล์ MP4 คุณภาพเต็ม ตามปลายทางในแผง ส่งออก ทางขวา แล้วเลือกที่เซฟ — ไฟล์ต้นฉบับไม่ถูกแก้">ส่งออก</button>
       </div>
     </header>
     <div class="view-body ve-body" id="video-editor">
-      <div id="ve-ffmpeg" class="ve-banner cut" hidden>
+      <div id="ve-ffmpeg" class="ve-banner" hidden>
         <span id="ve-ffmpeg-text"></span>
-        <button id="ve-ffmpeg-open" class="btn small" type="button">ไปที่ตั้งค่า &gt; วิดีโอ</button>
+        <button id="ve-ffmpeg-open" class="ve-tb-btn" type="button">ไปที่ตั้งค่า &gt; วิดีโอ</button>
       </div>
-      <div id="ve-empty" class="ve-empty cut">
-        <div class="ve-empty-title">ลากคลิปมาวางตรงนี้</div>
-        <div class="dim">หรือ</div>
-        <button id="ve-empty-import" class="btn primary" type="button">เลือกคลิปจากเครื่อง</button>
-        <p class="dim">วิดีโอ mp4 mov m4v webm mkv avi · เสียง mp3 m4a wav aac ogg flac · ไฟล์ต้นฉบับไม่ถูกแก้ไข</p>
-        <p class="dim">นำเข้าแล้ว JARVIS จะฟังคลิปให้เอง: หาช่วงเงียบ และถอดเสียงพูดพร้อมเวลา</p>
+      <div id="ve-empty" class="ve-empty">
+        <div class="ve-empty-title">ลากไฟล์วิดีโอหรือเสียงมาวางที่นี่</div>
+        <button id="ve-empty-import" class="ve-tb-btn ve-tb-primary" type="button">นำเข้าไฟล์</button>
+        <p class="dim">mp4 mov m4v webm mkv avi · mp3 m4a wav aac ogg flac · ไฟล์ต้นฉบับไม่ถูกแก้ไข</p>
       </div>
       <div id="ve-work" class="ve-work" hidden>
-        <div class="ve-top">
+        <!-- left: library -->
+        <aside class="ve-panel ve-left" aria-label="คลังและเครื่องมือ">
+          <nav class="ve-tabs" role="tablist" aria-label="หมวด">
+            <button class="ve-tab on" type="button" role="tab" data-tab="media" aria-selected="true">สื่อ</button>
+            <button class="ve-tab" type="button" role="tab" data-tab="skill" aria-selected="false">สกิล</button>
+            <button class="ve-tab" type="button" role="tab" data-tab="text" aria-selected="false">คำพูด</button>
+            <button class="ve-tab" type="button" role="tab" data-tab="graphic" aria-selected="false">กราฟิก</button>
+            <button class="ve-tab" type="button" role="tab" data-tab="audio" aria-selected="false">เสียง</button>
+          </nav>
+
+          <div class="ve-pane" data-pane="media" role="tabpanel">
+            <div class="ve-pane-head">
+              <span class="ve-pane-title">ไฟล์ในโปรเจกต์</span>
+              <button id="ve-import" class="ve-tb-btn" type="button" title="เพิ่มไฟล์วิดีโอหรือเสียง (ลากมาวางก็ได้)">＋ นำเข้า</button>
+            </div>
+            <div id="ve-sources" class="ve-sources"></div>
+          </div>
+
+          <div class="ve-pane" data-pane="skill" role="tabpanel" hidden>
+            <div class="ve-pane-head">
+              <span class="ve-pane-title">สกิลการตัดต่อ</span>
+              <button id="ve-skill-import" class="ve-tb-btn" type="button" title="เลือกไฟล์ SKILL.md (เอกสารในโฟลเดอร์ references ข้าง ๆ จะถูกอ่านด้วย)">อัปโหลดสกิล</button>
+              <button id="ve-style-add" class="ve-tb-btn" type="button" title="เขียนสกิลเอง">เขียนเอง</button>
+            </div>
+            <div id="ve-styles" class="ve-styles" role="radiogroup" aria-label="สกิลการตัดต่อ"></div>
+            <details class="ve-style-detail"><summary>ดูเนื้อหาสกิลที่เลือก</summary><p id="ve-style-prompt"></p></details>
+            <label class="ve-field"><span>สั่งเพิ่มเฉพาะคลิปนี้</span>
+              <textarea id="ve-note" rows="2" maxlength="1000" placeholder="เช่น ตัดตอนที่พูดผิดออก · ใช้ประโยคแรกเป็นตัวเปิด"></textarea>
+            </label>
+            <button id="ve-cut" class="ve-tb-btn ve-tb-primary ve-wide" type="button">ให้ JARVIS ตัดต่อตามสกิลนี้</button>
+            <div id="ve-cut-status" class="ve-status" hidden aria-live="polite"></div>
+          </div>
+
+          <div class="ve-pane" data-pane="text" role="tabpanel" hidden>
+            <div class="ve-pane-head"><span class="ve-pane-title">คำพูดในคลิป</span></div>
+            <div class="ve-row">
+              <button id="ve-subs" class="ve-tb-btn" type="button" title="ถอดเสียงพูดเป็นซับให้ทุกคลิปในแถบเวลา (ไม่ตัดต่ออะไร) แล้วแก้ข้อความได้">สร้างซับ</button>
+              <input id="ve-fix-hint" class="ve-input" type="text" maxlength="500" autocomplete="off" placeholder="เรื่องของคลิป / คำที่น่าจะมี (ไม่บังคับ)" aria-label="เรื่องของคลิปและคำที่น่าจะมี">
+              <button id="ve-fix" class="ve-tb-btn" type="button" title="JARVIS ตรวจคำที่ถอดผิด (ใช้โควต้า Claude เล็กน้อย) — ประโยคที่คุณแก้เองจะไม่ถูกแตะ">ตรวจคำ</button>
+            </div>
+            <ul id="ve-transcript" class="ve-transcript"></ul>
+          </div>
+
+          <div class="ve-pane" data-pane="graphic" role="tabpanel" hidden>
+            <div class="ve-pane-head"><span class="ve-pane-title">กราฟิกซ้อนภาพ</span></div>
+            <div class="ve-form">
+              <div class="ve-row">
+                <select id="ve-ov-kind" class="ve-select" aria-label="ชนิดกราฟิก">
+                  <option value="title">หัวข้อ</option>
+                  <option value="lower">ป้ายชื่อ</option>
+                  <option value="counter">ตัวเลขนับขึ้น</option>
+                </select>
+                <input id="ve-ov-text" class="ve-input" type="text" maxlength="60" autocomplete="off" aria-label="ข้อความ">
+              </div>
+              <div class="ve-row">
+                <input id="ve-ov-text2" class="ve-input" type="text" maxlength="60" autocomplete="off" placeholder="ตำแหน่ง / คำอธิบายใต้ชื่อ (ไม่บังคับ)" aria-label="ข้อความบรรทัดที่สอง" hidden>
+                <input id="ve-ov-from" class="ve-num" type="number" step="any" placeholder="จาก" aria-label="ตัวเลขเริ่มต้น" hidden>
+                <input id="ve-ov-to" class="ve-num" type="number" step="any" placeholder="ถึง" aria-label="ตัวเลขสุดท้าย" hidden>
+                <input id="ve-ov-suffix" class="ve-num" type="text" maxlength="6" placeholder="+ หรือ %" aria-label="ท้ายตัวเลข" hidden>
+              </div>
+              <div class="ve-row">
+                <label class="ve-inline">เริ่ม <input id="ve-ov-start" class="ve-num" type="number" step="0.1" min="0" placeholder="หัวอ่าน"> วิ</label>
+                <label class="ve-inline">ยาว <input id="ve-ov-len" class="ve-num" type="number" step="0.5" min="0.5" max="30" value="3"> วิ</label>
+              </div>
+              <div class="ve-row">
+                <select id="ve-ov-sfx" class="ve-select" title="เสียงตอนกราฟิกขึ้น" aria-label="เสียงตอนกราฟิกขึ้น"></select>
+              </div>
+              <div class="ve-row">
+                <button id="ve-ov-save" class="ve-tb-btn ve-tb-primary" type="button">เพิ่มกราฟิก</button>
+                <button id="ve-ov-cancel" class="ve-tb-btn" type="button" hidden>ยกเลิกการแก้</button>
+              </div>
+            </div>
+            <ul id="ve-ov-list" class="ve-list"></ul>
+          </div>
+
+          <div class="ve-pane" data-pane="audio" role="tabpanel" hidden>
+            <div class="ve-pane-head"><span class="ve-pane-title">เสียงเอฟเฟกต์</span><span class="ve-pane-note">ฟรี ไม่ต้องให้เครดิต</span></div>
+            <div class="ve-row">
+              <input id="ve-sfx-q" class="ve-input" type="text" maxlength="80" autocomplete="off" placeholder="ค้นหา เช่น whoosh, click" aria-label="คำค้นหาเสียง">
+              <button id="ve-sfx-find" class="ve-tb-btn" type="button" title="JARVIS ค้นเว็บแล้วโหลดเสียงที่ใบอนุญาตชัดเจน (ใช้เวลาราว 1–2 นาที)">ค้นหา</button>
+            </div>
+            <button id="ve-sfx-auto" class="ve-tb-btn ve-wide" type="button" title="JARVIS หาเสียงให้จุดที่มีกราฟิกหรือเอฟเฟกต์แต่ยังไม่มีเสียง (ย้อนกลับได้ในขั้นเดียว)">ให้ JARVIS เลือกเสียงให้ทั้งคลิป</button>
+            <div id="ve-sfx-status" class="ve-status" hidden aria-live="polite"></div>
+            <ul id="ve-sfx-list" class="ve-list"></ul>
+          </div>
+        </aside>
+
+        <!-- center: monitor -->
+        <div class="ve-monitor">
           <div class="ve-stage">
             <div id="ve-preview" class="ve-preview">
               <video id="ve-video" playsinline preload="auto"></video>
               <div id="ve-fx-layer" class="ve-fx-layer" aria-hidden="true"></div>
               <div id="ve-audio-only" class="ve-audio-only dim" hidden>เสียงอย่างเดียว</div>
             </div>
-            <div class="ve-transport">
-              <button id="ve-start" class="btn small" type="button" title="กลับไปต้นคลิป (Home)" aria-label="กลับไปต้นคลิป">⏮</button>
-              <button id="ve-play" class="btn small ve-play" type="button" title="เล่น / หยุด (Space)" aria-label="เล่น">▶</button>
-              <span id="ve-time" class="mono ve-time">0:00.0 / 0:00.0</span>
-              <span class="dim ve-keys">← → ทีละเฟรม · Shift ทีละวินาที</span>
-            </div>
+            <video id="ve-final" class="ve-final" controls playsinline preload="metadata" hidden aria-label="วิดีโอที่ JARVIS ตัดต่อเสร็จแล้ว"></video>
           </div>
-          <aside class="ve-side">
-            <h2 class="ve-h">แนวคลิป <span class="dim">· JARVIS ตัด ใส่ซับ เอฟเฟกต์ อิโมจิ และเสียงให้เองทั้งหมด</span></h2>
-            <div id="ve-styles" class="ve-styles" role="radiogroup" aria-label="แนวคลิป"></div>
-            <button id="ve-style-add" class="btn small ve-style-add" type="button">＋ เพิ่มแนวใหม่</button>
-            <details class="ve-style-detail"><summary class="dim">ดูคำอธิบายของแนวที่เลือก</summary><p id="ve-style-prompt"></p></details>
-            <label class="ve-note-label"><span>สั่งเพิ่มเฉพาะคลิปนี้ <span class="dim">(ไม่บังคับ)</span></span>
-              <textarea id="ve-note" rows="3" maxlength="1000" placeholder="เช่น ตัดตอนที่ผมพูดผิดออกด้วย · ใช้ประโยคแรกเป็นตัวเปิด"></textarea>
-            </label>
-            <button id="ve-cut" class="btn primary ve-cut-btn" type="button">✂ ให้ JARVIS ตัดต่อให้ทั้งหมด</button>
-            <div id="ve-cut-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
-            <h2 class="ve-h">อนิเมชั่นซ้อนคลิป <span class="dim">· หัวข้อ ป้ายชื่อ ตัวเลขนับขึ้น</span></h2>
-            <div class="ve-ov">
-              <div class="ve-fix">
-                <select id="ve-ov-kind" class="ve-speed" aria-label="ชนิดอนิเมชั่น">
-                  <option value="title">หัวข้อเด้ง</option>
-                  <option value="lower">ป้ายชื่อ</option>
-                  <option value="counter">ตัวเลขนับขึ้น</option>
+          <div class="ve-transport">
+            <span id="ve-time" class="mono ve-time">0:00.0 / 0:00.0</span>
+            <span class="ve-transport-mid">
+              <button id="ve-start" class="ve-icon-btn" type="button" title="ไปต้นคลิป (Home)" aria-label="ไปต้นคลิป"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3v10M13 3 6 8l7 5z"/></svg></button>
+              <button id="ve-prev" class="ve-icon-btn" type="button" title="ถอยหนึ่งเฟรม (←, Shift+← ทีละวินาที)" aria-label="ถอยหนึ่งเฟรม"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg></button>
+              <button id="ve-play" class="ve-icon-btn ve-play" type="button" title="เล่น / หยุด (Space)" aria-label="เล่น">▶</button>
+              <button id="ve-next" class="ve-icon-btn" type="button" title="เดินหนึ่งเฟรม (→, Shift+→ ทีละวินาที)" aria-label="เดินหนึ่งเฟรม"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg></button>
+              <button id="ve-end" class="ve-icon-btn" type="button" title="ไปท้ายคลิป (End)" aria-label="ไปท้ายคลิป"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 3v10M3 3l7 5-7 5z"/></svg></button>
+            </span>
+            <span id="ve-ratio" class="mono ve-ratio"></span>
+          </div>
+          <form id="ve-prompt" class="ve-prompt" hidden>
+            <input id="ve-prompt-input" type="text" maxlength="1000" autocomplete="off" placeholder="สั่งแก้ด้วยข้อความ เช่น ซับใหญ่ขึ้น · เพิ่มเสียงตอนเปลี่ยนหัวข้อ · ตัดช่วงท้ายออก" aria-label="สั่งให้ JARVIS แก้วิดีโอ">
+            <button id="ve-prompt-go" class="ve-tb-btn ve-tb-primary" type="submit">ให้ JARVIS แก้</button>
+            <button id="ve-prompt-chat" class="ve-tb-btn" type="button" title="เปิดบทสนทนาของ Claude Code ที่ตัดต่ออยู่ ดูว่าทำอะไรไปและคุยต่อได้">ดูการทำงาน</button>
+          </form>
+        </div>
+
+        <!-- right: inspector -->
+        <aside class="ve-panel ve-right" aria-label="คุณสมบัติ">
+          <details id="ve-gfx-sec" class="ve-sec" open hidden>
+            <summary>กราฟิก HyperFrames</summary>
+            <div class="ve-sec-body">
+              <div id="ve-gfx-name" class="ve-gfx-name"></div>
+              <label class="ve-prop"><span>เริ่ม (วินาที)</span><input id="ve-gfx-start" class="ve-num" type="number" step="0.1" min="0"></label>
+              <label class="ve-prop"><span>ยาว (วินาที)</span><input id="ve-gfx-len" class="ve-num" type="number" step="0.1" min="0.5" max="30"></label>
+              <div id="ve-gfx-vars" class="ve-gfx-vars"></div>
+              <div class="ve-row">
+                <button id="ve-gfx-save" class="ve-tb-btn ve-tb-primary" type="button">บันทึก</button>
+                <button id="ve-gfx-del" class="ve-tb-btn" type="button">ลบกราฟิก</button>
+                <button id="ve-gfx-close" class="ve-tb-btn" type="button">ปิด</button>
+              </div>
+            </div>
+          </details>
+          <details class="ve-sec" open>
+            <summary>คลิป</summary>
+            <div class="ve-sec-body">
+              <div id="ve-sel-hint" class="ve-sel-hint"></div>
+              <label class="ve-prop"><span>ความเร็ว</span>
+                <select id="ve-speed" class="ve-select" aria-label="ความเร็วคลิปที่เลือก">
+                  <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
+                  <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option>
                 </select>
-                <input id="ve-ov-text" class="ve-fix-hint" type="text" maxlength="60" autocomplete="off" aria-label="ข้อความอนิเมชั่น">
-              </div>
-              <div class="ve-fix">
-                <input id="ve-ov-text2" class="ve-fix-hint" type="text" maxlength="60" autocomplete="off" placeholder="ตำแหน่ง / คำอธิบายใต้ชื่อ (ไม่บังคับ)" aria-label="ข้อความบรรทัดที่สอง" hidden>
-                <input id="ve-ov-from" class="ve-num" type="number" step="any" placeholder="จาก" aria-label="ตัวเลขเริ่มต้น" hidden>
-                <input id="ve-ov-to" class="ve-num" type="number" step="any" placeholder="ถึง" aria-label="ตัวเลขสุดท้าย" hidden>
-                <input id="ve-ov-suffix" class="ve-num" type="text" maxlength="6" placeholder="+ หรือ %" aria-label="ท้ายตัวเลข" hidden>
-                <select id="ve-ov-pos" class="ve-speed" aria-label="ตำแหน่งสติกเกอร์" hidden></select>
-                <input id="ve-ov-size" class="ve-num" type="number" min="3" max="90" step="1" value="20" aria-label="ขนาดสติกเกอร์ (% ของด้านสั้นของจอ)" title="ขนาด (% ของด้านสั้นของจอ)" hidden>
-                <input id="ve-ov-color" class="ve-color" type="color" value="#ffe14d" aria-label="สีสติกเกอร์" hidden>
-                <select id="ve-ov-image" class="ve-speed" aria-label="อิโมจิจากคลัง" hidden></select>
-              </div>
-              <div class="ve-fix">
-                <label class="dim">เริ่ม <input id="ve-ov-start" class="ve-num" type="number" step="0.1" min="0" placeholder="หัวอ่าน"> วิ</label>
-                <label class="dim">ยาว <input id="ve-ov-len" class="ve-num" type="number" step="0.5" min="0.5" max="30" value="3"> วิ</label>
-                <select id="ve-ov-sfx" class="ve-speed" title="เสียงตอนอนิเมชั่นขึ้น" aria-label="เสียงตอนอนิเมชั่นขึ้น"></select>
-              </div>
-              <div class="ve-fix">
-                <button id="ve-ov-save" class="btn small primary" type="button">＋ เพิ่มอนิเมชั่น</button>
-                <button id="ve-ov-cancel" class="btn small" type="button" hidden>ยกเลิกการแก้</button>
-              </div>
-              <ul id="ve-ov-list" class="ve-ov-list"></ul>
+              </label>
+              <label class="ve-prop"><span>ภาพตอนเข้า</span><select id="ve-fx" class="ve-select" aria-label="เอฟเฟกต์ภาพตอนเข้า"></select></label>
+              <label class="ve-prop"><span>ภาพตอนออก</span><select id="ve-fxout" class="ve-select" aria-label="เอฟเฟกต์ภาพตอนออก"></select></label>
+              <label class="ve-prop"><span>เสียงตอนเข้า</span><select id="ve-sfx" class="ve-select" aria-label="เสียงเอฟเฟกต์ตอนเข้า"></select></label>
+              <button id="ve-fx-all" class="ve-tb-btn ve-wide" type="button" title="ใช้ค่าภาพและเสียงด้านบนกับทุกรอยต่อ">ใช้กับทุกรอยต่อ</button>
             </div>
-            <h2 class="ve-h">อิโมจิสติกเกอร์ <span class="dim">· Google Noto Emoji ฟรี ไม่ต้องให้เครดิต</span></h2>
-            <div class="ve-ov">
-              <div class="ve-fix">
-                <input id="ve-emoji-q" class="ve-fix-hint" type="text" maxlength="80" autocomplete="off" placeholder="พิมพ์อิโมจิ เช่น 🔥 หรือคำ เช่น ไฟ, หัวเราะ" aria-label="อิโมจิหรือคำค้นหา">
-                <button id="ve-emoji-add" class="btn small" type="button" title="เพิ่มอิโมจิเข้าคลัง (ถ้าพิมพ์เป็นคำ JARVIS จะเลือกอิโมจิให้)">＋ เพิ่ม</button>
-              </div>
-              <button id="ve-emoji-auto" class="btn small primary" type="button" title="JARVIS อ่านคำพูดในคลิป เลือกอิโมจิที่เข้ากัน แล้ววางตรงจังหวะที่พูด (ย้อนกลับได้ในขั้นเดียว)">😀 ให้ JARVIS ใส่อิโมจิตามคำพูด</button>
-              <ul id="ve-emoji-list" class="ve-emoji-list"></ul>
+          </details>
+          <details class="ve-sec" open>
+            <summary>ซับไตเติล</summary>
+            <div class="ve-sec-body">
+              <label class="ve-prop"><span>รูปแบบ</span>
+                <select id="ve-cap-style" class="ve-select" aria-label="แบบตัวอักษรซับ">
+                  <option value="word">ทีละคำตามเสียง</option>
+                  <option value="classic">ขาวมีเงา</option>
+                  <option value="pop">เหลืองขอบดำ</option>
+                  <option value="bar">พื้นดำโปร่ง</option>
+                </select>
+              </label>
             </div>
-            <h2 class="ve-h">เสียงเอฟเฟกต์จากเว็บ <span class="dim">· ฟรี ไม่ต้องให้เครดิต</span></h2>
-            <div class="ve-ov">
-              <div class="ve-fix">
-                <input id="ve-sfx-q" class="ve-fix-hint" type="text" maxlength="80" autocomplete="off" placeholder="ค้นหาเสียง เช่น whoosh, box open (พิมพ์อังกฤษได้ผลดีกว่า)" aria-label="คำค้นหาเสียง">
-                <button id="ve-sfx-find" class="btn small" type="button" title="JARVIS ค้นเว็บแล้วโหลดเสียงที่ใบอนุญาตชัดเจน (ใช้โควต้า Claude เล็กน้อย ใช้เวลาราว 1–2 นาที)">🔎 หาเสียง</button>
-              </div>
-              <button id="ve-sfx-auto" class="btn small primary" type="button" title="JARVIS ดูว่าตรงไหนมีเอฟเฟกต์หรืออนิเมชั่นแต่ยังไม่มีเสียง แล้วหาเสียงที่เข้ากันมาใส่ให้ (ย้อนกลับได้ในขั้นเดียว)">✨ ให้ JARVIS เลือกเสียงให้ทั้งคลิป</button>
-              <div id="ve-sfx-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
-              <ul id="ve-sfx-list" class="ve-ov-list"></ul>
+          </details>
+          <details class="ve-sec" open>
+            <summary>ส่งออก</summary>
+            <div class="ve-sec-body">
+              <label class="ve-prop"><span>ปลายทาง</span><select id="ve-preset" class="ve-select" aria-label="ปลายทาง"></select></label>
+              <label class="ve-prop"><span>จัดภาพ</span><select id="ve-fit" class="ve-select" aria-label="การจัดภาพ"></select></label>
+              <div id="ve-export-note" class="ve-warn" aria-live="polite"></div>
+              <button id="ve-render" class="ve-tb-btn ve-wide" type="button" title="สร้างวิดีโอตัวอย่างจากแถบเวลาตอนนี้ พร้อมซับและกราฟิก (ใช้เวลาราวเท่าความยาวคลิป)">สร้างตัวอย่าง</button>
+              <div id="ve-render-status" class="ve-status" hidden aria-live="polite"></div>
             </div>
-            <h2 class="ve-h">วิดีโอพร้อมซับ <span class="dim">· ดูตัวอย่างก่อนส่งออก</span></h2>
-            <div class="ve-fix">
-              <select id="ve-cap-style" class="ve-speed" title="แบบตัวอักษรซับ" aria-label="แบบตัวอักษรซับ">
-                <option value="classic">ซับขาวมีเงา</option>
-                <option value="pop">ซับเหลืองเด้ง</option>
-                <option value="bar">ซับพื้นดำโปร่ง</option>
-              </select>
-              <button id="ve-render" class="btn primary" type="button" title="สร้างวิดีโอจากแถบเวลาตอนนี้ พร้อมซับที่แก้แล้ว (ใช้เวลาราวเท่าความยาวคลิป)">🎬 สร้างตัวอย่างพร้อมซับ</button>
-            </div>
-            <div id="ve-render-status" class="ve-cut-status cut" hidden aria-live="polite"></div>
-            <h2 class="ve-h">ส่งออกไฟล์ <span class="dim">· เลือกปลายทาง แล้วเลือกที่เซฟ</span></h2>
-            <div class="ve-fix">
-              <select id="ve-preset" class="ve-speed" title="ปลายทางที่จะเอาวิดีโอไปลง" aria-label="ปลายทาง"></select>
-              <select id="ve-fit" class="ve-speed" title="ถ้าภาพต้นฉบับไม่ตรงสัดส่วน" aria-label="การจัดภาพ"></select>
-            </div>
-            <div id="ve-export-note" class="ve-warn" aria-live="polite"></div>
-            <button id="ve-export" class="btn primary" type="button" title="สร้างไฟล์ MP4 คุณภาพเต็มจากแถบเวลาและซับตอนนี้ แล้วให้เลือกที่เซฟ — ไฟล์ต้นฉบับไม่ถูกแก้">⬇ ส่งออกไฟล์…</button>
-            <h2 class="ve-h">คลิปที่นำเข้า</h2>
-            <div id="ve-sources" class="ve-sources"></div>
-            <h2 class="ve-h">คำพูดในคลิป <span class="dim">· กดเพื่อไปที่ประโยค · กด ✎ เพื่อแก้คำ</span></h2>
-            <div class="ve-fix">
-              <input id="ve-fix-hint" class="ve-fix-hint" type="text" maxlength="500" autocomplete="off" placeholder="เรื่องของคลิป / คำที่น่าจะมี เช่น สอนใช้ Claude Code, cmd, IDE (ไม่บังคับ)" aria-label="เรื่องของคลิปและคำที่น่าจะมี">
-              <button id="ve-fix" class="btn small" type="button" title="JARVIS ตรวจคำที่ถอดผิด โดยเฉพาะคำอังกฤษที่ถูกเขียนเป็นคำไทย (ใช้โควต้า Claude เล็กน้อย) — ประโยคที่คุณแก้เองจะไม่ถูกแตะ">✨ ให้ JARVIS ตรวจคำ</button>
-            </div>
-            <ul id="ve-transcript" class="ve-transcript"></ul>
-          </aside>
-        </div>
-        <div class="ve-tl-bar">
-          <span class="dim">แถบเวลา</span>
-          <span class="ve-tools" role="group" aria-label="เครื่องมือตัดต่อ">
-            <button id="ve-split" class="btn small" type="button" title="แบ่งคลิปตรงหัวอ่าน (S)">✂ แบ่ง</button>
-            <button id="ve-delete" class="btn small" type="button" title="ลบคลิปที่เลือก แล้วดึงคลิปถัดไปมาชิด (Delete)">🗑 ลบ</button>
-            <select id="ve-speed" class="ve-speed" title="ความเร็วคลิปที่เลือก" aria-label="ความเร็วคลิปที่เลือก">
-              <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option>
-              <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option>
-            </select>
-            <select id="ve-fx" class="ve-speed" title="เอฟเฟกต์ภาพตอนคลิปที่เลือกเข้ามา" aria-label="เอฟเฟกต์ภาพตอนเข้า"></select>
-            <select id="ve-fxout" class="ve-speed" title="เอฟเฟกต์ภาพตอนคลิปที่เลือกออกไป" aria-label="เอฟเฟกต์ภาพตอนออก"></select>
-            <select id="ve-sfx" class="ve-speed" title="เสียงเอฟเฟกต์ตอนคลิปที่เลือกเข้ามา" aria-label="เสียงเอฟเฟกต์ตอนเข้า"></select>
-            <button id="ve-fx-all" class="btn small" type="button" title="ใช้เอฟเฟกต์และเสียงที่เลือกอยู่กับทุกรอยต่อ (ทุกช่วงยกเว้นช่วงแรก)">ใช้กับทุกรอยต่อ</button>
-            <span id="ve-sel-hint" class="dim ve-sel-hint"></span>
-          </span>
-          <button id="ve-zoom-out" class="btn small" type="button" title="ย่อ (-)" aria-label="ย่อแถบเวลา">−</button>
-          <button id="ve-zoom-in" class="btn small" type="button" title="ขยาย (+ หรือ Ctrl+ล้อเมาส์)" aria-label="ขยายแถบเวลา">＋</button>
-          <button id="ve-zoom-fit" class="btn small" type="button">พอดีจอ</button>
-        </div>
-        <div class="ve-tl">
-          <div class="ve-labels">
-            <div class="ve-label ve-label-ruler"></div>
-            <div class="ve-label" id="ve-label-clips"></div>
-            <div class="ve-label" id="ve-label-silence"></div>
-            <div class="ve-label" id="ve-label-speech"></div>
-            <div class="ve-label" id="ve-label-anim"></div>
+          </details>
+        </aside>
+
+        <!-- bottom: timeline -->
+        <div class="ve-tl-wrap">
+          <div class="ve-tl-bar">
+            <span class="ve-tools" role="group" aria-label="เครื่องมือตัดต่อ">
+              <button id="ve-split" class="ve-icon-btn" type="button" title="แบ่งคลิปตรงหัวอ่าน (S)" aria-label="แบ่งคลิป"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v14M4 4h8v8H4z"/></svg></button>
+              <button id="ve-delete" class="ve-icon-btn" type="button" title="ลบคลิปที่เลือก แล้วดึงคลิปถัดไปมาชิด (Delete)" aria-label="ลบคลิป"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4h10M6 4V2.5h4V4M4.5 4l.7 9.5h5.6l.7-9.5"/></svg></button>
+            </span>
+            <span class="ve-zoom" role="group" aria-label="ซูมแถบเวลา">
+              <button id="ve-zoom-out" class="ve-icon-btn" type="button" title="ย่อ (−)" aria-label="ย่อแถบเวลา"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button>
+              <button id="ve-zoom-fit" class="ve-tb-btn" type="button" title="ให้ทั้งคลิปพอดีความกว้าง">พอดี</button>
+              <button id="ve-zoom-in" class="ve-icon-btn" type="button" title="ขยาย (+ หรือ Ctrl+ล้อเมาส์)" aria-label="ขยายแถบเวลา"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M8 3v10"/></svg></button>
+            </span>
           </div>
-          <div id="ve-timeline" class="ve-timeline">
-            <div id="ve-track" class="ve-track">
-              <div id="ve-ruler" class="ve-ruler"></div>
-              <div id="ve-lane-clips" class="ve-lane"></div>
-              <div id="ve-lane-silence" class="ve-lane ve-lane-thin"></div>
-              <div id="ve-lane-speech" class="ve-lane"></div>
-              <div id="ve-lane-anim" class="ve-lane ve-lane-thin"></div>
-              <div id="ve-playhead" class="ve-playhead"></div>
+          <div class="ve-tl">
+            <div class="ve-labels">
+              <div class="ve-label ve-label-ruler"></div>
+              <div class="ve-label" id="ve-label-anim"></div>
+              <div class="ve-label" id="ve-label-clips"></div>
+              <div class="ve-label" id="ve-label-speech"></div>
+              <div class="ve-label" id="ve-label-silence"></div>
+            </div>
+            <div id="ve-timeline" class="ve-timeline">
+              <div id="ve-track" class="ve-track">
+                <div id="ve-ruler" class="ve-ruler"></div>
+                <div id="ve-lane-anim" class="ve-lane ve-lane-thin"></div>
+                <div id="ve-lane-clips" class="ve-lane"></div>
+                <div id="ve-lane-speech" class="ve-lane"></div>
+                <div id="ve-lane-silence" class="ve-lane ve-lane-thin"></div>
+                <div id="ve-playhead" class="ve-playhead"></div>
+              </div>
             </div>
           </div>
         </div>
@@ -777,10 +846,10 @@
   <!-- Folder picker: shown once per conversation before a command that needs a project folder -->
   <div id="ve-style-dialog" class="modal" hidden>
     <form id="ve-sd-form" class="modal-card cut ve-sd" novalidate role="dialog" aria-modal="true" aria-labelledby="ve-sd-title">
-      <div id="ve-sd-title" class="approval-title ve-sd-title">เพิ่มแนวใหม่</div>
-      <label>ชื่อแนว<input id="ve-sd-name" type="text" maxlength="40" placeholder="เช่น รีวิวอาหาร" autocomplete="off"></label>
-      <label>คำอธิบายแนว <span class="dim">— เขียนเหมือนบอกคนตัดต่อ JARVIS จะทำตามข้อความนี้</span>
-        <textarea id="ve-sd-prompt" rows="7" maxlength="2000" placeholder="เช่น เปิดด้วยจานที่น่ากินที่สุด ตัดช่วงเคี้ยวเงียบ ๆ ออก เน้นตอนชิมคำแรก ซับตัวใหญ่ จบด้วยราคาและชื่อร้าน"></textarea>
+      <div id="ve-sd-title" class="approval-title ve-sd-title">เขียนสกิลเอง</div>
+      <label>ชื่อสกิล<input id="ve-sd-name" type="text" maxlength="40" placeholder="เช่น รีวิวอาหาร" autocomplete="off"></label>
+      <label>คำแนะนำการตัดต่อ <span class="dim">— เขียนเหมือนบอกคนตัดต่อ JARVIS จะทำตามข้อความนี้</span>
+        <textarea id="ve-sd-prompt" rows="10" maxlength="60000" placeholder="เช่น เปิดด้วยจานที่น่ากินที่สุด ตัดช่วงเคี้ยวเงียบ ๆ ออก เน้นตอนชิมคำแรก ซับตัวใหญ่ จบด้วยราคาและชื่อร้าน"></textarea>
         <span id="ve-sd-count" class="dim mono ve-sd-count"></span>
       </label>
       <div class="ve-sd-row">
@@ -793,6 +862,39 @@
         <button id="ve-sd-cancel" class="btn ghost" type="button">ยกเลิก</button>
       </div>
     </form>
+  </div>
+
+  <!-- After picking a clip: which skill should JARVIS edit it by -->
+  <div id="ve-start-dialog" class="modal" hidden>
+    <form id="ve-start-form" class="modal-card cut ve-sd" novalidate role="dialog" aria-modal="true" aria-labelledby="ve-start-title">
+      <div id="ve-start-title" class="approval-title ve-sd-title">ตัดต่อคลิปนี้ด้วยสกิลไหน</div>
+      <p id="ve-start-clips" class="dim"></p>
+      <label>สกิลการตัดต่อ<select id="ve-start-style"></select></label>
+      <p id="ve-start-desc" class="dim"></p>
+      <details class="ve-style-detail"><summary>คำสั่งเพิ่มเฉพาะคลิปนี้ (ไม่บังคับ)</summary>
+        <textarea id="ve-start-note" rows="3" maxlength="1000" placeholder="เช่น ชื่อเครื่องมือที่จะพูดถึง · ตัดตอนที่พูดผิดออก"></textarea>
+      </details>
+      <div class="approval-actions">
+        <button id="ve-start-go" class="btn primary" type="submit">เริ่มตัดต่อ</button>
+        <button id="ve-start-later" class="btn ghost" type="button">ไว้ทีหลัง</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- While JARVIS edits with HyperFrames -->
+  <div id="ve-run-dialog" class="modal" hidden>
+    <div class="modal-card cut ve-sd" role="dialog" aria-modal="true" aria-labelledby="ve-run-title" aria-live="polite">
+      <div id="ve-run-title" class="approval-title ve-sd-title">JARVIS กำลังตัดต่อ</div>
+      <ol id="ve-run-steps" class="ve-run-steps"></ol>
+      <div class="ve-job-label"><span id="ve-run-label"></span><span id="ve-run-pct" class="mono"></span></div>
+      <div class="ve-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="ve-run-bar" class="ve-bar-fill"></div></div>
+      <p class="dim">Claude Code กำลังตัดต่อด้วย HyperFrames ในโปรเจกต์เบื้องหลัง · เสร็จแล้ววิดีโอจะมาที่หน้านี้ แล้วสั่งแก้ด้วยข้อความได้</p>
+      <div class="approval-actions">
+        <button id="ve-run-chat" class="btn" type="button">ดูการทำงานของ Claude Code</button>
+        <span id="ve-run-time" class="dim mono"></span>
+        <button id="ve-run-cancel" class="btn ghost" type="button">ยกเลิก</button>
+      </div>
+    </div>
   </div>
 
   <div id="folder-pick" class="modal" hidden>

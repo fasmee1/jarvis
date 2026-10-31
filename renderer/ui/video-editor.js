@@ -5,12 +5,12 @@
 
 import { el } from '../blocks.js';
 import { StylePicker } from './video-styles.js';
-import { FxLayer, buildCues, cuesBetween } from './video-preview.js';
+import { FxLayer, buildCues, cuesBetween, canvasFor } from './video-preview.js';
 import { layout, locate, timelineTime, mapRanges, fmtTime, ticks, fitZoom, frameStep, totalLength } from './video-timeline.js';
 
 const $ = (id) => document.getElementById(id);
-const LANE_LABELS = { clips: 'คลิป', silence: 'ช่วงเงียบ', speech: 'คำพูด', anim: 'อนิเมชั่น' };
-const OV_NAMES = { title: 'หัวข้อ', lower: 'ป้ายชื่อ', counter: 'ตัวเลข' };
+const LANE_LABELS = { clips: 'คลิป', silence: 'ช่วงเงียบ', speech: 'คำพูด', anim: 'กราฟิก' };
+const OV_NAMES = { title: 'หัวข้อ', lower: 'ป้ายชื่อ', counter: 'ตัวเลข', hf: 'กราฟิก HyperFrames' };
 
 function isField(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
@@ -32,7 +32,8 @@ const DRAG_PX = 4;
 
 export class VideoEditor {
   /** api: window.jarvis · notice(text, level) · openSettings(tab) · isOpen(): is the EDIT section showing */
-  constructor({ api, notice, openSettings, isOpen }) {
+  constructor({ api, notice, openSettings, isOpen, openProject = () => {} }) {
+    this.openProject = openProject; // (projectId) → shows that background project (Claude Code's conversation)
     this.api = api;
     this.notice = notice;
     this.openSettings = openSettings;
@@ -62,9 +63,7 @@ export class VideoEditor {
     api.on('video:render', (c) => this.setRenderState(c));
     api.on('video:sfx', (c) => this.setSfxState(c));
     this.sounds = [];
-    this.images = [];
     this._soundsKey = '';
-    this._imagesKey = '';
     this.cues = [];
     this.playingSfx = new Set();
     this.presets = [];
@@ -75,11 +74,11 @@ export class VideoEditor {
   // ---------- JARVIS cut by style ----------
   async startCut() {
     const { style, note } = this.styles.choice();
-    if (!style) return this.notice('เลือกแนวคลิปก่อน', 'warn');
+    if (!style) return this.notice('เลือกสกิลก่อน', 'warn');
     this.pause();
     try {
-      await this.api.invoke('video:cut-start', { styleId: style.id, note });
-      this.notice(`JARVIS เริ่มตัดต่อแนว "${style.name}" แล้ว — คุยเรื่องอื่นหรือทำอย่างอื่นต่อได้เลย`, 'info', null, 5000);
+      await this.api.invoke('video:cut-start', { styleId: style.id, note, captionStyle: $('ve-cap-style').value, director: true }); // Claude Code edits in HyperFrames by the skill
+      this.notice(`JARVIS เริ่มตัดต่อตามสกิล "${style.name}" แล้ว — คุยเรื่องอื่นหรือทำอย่างอื่นต่อได้เลย`, 'info', null, 5000);
     } catch (err) {
       this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
     }
@@ -89,6 +88,94 @@ export class VideoEditor {
   setCut(c) {
     this.cutState = c;
     this._renderCut();
+    this._renderRun();
+    this._renderPrompt();
+  }
+
+  // ---------- flow: pick clip → pick skill (popup) → progress → editor ----------
+  /** The popup that asks which skill to edit by. Opens after clips are picked. */
+  openStart() {
+    const dlg = $('ve-start-dialog');
+    if (!dlg || !dlg.hidden || (this.cutState && this.cutState.running)) return;
+    const sel = $('ve-start-style');
+    const list = this.styles.styles;
+    if (!list.length) return;
+    sel.replaceChildren(...list.map((s) => el('option', { value: s.id, text: s.name })));
+    if (list.some((x) => x.id === this.styles.selected)) sel.value = this.styles.selected;
+    const desc = () => {
+      const cur = list.find((x) => x.id === sel.value);
+      $('ve-start-desc').textContent = cur ? (cur.description || cur.prompt || '').slice(0, 220) : '';
+    };
+    sel.onchange = () => { desc(); this.styles.pick(sel.value); };
+    desc();
+    $('ve-start-clips').textContent = this.snap.sources.length ? `คลิปที่เลือก: ${this.snap.sources.map((x) => x.name).join(', ')}` : '';
+    $('ve-start-note').value = $('ve-note').value;
+    $('ve-start-later').onclick = () => { dlg.hidden = true; };
+    $('ve-start-form').onsubmit = (e) => { e.preventDefault(); this.startFromPopup(); };
+    dlg.hidden = false;
+    sel.focus();
+  }
+
+  async startFromPopup() {
+    const id = $('ve-start-style').value;
+    $('ve-note').value = $('ve-start-note').value;
+    await this.styles.pick(id);
+    $('ve-start-dialog').hidden = true;
+    this.startCut();
+  }
+
+  static RUN_STEPS = [
+    ['wait', 'ฟังคลิปและถอดเสียง'],
+    ['prepare', 'เตรียมโปรเจกต์ HyperFrames'],
+    ['direct', 'ตัดต่อ ใส่กราฟิกและเสียง แล้วเรนเดอร์ตรวจเอง'],
+    ['apply', 'ตรวจผลและจัดลงแถบเวลา'],
+  ];
+
+  /** The progress dialog: shown only while the director works. */
+  _renderRun() {
+    const dlg = $('ve-run-dialog');
+    if (!dlg) return;
+    const c = this.cutState;
+    const on = !!(c && c.running && c.direct);
+    if (!on) this._runHidden = false;
+    dlg.hidden = !on || !!this._runHidden; // hidden while the user looks at Claude Code's conversation
+    if (!on || this._runHidden) return;
+    const pct = Math.round((c.overall || 0) * 100);
+    const at = VideoEditor.RUN_STEPS.findIndex(([id]) => id === c.stage);
+    $('ve-run-title').textContent = `JARVIS กำลังตัดต่อตามสกิล "${c.styleName}"`;
+    $('ve-run-steps').replaceChildren(...VideoEditor.RUN_STEPS.map(([, label], i) => el('li', { class: i < at ? 'done' : i === at ? 'now' : '', text: label })));
+    $('ve-run-label').textContent = c.label || '';
+    $('ve-run-pct').textContent = `${pct}%`;
+    $('ve-run-bar').style.width = `${pct}%`;
+    $('ve-run-bar').parentElement.setAttribute('aria-valuenow', String(pct));
+    $('ve-run-time').textContent = fmtTime((c.elapsedMs || 0) / 1000).replace(/.d$/, '');
+    $('ve-run-cancel').onclick = () => this.api.invoke('video:cut-cancel');
+  }
+
+  _openChat() {
+    const id = this.snap.direct && this.snap.direct.projectId;
+    if (id) this.openProject(id);
+    else this.notice('ยังไม่มีบทสนทนาของงานนี้', 'warn');
+  }
+
+  /** The prompt bar: there once JARVIS has edited the clip; busy while a job runs. */
+  _renderPrompt() {
+    const bar = $('ve-prompt');
+    if (!bar) return;
+    const c = this.cutState;
+    const has = !!(this.snap.direct && this.snap.direct.projectId);
+    bar.hidden = !has;
+    const busy = !!(c && c.running);
+    $('ve-prompt-input').disabled = busy;
+    $('ve-prompt-go').disabled = busy;
+  }
+
+  async revise(text) {
+    try {
+      await this.api.invoke('video:direct-revise', { instruction: text });
+    } catch (err) {
+      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
+    }
   }
 
   _renderCut() {
@@ -97,17 +184,17 @@ export class VideoEditor {
     const c = this.cutState;
     const running = !!(c && c.running);
     btn.disabled = running || !this.snap.clips.length;
-    btn.textContent = running ? 'JARVIS กำลังตัดต่อ…' : '✂ ให้ JARVIS ตัดต่อให้ทั้งหมด';
+    btn.textContent = running ? 'JARVIS กำลังตัดต่อ…' : 'ให้ JARVIS ตัดต่อตามสกิลนี้';
     if (running) {
       const pct = Math.round((c.overall || 0) * 100);
       box.hidden = false;
-      box.className = 've-cut-status cut running';
+      box.className = 've-status running';
       box.replaceChildren(
         el('div', { class: 've-job-label' }, el('span', { text: c.label }), el('span', { class: 'mono', text: `${pct}%` })),
         el('div', { class: 've-bar', role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, styled(el('div', { class: 've-bar-fill' }), `width:${pct}%`)),
         el('div', { class: 've-actions' },
           el('span', { class: 'dim mono', text: fmtTime((c.elapsedMs || 0) / 1000).replace(/\.\d$/, '') }),
-          el('button', { class: 'btn small', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:cut-cancel') })));
+          el('button', { class: 've-tb-btn', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:cut-cancel') })));
       return;
     }
     const r = c && c.result;
@@ -116,19 +203,22 @@ export class VideoEditor {
       return;
     }
     box.hidden = false;
-    box.className = `ve-cut-status cut ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
+    box.className = `ve-status ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
     if (!r.ok) {
-      box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? `ยกเลิกการตัดแนว "${r.styleName}" แล้ว — แถบเวลาเหมือนเดิม` : `ตัดต่อไม่สำเร็จ: ${r.error}` }));
+      box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? `ยกเลิกการตัดตามสกิล "${r.styleName}" แล้ว — แถบเวลาเหมือนเดิม` : `ตัดต่อไม่สำเร็จ: ${r.error}` }));
       return;
     }
     const kids = [
-      el('div', { class: 've-cut-title', text: `ตัดแนว "${r.styleName}" เสร็จ · ${r.clips} ช่วง · ยาว ${fmtTime(r.length)}` }),
+      el('div', { class: 've-cut-title', text: `ตัดตามสกิล "${r.styleName}" เสร็จ · ${r.clips} ช่วง · ยาว ${fmtTime(r.length)}` }),
       r.summary ? el('div', { class: 've-sum', text: r.summary }) : null,
       ...(r.done || []).map((d) => el('div', { class: 've-sum', text: `✓ ${d}` })),
       ...r.warnings.map((w) => el('div', { class: 've-warn', text: w })),
+      r.rows && r.rows.length ? el('details', { class: 've-sum' },
+        el('summary', { text: `แผนตัดต่อของ JARVIS (${r.rows.length} จุด) พร้อมเหตุผล` }),
+        ...r.rows.map((x) => el('div', { class: 'dim', text: `${fmtTime(x.start)}–${fmtTime(x.end)} · ${x.visual || '—'}${x.motion ? ` · ${x.motion}` : ''}${x.sfx ? ` · เสียง: ${x.sfx}` : ''} — ${x.reason}` }))) : null,
       el('div', { class: 've-actions' },
-        el('button', { class: 'btn small', type: 'button', text: 'เล่นดูตั้งแต่ต้น', onclick: () => { this.seek(0).then(() => this.play()); } }),
-        el('button', { class: 'btn small', type: 'button', text: 'ย้อนกลับไปก่อนตัดต่อ', onclick: () => this.undo() })),
+        el('button', { class: 've-tb-btn', type: 'button', text: 'เล่นดูตั้งแต่ต้น', onclick: () => { this.seek(0).then(() => this.play()); } }),
+        el('button', { class: 've-tb-btn', type: 'button', text: 'ย้อนกลับไปก่อนตัดต่อ', onclick: () => this.undo() })),
     ];
     box.replaceChildren(...kids.filter(Boolean));
   }
@@ -138,12 +228,6 @@ export class VideoEditor {
   _ovFields() {
     const kind = $('ve-ov-kind').value;
     $('ve-ov-text').placeholder = kind === 'counter' ? 'คำใต้ตัวเลข เช่น ผู้ติดตาม (ไม่บังคับ)' : kind === 'lower' ? 'ชื่อ เช่น ฟัซมี' : 'ข้อความหัวข้อ เช่น ข้อ 1 ห้ามพลาด!';
-    const sticker = !!(this.stickers && this.stickers[kind]);
-    const pic = kind === 'emoji';
-    $('ve-ov-text').hidden = sticker || pic;
-    for (const id of ['ve-ov-pos', 've-ov-size']) $(id).hidden = !(sticker || pic);
-    $('ve-ov-color').hidden = !sticker;
-    $('ve-ov-image').hidden = !pic;
     $('ve-ov-text2').hidden = kind !== 'lower';
     for (const id of ['ve-ov-from', 've-ov-to', 've-ov-suffix']) $(id).hidden = kind !== 'counter';
   }
@@ -179,7 +263,6 @@ export class VideoEditor {
     $('ve-ov-suffix').value = '';
     $('ve-ov-start').value = '';
     $('ve-ov-sfx').value = 'none';
-    $('ve-ov-size').value = '20';
     $('ve-ov-save').textContent = '＋ เพิ่มอนิเมชั่น';
     $('ve-ov-cancel').hidden = true;
     this._ovFields();
@@ -198,13 +281,6 @@ export class VideoEditor {
     $('ve-ov-start').value = String(o.start);
     $('ve-ov-len').value = String(Math.round((o.end - o.start) * 10) / 10);
     $('ve-ov-sfx').value = o.sfx || 'none';
-    if ((this.stickers && this.stickers[o.kind]) || o.kind === 'emoji') {
-      const near = (this.places || []).reduce((best, p) => (Math.hypot(p.x - o.x, p.y - o.y) < Math.hypot(best.x - o.x, best.y - o.y) ? p : best), this.places[0] || { x: 50, y: 50, id: 'center' });
-      $('ve-ov-pos').value = near.id;
-      $('ve-ov-size').value = String(o.size);
-      if (o.color) $('ve-ov-color').value = o.color;
-      if (o.image) $('ve-ov-image').value = o.image;
-    }
     $('ve-ov-save').textContent = 'บันทึกการแก้';
     $('ve-ov-cancel').hidden = false;
     this._ovFields();
@@ -218,13 +294,6 @@ export class VideoEditor {
     const start = startIn === undefined ? Math.round(this.t * 10) / 10 : startIn;
     const len = num('ve-ov-len') || 3;
     const overlay = { kind, text: $('ve-ov-text').value, start, end: start + len, sfx: $('ve-ov-sfx').value || 'none' };
-    if ((this.stickers && this.stickers[kind]) || kind === 'emoji') {
-      const place = (this.places || []).find((p) => p.id === $('ve-ov-pos').value) || { x: 50, y: 50 };
-      Object.assign(overlay, { x: place.x, y: place.y, size: Number($('ve-ov-size').value) || 20 });
-      if (kind === 'emoji') overlay.image = $('ve-ov-image').value;
-      else overlay.color = $('ve-ov-color').value;
-      delete overlay.text;
-    }
     if (kind === 'lower') overlay.text2 = $('ve-ov-text2').value;
     if (kind === 'counter') {
       overlay.from = num('ve-ov-from') ?? 0;
@@ -234,6 +303,51 @@ export class VideoEditor {
     }
     const ok = await this.edit(this.ovEditing ? { op: 'overlay-update', id: this.ovEditing, overlay } : { op: 'overlay-add', overlay });
     if (ok) this._ovReset();
+  }
+
+  // ---------- HyperFrames graphic in the inspector ----------
+  selectGraphic(o) {
+    this.gfxSel = o.id;
+    this._renderGraphic(true);
+    this._renderTimeline();
+  }
+
+  /** Shows the selected graphic's timing and variables; refill=false keeps what is being typed. */
+  _renderGraphic(refill = false) {
+    const sec = $('ve-gfx-sec');
+    const o = (this.snap.overlays || []).find((x) => x.id === this.gfxSel && x.kind === 'hf');
+    if (!o) {
+      this.gfxSel = null;
+      sec.hidden = true;
+      return;
+    }
+    sec.hidden = false;
+    if (!refill && this._gfxShown === JSON.stringify(o)) return;
+    this._gfxShown = JSON.stringify(o);
+    $('ve-gfx-name').textContent = o.name || 'กราฟิก';
+    $('ve-gfx-start').value = String(o.start);
+    $('ve-gfx-len').value = String(Math.round((o.end - o.start) * 10) / 10);
+    $('ve-gfx-vars').replaceChildren(...(o.vars || []).map((v) => el('label', { class: 've-prop' },
+      el('span', { text: v.label }),
+      v.type === 'color' && /^#[0-9a-f]{6}$/i.test(v.value)
+        ? el('input', { type: 'color', value: v.value, 'data-var': v.id, 'aria-label': v.label })
+        : el('input', { class: 've-input', type: 'text', maxlength: '80', value: v.value, 'data-var': v.id, 'aria-label': v.label }))));
+    if (!(o.vars || []).length) $('ve-gfx-vars').append(el('div', { class: 'dim', text: 'กราฟิกนี้ไม่มีค่าที่แก้ได้ นอกจากเวลา' }));
+  }
+
+  async saveGraphic() {
+    const o = (this.snap.overlays || []).find((x) => x.id === this.gfxSel);
+    if (!o) return;
+    const values = {};
+    for (const input of $('ve-gfx-vars').querySelectorAll('input[data-var]')) values[input.dataset.var] = input.value;
+    const changed = (o.vars || []).some((v) => values[v.id] !== undefined && values[v.id] !== v.value);
+    if (changed && !(await this.edit({ op: 'overlay-vars', id: o.id, values }))) return;
+    const start = Number($('ve-gfx-start').value);
+    const len = Number($('ve-gfx-len').value);
+    if (Number.isFinite(start) && Number.isFinite(len) && (Math.abs(start - o.start) > 1e-3 || Math.abs(start + len - o.end) > 1e-3)) {
+      await this.edit({ op: 'overlay-update', id: o.id, overlay: { start, end: start + len } });
+    }
+    this._renderGraphic(true);
   }
 
   _renderOverlays() {
@@ -246,8 +360,8 @@ export class VideoEditor {
           el('span', { class: 'mono dim', text: fmtTime(o.start) }),
           el('span', { text: `${OV_NAMES[o.kind] || o.kind}${o.text ? `: ${o.text}` : o.kind === 'counter' ? `: ${o.from} → ${o.to}${o.suffix}` : ''}` })),
         el('span', { class: 've-line-tools show' },
-          el('button', { class: 've-mini', type: 'button', title: 'แก้', 'aria-label': 'แก้อนิเมชั่น', text: '✎', onclick: () => this.loadOverlay(o) }),
-          el('button', { class: 've-mini', type: 'button', title: 'ลบ', 'aria-label': 'ลบอนิเมชั่น', text: '🗑', onclick: () => { if (this.ovEditing === o.id) this._ovReset(); this.edit({ op: 'overlay-remove', id: o.id }); } }))))
+          el('button', { class: 've-mini', type: 'button', title: 'แก้', 'aria-label': 'แก้อนิเมชั่น', text: 'แก้', onclick: () => (o.kind === 'hf' ? this.selectGraphic(o) : this.loadOverlay(o)) }),
+          el('button', { class: 've-mini', type: 'button', title: 'ลบ', 'aria-label': 'ลบอนิเมชั่น', text: 'ลบ', onclick: () => { if (this.ovEditing === o.id) this._ovReset(); if (this.gfxSel === o.id) this.gfxSel = null; this.edit({ op: 'overlay-remove', id: o.id }); } }))))
       : [el('li', { class: 'dim', text: 'ยังไม่มีอนิเมชั่น — เลื่อนหัวอ่านไปจุดที่ต้องการ แล้วกดเพิ่ม' })]));
   }
 
@@ -268,54 +382,14 @@ export class VideoEditor {
     const list = this.sounds.length ? this.sounds : (this.builtinSfx || []).map((x) => ({ ...x, custom: false }));
     if (!list.length) return;
     this.sfxLabels = Object.fromEntries(list.map((x) => [x.id, x.label]));
-    const opts = list.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'เสียง: ไม่มี' : `เสียง: ${x.custom ? '🌐 ' : ''}${x.label}` }));
+    const opts = list.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ไม่มี' : `${x.label}${x.custom ? ' (เว็บ)' : ''}` }));
     const keepClip = $('ve-sfx').value;
     const keepOv = $('ve-ov-sfx').value;
     $('ve-sfx').replaceChildren(...opts);
-    $('ve-ov-sfx').replaceChildren(...list.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ไม่มีเสียง' : `${x.custom ? '🌐 ' : ''}${x.label}` })));
+    $('ve-ov-sfx').replaceChildren(...list.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ไม่มีเสียง' : `${x.label}${x.custom ? ' (เว็บ)' : ''}` })));
     if (keepClip) $('ve-sfx').value = keepClip;
     if (keepOv) $('ve-ov-sfx').value = keepOv;
     this._renderTools();
-  }
-
-  async _loadImages() {
-    try {
-      this.images = (await this.api.invoke('video:assets')).images;
-    } catch {
-      return;
-    }
-    this.fx.key = '';
-    this._fillImages();
-    this._renderEmoji();
-    this._paintFx();
-  }
-
-  /** The picture choices of an "emoji" animation. */
-  _fillImages() {
-    const keep = $('ve-ov-image').value;
-    $('ve-ov-image').replaceChildren(...(this.images.length ? this.images.map((x) => el('option', { value: x.id, text: x.label })) : [el('option', { value: '', text: 'ยังไม่มีอิโมจิในคลัง' })]));
-    if (keep) $('ve-ov-image').value = keep;
-  }
-
-  async addEmoji(auto) {
-    const query = auto ? '' : $('ve-emoji-q').value.trim();
-    if (!auto && !query) return this.notice('พิมพ์อิโมจิ (เช่น 🔥) หรือคำ (เช่น ไฟ) ก่อน', 'warn');
-    try {
-      await this.api.invoke('video:emoji-find', { query });
-      this.notice(auto ? 'JARVIS กำลังเลือกอิโมจิให้ตรงกับคำพูด — ทำอย่างอื่นต่อได้' : 'กำลังเพิ่มอิโมจิเข้าคลัง', 'info', null, 4000);
-      if (!auto) $('ve-emoji-q').value = '';
-    } catch (err) {
-      this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn');
-    }
-  }
-
-  _renderEmoji() {
-    const list = $('ve-emoji-list');
-    $('ve-emoji-add').disabled = !!(this.sfxState && this.sfxState.running);
-    $('ve-emoji-auto').disabled = !!(this.sfxState && this.sfxState.running) || !this.snap.clips.length;
-    list.replaceChildren(...(this.images.length ? this.images.map((x) => el('li', { class: 've-emoji-item', title: `${x.label} · ${x.license}` },
-      el('img', { src: x.url, alt: x.label, width: '36', height: '36' }),
-      el('button', { class: 've-mini', type: 'button', title: 'เอาออกจากคลัง (อนิเมชั่นที่ใช้อยู่จะถูกลบด้วย)', 'aria-label': 'เอาอิโมจิออกจากคลัง', text: '🗑', onclick: () => { if (confirm(`เอาอิโมจิ "${x.label}" ออกจากคลัง? อนิเมชั่นที่ใช้อิโมจินี้จะถูกลบด้วย`)) this.api.invoke('video:sfx-remove', { id: x.id }).then((s) => this.setState(s)).catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn')); } }))) : [el('li', { class: 'dim', text: 'ยังไม่มีอิโมจิในคลัง' })]));
   }
 
   /** The moments on the timeline where a sound starts (rebuilt whenever the timeline or the sounds change). */
@@ -366,20 +440,20 @@ export class VideoEditor {
     $('ve-sfx-auto').disabled = running || !this.snap.clips.length;
     if (running) {
       box.hidden = false;
-      box.className = 've-cut-status cut running';
+      box.className = 've-status running';
       box.replaceChildren(
         el('div', { class: 've-job-label' }, el('span', { text: c.label || 'กำลังหาเสียง' }), el('span', { class: 'dim mono', text: fmtTime((c.elapsedMs || 0) / 1000).replace(/\.\d$/, '') })),
-        el('div', { class: 've-actions' }, el('button', { class: 'btn small', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:sfx-cancel') })));
+        el('div', { class: 've-actions' }, el('button', { class: 've-tb-btn', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:sfx-cancel') })));
     } else if (c && c.result) {
       const r = c.result;
       box.hidden = false;
-      box.className = `ve-cut-status cut ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
+      box.className = `ve-status ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
       if (!r.ok) box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? 'ยกเลิกการหาเสียงแล้ว' : `หาเสียงไม่สำเร็จ: ${r.error}` }));
       else {
         box.replaceChildren(
-          el('div', { class: 've-cut-title', text: r.emoji ? (r.auto ? `ใส่อิโมจิ ${r.assigned} จุดแล้ว (ย้อนกลับได้ในขั้นเดียว)` : `เพิ่มอิโมจิเข้าคลังแล้ว: ${r.added.join(' ')}`) : r.auto ? `ใส่เสียงให้ ${r.assigned} จุดแล้ว · โหลดใหม่ ${r.added.length} เสียง` : `โหลดเสียงแล้ว ${r.added.length} เสียง: ${r.added.join(', ')}` }),
+          el('div', { class: 've-cut-title', text: r.auto ? `ใส่เสียงให้ ${r.assigned} จุดแล้ว · โหลดใหม่ ${r.added.length} เสียง` : `โหลดเสียงแล้ว ${r.added.length} เสียง: ${r.added.join(', ')}` }),
           ...r.failed.map((f) => el('div', { class: 've-warn', text: f })),
-          el('div', { class: 'dim', text: r.emoji ? (r.auto ? 'แก้ตำแหน่ง/ขนาด หรือลบได้ที่รายการ "อนิเมชั่นซ้อนคลิป"' : 'ใช้ได้ที่ "อนิเมชั่นซ้อนคลิป" เลือกชนิด "อิโมจิ (จากคลัง)"') : r.auto ? 'ย้อนกลับด้วยปุ่ม "ย้อนกลับ" ได้ในขั้นเดียว · เปลี่ยนเสียงของแต่ละช่วงได้ที่ช่อง "เสียง"' : 'เลือกใช้ได้ที่ช่อง "เสียง" ของคลิปหรืออนิเมชั่น' }));
+          el('div', { class: 'dim', text: r.auto ? 'ย้อนกลับด้วยปุ่ม "ย้อนกลับ" ได้ในขั้นเดียว · เปลี่ยนเสียงของแต่ละช่วงได้ที่ช่อง "เสียง"' : 'เลือกใช้ได้ที่ช่อง "เสียง" ของคลิปหรืออนิเมชั่น' }));
       }
     } else box.hidden = true;
 
@@ -389,7 +463,7 @@ export class VideoEditor {
       el('button', { class: 've-line', type: 'button', title: `เล่นฟัง · ${x.license}${x.sourcePage ? `\nที่มา: ${x.sourcePage}` : ''}`, onclick: () => { try { const a = new Audio(x.url); a.volume = 0.8; a.play(); } catch { /* no sound device */ } } },
         el('span', { class: 'mono dim', text: `${x.seconds}s` }), el('span', { text: `▶ ${x.label} · ${x.host}` })),
       el('span', { class: 've-line-tools show' },
-        el('button', { class: 've-mini', type: 'button', title: 'เอาออกจากคลัง', 'aria-label': 'เอาเสียงออกจากคลัง', text: '🗑', onclick: () => { if (confirm(`เอาเสียง "${x.label}" ออกจากคลัง? ที่ใช้อยู่จะกลายเป็นไม่มีเสียง`)) this.api.invoke('video:sfx-remove', { id: x.id }).then((s) => this.setState(s)).catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn')); } }))))
+        el('button', { class: 've-mini', type: 'button', title: 'เอาออกจากคลัง', 'aria-label': 'เอาเสียงออกจากคลัง', text: 'ลบ', onclick: () => { if (confirm(`เอาเสียง "${x.label}" ออกจากคลัง? ที่ใช้อยู่จะกลายเป็นไม่มีเสียง`)) this.api.invoke('video:sfx-remove', { id: x.id }).then((s) => this.setState(s)).catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn')); } }))))
       : [el('li', { class: 'dim', text: 'ยังไม่มีเสียงที่โหลดไว้' })]));
   }
 
@@ -404,23 +478,14 @@ export class VideoEditor {
     }
   }
 
-  _fillPresets({ presets, fits, fx, sfx, fxOut, stickers = [], places = [] }) {
+  _fillPresets({ presets, fits, fx, sfx, fxOut }) {
     this.presets = presets;
-    this.stickers = Object.fromEntries(stickers.map((x) => [x.id, x]));
-    this.places = places;
-    for (const x of stickers) OV_NAMES[x.id] = x.label;
-    const kind = $('ve-ov-kind');
-    OV_NAMES.emoji = 'อิโมจิ';
-    if (![...kind.options].some((o) => o.value === 'emoji')) kind.append(el('option', { value: 'emoji', text: 'อิโมจิ (จากคลัง)' }));
-    for (const x of stickers) if (![...kind.options].some((o) => o.value === x.id)) kind.append(el('option', { value: x.id, text: x.label }));
-    $('ve-ov-pos').replaceChildren(...places.map((p) => el('option', { value: p.id, text: p.label })));
-    $('ve-ov-pos').value = 'center';
     this.fx.key = '';
     this.fxLabels = Object.fromEntries(fx.map((x) => [x.id, x.label]));
     this.sfxLabels = Object.fromEntries(sfx.map((x) => [x.id, x.label]));
     this.fxOutLabels = Object.fromEntries(fxOut.map((x) => [x.id, x.label]));
-    $('ve-fxout').replaceChildren(...fxOut.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ออก: ไม่มี' : `ออก: ${x.label}` })));
-    $('ve-fx').replaceChildren(...fx.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ภาพ: ไม่มีเอฟเฟกต์' : `ภาพ: ${x.label}` })));
+    $('ve-fxout').replaceChildren(...fxOut.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ไม่มี' : x.label })));
+    $('ve-fx').replaceChildren(...fx.map((x) => el('option', { value: x.id, text: x.id === 'none' ? 'ไม่มี' : x.label })));
     this.builtinSfx = sfx;
     this._fillSounds();
     this._renderTools();
@@ -457,6 +522,30 @@ export class VideoEditor {
   setRenderState(c) {
     this.renderState = c;
     this._renderRender();
+    this._renderFinal();
+  }
+
+  /**
+   * A video JARVIS had edited (Claude Code rendered it in HyperFrames) is what the monitor plays: it has
+   * the graphics, subtitles and sounds. The source clips with the live preview are shown only before that.
+   */
+  _renderFinal() {
+    const v = $('ve-final');
+    if (!v) return;
+    const r = this.renderState && this.renderState.result;
+    const url = r && r.ok && r.kind === 'preview' && r.director ? r.url : '';
+    if (url) {
+      if (v.getAttribute('src') !== url) {
+        this.pause();
+        v.src = url;
+      }
+    } else if (v.getAttribute('src')) {
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+    }
+    v.hidden = !url;
+    $('video-editor').classList.toggle('ve-showing-final', !!url);
   }
 
   _renderRender() {
@@ -465,18 +554,18 @@ export class VideoEditor {
     const c = this.renderState;
     const running = !!(c && c.running);
     btn.disabled = running || !this.snap.clips.length || !!(this.cutState && this.cutState.running);
-    btn.textContent = running ? 'กำลังสร้างวิดีโอ…' : '🎬 สร้างตัวอย่างพร้อมซับ';
+    btn.textContent = running ? 'กำลังสร้างวิดีโอ…' : 'สร้างตัวอย่าง';
     $('ve-export').disabled = btn.disabled;
     if (running) {
       const pct = Math.round((c.fraction || 0) * 100);
       box.hidden = false;
-      box.className = 've-cut-status cut running';
+      box.className = 've-status running';
       box.replaceChildren(
         el('div', { class: 've-job-label' }, el('span', { text: `${c.kind === 'export' ? 'ส่งออก: ' : ''}${c.label || 'กำลังสร้างวิดีโอ'}` }), el('span', { class: 'mono', text: `${pct}%` })),
         el('div', { class: 've-bar', role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, styled(el('div', { class: 've-bar-fill' }), `width:${pct}%`)),
         el('div', { class: 've-actions' },
           el('span', { class: 'dim mono', text: fmtTime((c.elapsedMs || 0) / 1000).replace(/\.\d$/, '') }),
-          el('button', { class: 'btn small', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:render-cancel') })));
+          el('button', { class: 've-tb-btn', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:render-cancel') })));
       return;
     }
     const r = c && c.result;
@@ -485,7 +574,7 @@ export class VideoEditor {
       return;
     }
     box.hidden = false;
-    box.className = `ve-cut-status cut ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
+    box.className = `ve-status ${r.ok ? 'ok' : r.cancelled ? '' : 'bad'}`;
     if (!r.ok) {
       box.replaceChildren(el('div', { class: r.cancelled ? 'dim' : 've-err', text: r.cancelled ? (r.kind === 'export' ? 'ยกเลิกการส่งออกแล้ว' : 'ยกเลิกการสร้างวิดีโอแล้ว') : `${r.kind === 'export' ? 'ส่งออกไม่สำเร็จ' : 'สร้างวิดีโอไม่สำเร็จ'}: ${r.error}` }));
       return;
@@ -496,13 +585,15 @@ export class VideoEditor {
         el('div', { class: 've-cut-title', text: `ส่งออกแล้ว · ${r.name} · ${mb} MB` }),
         el('div', { class: 'dim', text: `ยาว ${fmtTime(r.duration)} · ${r.captions} บรรทัดซับ · ใช้เวลา ${Math.round((r.elapsedMs || 0) / 1000)} วินาที` }),
         el('div', { class: 've-actions' },
-          el('button', { class: 'btn small', type: 'button', text: 'เปิดโฟลเดอร์', onclick: () => this.api.invoke('video:export-reveal').catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn')) })));
+          el('button', { class: 've-tb-btn', type: 'button', text: 'เปิดโฟลเดอร์', onclick: () => this.api.invoke('video:export-reveal').catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn')) })));
       return;
     }
     const player = el('video', { class: 've-render-video', controls: '', playsinline: '', preload: 'metadata', src: r.url });
     box.replaceChildren(
       el('div', { class: 've-cut-title', text: `สร้างวิดีโอแล้ว · ${r.captions} บรรทัดซับ · ยาว ${fmtTime(r.duration)} · ใช้เวลา ${Math.round((r.elapsedMs || 0) / 1000)} วินาที` }),
       player,
+      ...(r.review ? [el('div', { class: 've-warn', text: `การตรวจผลงาน: ${r.review}` })] : []),
+      ...(r.warning ? [el('div', { class: 've-warn', text: r.warning })] : []),
       el('div', { class: 'dim', text: 'ตัวอย่างนี้สร้างจากแถบเวลาและซับตอนกดปุ่ม — แก้ซับหรือตัดต่อเพิ่มแล้วกดสร้างใหม่ได้ (ไฟล์ต้นฉบับไม่ถูกแตะ)' }));
   }
 
@@ -559,9 +650,23 @@ export class VideoEditor {
     }
     words.sort((a, b) => a.start - b.start);
     const list = $('ve-transcript');
+    const need = this.snap.clips.some((c) => {
+      const s = this.snap.sources.find((x) => x.id === c.src);
+      return s && s.audio && !(s.analysis && s.analysis.transcript);
+    });
+    const subs = this.snap.subs;
+    $('ve-subs').disabled = !need || !!subs || !!this.progress.running || !!this.snap.cut;
+    $('ve-subs').textContent = subs ? (subs.stage === 'check' ? 'JARVIS กำลังตรวจคำ…' : 'กำลังถอดเสียง…') : 'สร้างซับ';
+    const last = this.snap.lastSubs;
+    if (last && last.at !== this._seenSubs) {
+      this._seenSubs = last.at;
+      if (last.error) this.notice(last.error, 'warn');
+      else if (last.missing && !last.total) this.notice('ถอดเสียงไม่สำเร็จ — ตรวจว่าติดตั้งตัวถอดเสียงแล้วในตั้งค่าเสียง', 'warn');
+      else this.notice(`สร้างซับแล้ว · JARVIS ตรวจคำและแก้ให้ ${last.changed} ประโยค (กด ↺ คืนค่าเดิมได้ แก้เองได้ทุกประโยค)`, 'info', null, 7000);
+    }
     $('ve-fix').disabled = !!this.snap.fix || !words.length;
-    $('ve-fix').textContent = this.snap.fix ? 'JARVIS กำลังตรวจคำ…' : '✨ ให้ JARVIS ตรวจคำ';
-    list.replaceChildren(...(words.length ? words.map((w) => this._transcriptLine(w)) : [el('li', { class: 'dim', text: this.progress.running ? 'กำลังถอดเสียงพูด…' : 'ยังไม่มีคำพูดที่ถอดได้' })]));
+    $('ve-fix').textContent = this.snap.fix ? 'JARVIS กำลังตรวจคำ…' : 'ตรวจคำ';
+    list.replaceChildren(...(words.length ? words.map((w) => this._transcriptLine(w)) : [el('li', { class: 'dim', text: this.progress.running ? 'กำลังถอดเสียงพูด…' : 'ยังไม่มีซับ — กดปุ่ม "สร้างซับ" ถ้าต้องการซับในวิดีโอ' })]));
   }
 
   _transcriptLine(w) {
@@ -575,15 +680,15 @@ export class VideoEditor {
       });
       return el('li', { class: 've-line-edit' }, input,
         el('div', { class: 've-actions' },
-          el('button', { class: 'btn small', type: 'button', text: 'บันทึก', onclick: () => this.finishCaptionEdit(true, input.value) }),
-          el('button', { class: 'btn small', type: 'button', text: 'ยกเลิก', onclick: () => this.finishCaptionEdit(false) })));
+          el('button', { class: 've-tb-btn', type: 'button', text: 'บันทึก', onclick: () => this.finishCaptionEdit(true, input.value) }),
+          el('button', { class: 've-tb-btn', type: 'button', text: 'ยกเลิก', onclick: () => this.finishCaptionEdit(false) })));
     }
     return el('li', { class: w.edited ? 've-line-row edited' : 've-line-row' },
       el('button', { class: 've-line', type: 'button', title: 'ไปที่ประโยคนี้', onclick: () => { this.pause(); this.seek(w.start); } },
         el('span', { class: 'mono dim', text: fmtTime(w.start) }), el('span', { text: w.text })),
       el('span', { class: 've-line-tools' },
         w.edited ? el('button', { class: 've-mini', type: 'button', title: `คืนค่าเดิม: ${w.orig}`, 'aria-label': 'คืนค่าเดิม', text: '↺', onclick: () => this.captionCall('video:caption-restore', { sourceId: w.srcId, i: w.i }) }) : null,
-        el('button', { class: 've-mini', type: 'button', title: 'แก้คำ', 'aria-label': 'แก้ข้อความซับ', text: '✎', onclick: () => this.startCaptionEdit(w.srcId, w.i) })));
+        el('button', { class: 've-mini', type: 'button', title: 'แก้คำ', 'aria-label': 'แก้ข้อความซับ', text: 'แก้', onclick: () => this.startCaptionEdit(w.srcId, w.i) })));
   }
 
   // ---------- editing (mouse, keys and voice all end up in edit()) ----------
@@ -694,7 +799,7 @@ export class VideoEditor {
       $('ve-fxout').value = c.fxOut || 'none';
     }
     const i = c ? this.snap.clips.findIndex((x) => x.id === c.id) : -1;
-    $('ve-sel-hint').textContent = c ? `${this.sel === c.id ? 'เลือก' : 'ใต้หัวอ่าน'}: ช่วงที่ ${i + 1}/${this.snap.clips.length}` : '';
+    $('ve-sel-hint').textContent = c ? `${this.sel === c.id ? 'เลือก' : 'ใต้หัวอ่าน'}: ช่วงที่ ${i + 1}/${this.snap.clips.length}` : 'เลือกคลิปบนแถบเวลาเพื่อแก้ค่า';
   }
 
   async undo() {
@@ -713,6 +818,16 @@ export class VideoEditor {
     }
   }
 
+  /** Left panel: one category at a time. */
+  showTab(name) {
+    for (const tab of document.querySelectorAll('#view-video .ve-tab')) {
+      const on = tab.dataset.tab === name;
+      tab.classList.toggle('on', on);
+      tab.setAttribute('aria-selected', String(on));
+    }
+    for (const pane of document.querySelectorAll('#view-video .ve-pane')) pane.hidden = pane.dataset.pane !== name;
+  }
+
   // ---------- wiring ----------
   _wire() {
     $('ve-import').onclick = (e) => e.isTrusted && this.choose();
@@ -720,12 +835,29 @@ export class VideoEditor {
     $('ve-clear').onclick = (e) => e.isTrusted && this.clear();
     $('ve-play').onclick = () => this.toggle();
     $('ve-start').onclick = () => this.seek(0);
+    $('ve-end').onclick = () => this.seek(this.snap.duration);
+    $('ve-prev').onclick = (e) => { this.pause(); this.seek(this.t - (e.shiftKey ? 1 : frameStep(this._fps()))); };
+    $('ve-next').onclick = (e) => { this.pause(); this.seek(this.t + (e.shiftKey ? 1 : frameStep(this._fps()))); };
+    for (const tab of document.querySelectorAll('#view-video .ve-tab')) tab.onclick = () => this.showTab(tab.dataset.tab);
     $('ve-zoom-in').onclick = () => this.zoom(1.5);
     $('ve-zoom-out').onclick = () => this.zoom(1 / 1.5);
     $('ve-zoom-fit').onclick = () => { this.autoFit = true; this.render(); };
     $('ve-ffmpeg-open').onclick = () => this.openSettings('video');
     $('ve-cut').onclick = (e) => e.isTrusted && this.startCut();
+    $('ve-prompt').onsubmit = (e) => {
+      e.preventDefault();
+      const t = $('ve-prompt-input').value.trim();
+      if (!t || !e.isTrusted) return;
+      $('ve-prompt-input').value = '';
+      this.revise(t);
+    };
+    $('ve-prompt-chat').onclick = () => this._openChat();
+    $('ve-run-chat').onclick = () => { this._runHidden = true; this._renderRun(); this._openChat(); };
     $('ve-fix').onclick = (e) => e.isTrusted && this.fixCaptions();
+    $('ve-subs').onclick = (e) => {
+      if (!e.isTrusted) return;
+      this.api.invoke('video:subtitles').catch((err) => this.notice(String(err.message || err).replace(/^.*Error: /, ''), 'warn'));
+    };
     $('ve-render').onclick = (e) => e.isTrusted && this.startRender();
     $('ve-export').onclick = (e) => e.isTrusted && this.startExport();
     $('ve-preset').onchange = () => this._renderExportNote();
@@ -736,9 +868,6 @@ export class VideoEditor {
     $('ve-sfx').onchange = (e) => this.setClipFx({ sfx: e.target.value });
     $('ve-fxout').onchange = (e) => this.setClipFx({ fxOut: e.target.value });
     $('ve-ov-kind').onchange = () => this._ovFields();
-    $('ve-emoji-add').onclick = (e) => e.isTrusted && this.addEmoji(false);
-    $('ve-emoji-auto').onclick = (e) => e.isTrusted && this.addEmoji(true);
-    $('ve-emoji-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.addEmoji(false); } else e.stopPropagation(); });
     $('ve-sfx-find').onclick = (e) => e.isTrusted && this.findSounds(false);
     $('ve-sfx-auto').onclick = (e) => e.isTrusted && this.findSounds(true);
     $('ve-sfx-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); this.findSounds(false); } else e.stopPropagation(); });
@@ -747,6 +876,9 @@ export class VideoEditor {
     $('ve-ov-cancel').onclick = () => this._ovReset();
     $('ve-fx-all').onclick = () => this.edit({ op: 'fx-all', fx: $('ve-fx').value, sfx: $('ve-sfx').value, fxOut: $('ve-fxout').value });
     $('ve-undo').onclick = () => this.undo();
+    $('ve-gfx-save').onclick = () => this.saveGraphic();
+    $('ve-gfx-close').onclick = () => { this.gfxSel = null; this._renderGraphic(); this._renderTimeline(); };
+    $('ve-gfx-del').onclick = () => { const id = this.gfxSel; this.gfxSel = null; if (id) this.edit({ op: 'overlay-remove', id }); };
     $('ve-redo').onclick = () => this.redo();
 
     // drops land here, not in the conversation's attachment handler
@@ -851,7 +983,10 @@ export class VideoEditor {
   }
 
   _report(r) {
-    if (r.added.length) this.notice(`นำเข้า ${r.added.length} คลิปแล้ว — JARVIS กำลังฟังและหาช่วงเงียบ`, 'info', null, 5000);
+    if (r.added.length) {
+      this.notice(`นำเข้า ${r.added.length} คลิปแล้ว — JARVIS กำลังฟังและหาช่วงเงียบ`, 'info', null, 5000);
+      this.openStart();
+    }
     if (r.rejected.length) this.notice('นำเข้าไม่ได้: ' + r.rejected.map((x) => (x.name ? `${x.name} (${x.reason})` : x.reason)).join(', '), 'warn');
   }
 
@@ -895,11 +1030,6 @@ export class VideoEditor {
     else if (!this.cutState || !this.cutState.running) this.cutState = s.lastCut ? { running: false, result: s.lastCut } : null;
     if (s.sfx) this.sfxState = { running: true, ...s.sfx };
     else if (!this.sfxState || !this.sfxState.running) this.sfxState = s.lastSfx ? { running: false, result: s.lastSfx } : null;
-    const imagesKey = JSON.stringify(s.images || []);
-    if (imagesKey !== this._imagesKey) {
-      this._imagesKey = imagesKey;
-      this._loadImages();
-    }
     const soundsKey = JSON.stringify(s.sounds || []);
     if (soundsKey !== this._soundsKey) {
       this._soundsKey = soundsKey;
@@ -1051,12 +1181,19 @@ export class VideoEditor {
     $('ve-clear').disabled = !has;
     $('ve-undo').disabled = !this.snap.canUndo;
     $('ve-redo').disabled = !this.snap.canRedo;
+    $('ve-export').disabled = !this.snap.clips.length;
+    const first = this.snap.sources[0];
+    $('ve-proj-name').textContent = first ? first.name.replace(/\.[^.]+$/, '') : 'ตัดต่อคลิป';
+    $('ve-proj-meta').textContent = has ? `${this.snap.sources.length} ไฟล์ · ${this.snap.clips.length} ช่วง · ${fmtTime(this.snap.duration || 0)}` : '';
     this._renderCut();
+    this._renderRun();
+    this._renderPrompt();
     this._renderRender();
+    this._renderFinal();
     this._renderExportNote();
     this._renderOverlays();
+    this._renderGraphic();
     this._renderSfx();
-    this._renderEmoji();
     this._buildCues();
     this._renderTools();
     if (!has) return;
@@ -1071,6 +1208,8 @@ export class VideoEditor {
     const first = this.snap.sources.find((s) => s.video && s.video.width && s.video.height);
     const ratio = first ? `${first.video.width} / ${first.video.height}` : '9 / 16';
     $('ve-preview').style.setProperty('--ve-ratio', ratio);
+    $('ve-preview').style.setProperty('--ve-ar', first ? String(first.video.width / first.video.height) : '0.5625');
+    $('ve-ratio').textContent = first ? `${first.video.width}×${first.video.height}` : '';
   }
 
   _renderSources() {
@@ -1092,20 +1231,20 @@ export class VideoEditor {
         el('div', { class: 've-job' },
           el('div', { class: 've-job-label' }, el('span', { text: `${job.label}…` }), el('span', { class: 'mono', text: `${pct}%` })),
           el('div', { class: 've-bar', role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, styled(el('div', { class: 've-bar-fill' }), `width:${pct}%`)),
-          el('button', { class: 'btn small', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:cancel') })));
+          el('button', { class: 've-tb-btn', type: 'button', text: 'ยกเลิก', onclick: () => this.api.invoke('video:cancel') })));
     } else if (s.analyzeError) {
       card.append(el('div', { class: 've-err', text: s.analyzeError }),
-        el('button', { class: 'btn small', type: 'button', text: 'วิเคราะห์ใหม่', onclick: () => this.api.invoke('video:analyze', s.id) }));
+        el('button', { class: 've-tb-btn', type: 'button', text: 'วิเคราะห์ใหม่', onclick: () => this.api.invoke('video:analyze', s.id) }));
     } else if (s.analysis) {
       const m = s.analysis.summary;
-      const lines = s.analysis.transcript ? `ถอดเสียง ${m.segments} ประโยค` : 'ยังไม่ได้ถอดเสียง';
+      const lines = s.analysis.transcript ? `ถอดเสียง ${m.segments} ประโยค` : 'ยังไม่มีซับ (กดปุ่ม สร้างซับ)';
       card.append(el('div', { class: 've-sum' }, `พูด ${fmtTime(m.speechSec)} · เงียบ ${fmtTime(m.silenceSec)} (${m.silences} ช่วง) · ${lines}`));
       for (const w of s.analysis.warnings || []) {
         card.append(el('div', { class: 've-warn', text: w.message }));
         if (w.code === 'NO_WHISPER' || w.code === 'NO_MODEL') {
           card.append(el('div', { class: 've-actions' },
-            el('button', { class: 'btn small', type: 'button', text: 'ไปติดตั้งตัวถอดเสียง', onclick: () => this.openSettings('voice') }),
-            el('button', { class: 'btn small', type: 'button', text: 'วิเคราะห์ใหม่', onclick: () => this.api.invoke('video:analyze', s.id) })));
+            el('button', { class: 've-tb-btn', type: 'button', text: 'ไปติดตั้งตัวถอดเสียง', onclick: () => this.openSettings('voice') }),
+            el('button', { class: 've-tb-btn', type: 'button', text: 'วิเคราะห์ใหม่', onclick: () => this.api.invoke('video:analyze', s.id) })));
         }
       }
     } else if (this.progress.running) {
@@ -1133,9 +1272,9 @@ export class VideoEditor {
         el('span', { class: 've-grip ve-grip-l', 'data-edge': 'in' }),
         el('span', { class: 've-clip-name', text: src ? src.name : r.clip.src }),
         r.clip.speed !== 1 ? el('span', { class: 've-clip-speed mono', text: `${r.clip.speed}×` }) : null,
-        r.clip.fx && r.clip.fx !== 'none' ? el('span', { class: 've-clip-fx', title: `เอฟเฟกต์ตอนเข้า: ${(this.fxLabels || {})[r.clip.fx] || r.clip.fx}`, text: '✨' }) : null,
-        r.clip.fxOut && r.clip.fxOut !== 'none' ? el('span', { class: 've-clip-fx', title: `เอฟเฟกต์ตอนออก: ${(this.fxOutLabels || {})[r.clip.fxOut] || r.clip.fxOut}`, text: '🌗' }) : null,
-        r.clip.sfx && r.clip.sfx !== 'none' ? el('span', { class: 've-clip-fx', title: `เสียง: ${(this.sfxLabels || {})[r.clip.sfx] || r.clip.sfx}`, text: '🔊' }) : null,
+        r.clip.fx && r.clip.fx !== 'none' ? el('span', { class: 've-clip-fx', title: `เอฟเฟกต์ตอนเข้า: ${(this.fxLabels || {})[r.clip.fx] || r.clip.fx}`, text: 'IN' }) : null,
+        r.clip.fxOut && r.clip.fxOut !== 'none' ? el('span', { class: 've-clip-fx', title: `เอฟเฟกต์ตอนออก: ${(this.fxOutLabels || {})[r.clip.fxOut] || r.clip.fxOut}`, text: 'OUT' }) : null,
+        r.clip.sfx && r.clip.sfx !== 'none' ? el('span', { class: 've-clip-fx', title: `เสียง: ${(this.sfxLabels || {})[r.clip.sfx] || r.clip.sfx}`, text: 'SFX' }) : null,
         el('span', { class: 've-grip ve-grip-r', 'data-edge': 'out' }));
       b.style.cssText = `left:${px(r.start)};width:${px(r.end - r.start)}`;
       b.addEventListener('pointerdown', (e) => this._clipDown(e, r, b, src));
@@ -1170,9 +1309,10 @@ export class VideoEditor {
       return b;
     }));
     $('ve-lane-anim').replaceChildren(...(this.snap.overlays || []).filter((o) => o.start < duration).map((o) => {
-      const b = el('div', { class: o.id === this.ovEditing ? 've-anim on' : 've-anim', title: `${OV_NAMES[o.kind] || o.kind}: ${o.text} — กดเพื่อแก้` }, el('span', { text: o.text || OV_NAMES[o.kind] }));
+      const on = o.id === this.ovEditing || o.id === this.gfxSel;
+      const b = el('div', { class: `ve-anim${o.kind === 'hf' ? ' hf' : ''}${on ? ' on' : ''}`, title: `${OV_NAMES[o.kind] || o.kind}: ${o.text} — กดเพื่อแก้` }, el('span', { text: o.text || OV_NAMES[o.kind] }));
       b.style.cssText = `left:${px(o.start)};width:${px(Math.min(o.end, duration) - o.start)}`;
-      b.addEventListener('click', () => { this.loadOverlay(o); this.pause(); this.seek(o.start); });
+      b.addEventListener('click', () => { if (o.kind === 'hf') this.selectGraphic(o); else this.loadOverlay(o); this.pause(); this.seek(o.start); });
       return b;
     }));
     for (const [k, label] of Object.entries(LANE_LABELS)) $(`ve-label-${k}`).textContent = label;
@@ -1303,7 +1443,7 @@ export class VideoEditor {
   /** The live look of effects, animations and subtitles at the playhead (see ui/video-preview.js). */
   _paintFx() {
     if (!this.snap.clips.length) return this.fx.clear();
-    this.fx.build(this.snap.overlays || [], $('ve-cap-style').value, this.stickers || {}, Object.fromEntries((this.images || []).filter((x) => x.url).map((x) => [x.id, x.url])));
+    this.fx.build(this.snap.overlays || [], $('ve-cap-style').value, canvasFor(this.snap.sources));
     this.fx.paint(this.t, { rows: layout(this.snap.clips), captions: this.snap.captions || [] });
   }
 

@@ -211,11 +211,48 @@ test('cut: JARVIS plan replaces the timeline in one undoable step', async () => 
   assert.strictEqual(snap.cut, null);
   assert.strictEqual(snap.lastCut.ok, true);
   const stages = events.filter(([ch, p]) => ch === 'video:cut' && p.running).map(([, p]) => p.stage);
-  assert.deepStrictEqual([...new Set(stages)], ['wait', 'prepare', 'think', 'apply']);
-  assert.deepStrictEqual(snap.clips.map((c) => [c.fx, c.sfx, c.fxOut]), [['fade', 'none', 'none'], ['zoom', 'whoosh', 'fade']], 'effects and sounds are chosen without the user');
-  assert.match(done.result.done[0], /เอฟเฟกต์/);
+  assert.deepStrictEqual([...new Set(stages)], ['wait', 'prepare', 'think', 'apply', 'graphics']);
+  assert.deepStrictEqual(snap.clips.map((c) => [c.fx, c.sfx, c.fxOut]), [[undefined, undefined, undefined], [undefined, undefined, undefined]], 'plain cuts: no effect is added without a reason');
+  assert.match(done.result.done[0], /ตัดเป็น 2 ช่วง/);
   svc.history.undo();
   assert.deepStrictEqual(svc.snapshot().clips.map((c) => [c.in, c.out]), [[0, 10]]);
+});
+
+test('cut: HyperFrames designs graphics after the cut; one undo removes all; the preview render starts', async () => {
+  const graphic = {
+    name: 'หัวข้อ', start: 0.5, end: 2.5,
+    markup: '<div class="t">{{title}}</div>', css: '.t{position:absolute;top:20%;left:6%;font-size:80px;color:#fff}',
+    vars: [{ id: 'title', label: 'หัวข้อ', type: 'text', value: 'อย่างแรก' }],
+    tweens: [{ sel: '.t', at: 0, dur: 0.4, from: { y: 40, opacity: 0 }, to: { y: 0, opacity: 1 } }],
+  };
+  const bad = { ...graphic, name: 'แอบรันโค้ด', markup: '<img src=x onerror=alert(1)>' };
+  const fixedOne = { ...graphic, name: 'แก้แล้ว', start: 3, end: 5, markup: '<div class="t">{{title}}</div>' };
+  const ask = async (o) => {
+    if (/ไม่ผ่านการตรวจของแอป/.test(o.prompt)) return JSON.stringify({ graphics: [fixedOne] }); // the repair round
+    if (/HyperFrames/.test(o.prompt)) return JSON.stringify({ graphics: [graphic, bad] });
+    return '{"clips":[{"piece":"p1"},{"piece":"p2"}],"summary":"ตามลำดับ"}';
+  };
+  const { svc, events, asked } = cutService({ ask });
+  const prepared = [];
+  svc.hf = { prepare(id, spec) { prepared.push(spec); return tmp(); }, async render(dir, o) { fs.writeFileSync(o.out, 'mp4'); return o.out; } };
+  await svc.importFiles([file('a.mp4')]);
+  svc.startCut({ styleId: 'viral', captionStyle: 'pop' });
+  const done = await cutDone(events);
+  assert.strictEqual(done.result.ok, true, done.result.error);
+  assert.match(asked[1].prompt, /สกิลการตัดต่อ: ไวรัล/);
+  assert.match(asked[1].prompt, /"สวัสดีครับ"/);
+  assert.match(asked[2].prompt, /แอบรันโค้ด/, 'the one that failed went back to be fixed');
+  assert.match(done.result.done.join(' '), /HyperFrames ออกแบบกราฟิก 2 ชิ้น/);
+  assert.doesNotMatch(done.result.warnings.join(' '), /ข้ามกราฟิก/, 'nothing skipped after the fix');
+  const ov = svc.snapshot().overlays;
+  assert.deepStrictEqual(ov.map((o) => [o.kind, o.name, o.start]), [['hf', 'หัวข้อ', 0.5], ['hf', 'แก้แล้ว', 3]]);
+  await new Promise((r) => { const t = setInterval(() => { const l = events.filter(([c]) => c === 'video:render').pop(); if (l && !l[1].running) { clearInterval(t); r(); } }, 5); });
+  assert.strictEqual(prepared.length, 1, 'the HyperFrames preview is rendered right after');
+  assert.match(prepared[0].html, /id="g-0" class="clip hfg"/);
+  assert.match(prepared[0].html, /<div class="t">อย่างแรก<\/div>/);
+  svc.history.undo();
+  const back = svc.snapshot();
+  assert.deepStrictEqual([back.clips.length, back.overlays.length], [1, 0], 'one undo: before the whole edit');
 });
 
 test('cut: when JARVIS cannot answer, a basic cut is made and said so', async () => {
@@ -251,7 +288,7 @@ test('cut: refuses with nothing to cut or an unknown style', async () => {
   const { svc } = cutService({ ask: async () => '' });
   assert.throws(() => svc.startCut({ styleId: 'viral' }), /ยังไม่มีคลิป/);
   await svc.importFiles([file('a.mp4')]);
-  assert.throws(() => svc.startCut({ styleId: 'nope' }), /ไม่พบแนว/);
+  assert.throws(() => svc.startCut({ styleId: 'nope' }), /ไม่พบสกิล/);
 });
 
 test('edit: split, trim, speed, move, remove through the service; undo each', async () => {
