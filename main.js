@@ -652,7 +652,7 @@ function registerIpc() {
     v.oneOf(p.decision, ['once', 'always', 'deny', 'deny-reason'], 'decision');
     v.str(p.reason ?? '', 1000, 'reason');
     const projectId = v.projectId(p.projectId ?? 'main');
-    return projects.respondApproval(projectId, { id: p.id, decision: p.decision, reason: p.reason });
+    return projects.respondApproval(projectId, { id: p.id, decision: p.decision, reason: p.reason, answers: answersArg(p.answers) });
   });
 
   // ---- background projects: one core + one task per folder ----
@@ -957,7 +957,7 @@ function registerIpc() {
     v.oneOf(p.decision, ['once', 'always', 'deny', 'deny-reason'], 'decision');
     v.str(p.reason ?? '', 1000, 'reason');
     const projectId = v.projectId(p.projectId ?? 'main');
-    return projects.respondApproval(projectId, { id: p.id, decision: p.decision, reason: p.reason });
+    return projects.respondApproval(projectId, { id: p.id, decision: p.decision, reason: p.reason, answers: answersArg(p.answers) });
   });
   handleOrb('orb:panel', (p) => {
     if (p === null) return orb.setPanel(null);
@@ -1226,6 +1226,16 @@ const APPROVAL_DIFF_MAX = 400;
 const APPROVAL_TEXT_MAX = 20000;
 const mainHidden = () => !win || win.isDestroyed() || win.isMinimized() || !win.isVisible();
 
+/** Choices sent back for a question popup: [{picked: [label], text}] or undefined. Content is checked again in the core. */
+function answersArg(x) {
+  if (x === undefined) return undefined;
+  if (!Array.isArray(x) || x.length > 4) throw new Error('IPC input ไม่ถูกต้อง: answers');
+  return x.map((a, i) => {
+    v.obj(a, `answers[${i}]`);
+    return { picked: v.strArray(a.picked ?? [], 8, 200, `answers[${i}].picked`), text: v.str(a.text ?? '', 1000, `answers[${i}].text`) };
+  });
+}
+
 function approvalPayload(r, queue) {
   const input = r.input || {};
   // long strings are cut while serializing, so a multi-MB Write doesn't stall the main process
@@ -1246,6 +1256,7 @@ function approvalPayload(r, queue) {
     projectName: String(r.projectName || ''),
     tool: String(r.tool || ''),
     summary: String(r.summary || ''),
+    questions: Array.isArray(r.questions) ? r.questions : null, // AskUserQuestion: shown as check boxes / round buttons
     reason: r.reason || '',
     rule: r.rule || '',
     timeoutSec: r.timeoutSec,
@@ -1258,7 +1269,7 @@ function approvalPayload(r, queue) {
     // the raw input is only repeated when the diff doesn't already say it all
     plan: plan.slice(0, APPROVAL_TEXT_MAX),
     planCut: plan.length > APPROVAL_TEXT_MAX,
-    detail: plan || (hasDiff && kind === 'input') ? '' : raw.slice(0, APPROVAL_TEXT_MAX),
+    detail: plan || (hasDiff && kind === 'input') || Array.isArray(r.questions) ? '' : raw.slice(0, APPROVAL_TEXT_MAX),
     detailKind: kind,
     detailCut: raw.length > APPROVAL_TEXT_MAX,
     diff: diff.slice(0, APPROVAL_DIFF_MAX).map((d) => ({ op: d.op, line: String(d.line ?? '').slice(0, 500) })),

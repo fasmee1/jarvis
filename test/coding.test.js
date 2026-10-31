@@ -116,7 +116,8 @@ test('planning mode: interview prompt sent once, off message sent once, new sess
   core.send({ text: 'อยากทำแอปจองคิวร้านตัดผม' });
   core.send({ text: 'ลูกค้าคือเจ้าของร้านเล็ก ๆ' });
   assert.match(sent[0], /^\[JARVIS: เปิดโหมดวางแผนพัฒนาระบบ/);
-  assert.match(sent[0], /เร็ว.*ละเอียด/s);
+  assert.match(sent[0], /ไม่มีแบบย่อ/); // the interview is always the full one
+  assert.match(sent[0], /ห้ามเริ่มสร้างระบบ/);
   assert.strictEqual(sent[1], 'ลูกค้าคือเจ้าของร้านเล็ก ๆ');
 
   core.newSession(true);

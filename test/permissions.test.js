@@ -87,6 +87,25 @@ test('broker denies automatically after the timeout', async () => {
   }
 });
 
+test('a question to the user never times out, but other requests still do', async () => {
+  const why = [];
+  // the answer comes 0.9 s later, three times the broker timeout
+  const broker = new PermissionBroker({ timeoutSec: 0.3, onRequest: (req) => new Promise((r) => setTimeout(() => r({ behavior: 'allow', updatedInput: req.input }), 900)) });
+  broker.onSettled = (_r, _d, w) => why.push(w);
+  await broker.start();
+  try {
+    const env = { JARVIS_PIPE: broker.pipe, JARVIS_TOKEN: broker.token };
+    const q = await mcpCall(env, [callApprove(1, 'AskUserQuestion', { questions: [{ question: 'a', options: [{ label: 'x' }] }] })]);
+    assert.strictEqual(JSON.parse(q[0].result.content[0].text).behavior, 'allow');
+    assert.deepStrictEqual(why, []); // nothing timed out
+    const w = await mcpCall(env, [callApprove(2, 'Write', { file_path: 'a' })]);
+    assert.strictEqual(JSON.parse(w[0].result.content[0].text).behavior, 'deny'); // 0.3 s timeout wins over the 0.9 s answer
+    assert.deepStrictEqual(why, ['timeout']);
+  } finally {
+    broker.stop();
+  }
+});
+
 test('MCP server denies when the app pipe is unreachable', async () => {
   const out = await mcpCall({ JARVIS_PIPE: process.platform === 'win32' ? '\\\\.\\pipe\\jarvis-nope-xyz' : '/tmp/nope.sock', JARVIS_TOKEN: 't' }, [callApprove(1, 'Bash', { command: 'x' })]);
   assert.strictEqual(JSON.parse(out[0].result.content[0].text).behavior, 'deny');

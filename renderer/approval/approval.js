@@ -1,21 +1,32 @@
 // Permission popup page. Shows the oldest open request in full (sent by main) and
 // sends the answer back. Only genuine clicks count — no keyboard shortcuts, no synthetic events.
 
+import { buildQuestionForm } from './question-form.js';
+
 const api = window.approval;
 const $ = (id) => document.getElementById(id);
 
 let req = null;
 let timer = null;
 let armTimer = null;
+let armed = false;
+let form = null; // the check-box form of a question (or null)
 const ARM_MS = 700; // a popup appears under the cursor: a stray click must not approve a request nobody read
+
+/** "ส่งคำตอบ" needs the popup armed and every question answered. */
+function syncAnswer() {
+  $('send-answer').disabled = !armed || !(form && form.complete());
+}
 
 /** Allow buttons stay disabled for a moment after a new request appears. */
 function arm() {
   clearTimeout(armTimer);
+  armed = false;
   $('allow').disabled = true;
   $('always').disabled = true;
   $('safe').disabled = true;
-  armTimer = setTimeout(() => { $('allow').disabled = false; $('always').disabled = false; $('safe').disabled = false; }, ARM_MS);
+  syncAnswer();
+  armTimer = setTimeout(() => { armed = true; $('allow').disabled = false; $('always').disabled = false; $('safe').disabled = false; syncAnswer(); }, ARM_MS);
 }
 
 /** Picks the accent and icon: edit, shell, read, web or other. */
@@ -38,12 +49,24 @@ function render(r) {
   clearInterval(timer);
   $('ap').hidden = !r;
   if (!r) return;
-  if (isNew) arm();
+  // a question from JARVIS: check boxes to choose from, sent with "ส่งคำตอบ"
+  const asking = !!r.questions;
+  if (isNew) {
+    form = asking ? buildQuestionForm(r.questions, syncAnswer) : null;
+    $('question').replaceChildren(...(form ? [form.el] : []));
+    arm();
+  }
+  $('question').hidden = !asking;
+  $('send-answer').hidden = !asking;
+  $('allow').hidden = asking;
+  $('deny-why').hidden = asking;
+  $('title-k').textContent = asking ? 'JARVIS ขอถามคุณ' : 'ขออนุญาตใช้เครื่องมือ';
+  $('tool').hidden = asking;
 
-  $('ap').dataset.kind = toolKind(r.tool);
+  $('ap').dataset.kind = asking ? 'read' : toolKind(r.tool);
   $('tool').textContent = r.tool;
   show('queue', r.queue > 0 ? `+${r.queue} รออยู่` : '');
-  $('summary').textContent = r.summary;
+  $('summary').textContent = asking ? '' : r.summary;
   show('reason', r.reason ? `ตัวกันพลาด: ${r.reason}` : '');
 
   // the file, when the request has one (Edit / Write / Read / NotebookEdit): folder dimmed, name bold
@@ -64,7 +87,7 @@ function render(r) {
   }
   // a plan is approved to start the work, or sent back with notes (it has no "always")
   $('allow').textContent = r.plan ? 'อนุมัติแผน — เริ่มลงมือ' : 'อนุญาต';
-  $('deny').textContent = r.plan ? 'ไม่อนุมัติ' : 'ปฏิเสธ';
+  $('deny').textContent = asking ? 'ข้ามคำถามนี้' : r.plan ? 'ไม่อนุมัติ' : 'ปฏิเสธ';
   $('deny-why').textContent = r.plan ? 'ขอแก้แผน…' : 'ปฏิเสธพร้อมเหตุผล…';
   $('deny-reason').placeholder = r.plan ? 'บอกว่าอยากให้แก้แผนตรงไหน (Claude จะเห็นข้อความนี้และเสนอแผนใหม่)' : 'บอกเหตุผลที่ปฏิเสธ (Claude จะเห็นข้อความนี้)';
   $('deny-send').textContent = r.plan ? 'ส่งข้อแก้และขอแผนใหม่' : 'ส่งเหตุผลและปฏิเสธ';
@@ -98,6 +121,10 @@ function render(r) {
   $('deny-wrap').hidden = true;
   $('deny-reason').value = '';
 
+  // a question waits for the user: no countdown, no auto-deny
+  document.querySelector('.timer-row').hidden = asking; // no clock and no bar for a question
+  document.querySelector('.body').scrollTo(0, 0);
+  if (!r.timeoutSec) return;
   const end = r.createdAt + r.timeoutSec * 1000;
   const total = r.timeoutSec * 1000;
   const tick = () => {
@@ -114,9 +141,15 @@ function answer(decision, ev) {
   if (!ev || !ev.isTrusted || !req) return;
   if ((decision === 'once' || decision === 'always') && $('allow').disabled) return;
   const reason = decision === 'deny-reason' ? $('deny-reason').value.trim() : '';
-  api.invoke('approval-win:respond', { id: req.id, projectId: req.projectId || 'main', decision, reason }).catch(() => {});
+  const msg = { id: req.id, projectId: req.projectId || 'main', decision, reason };
+  if (req.questions && decision === 'once') {
+    if (!armed || !form || !form.complete()) return;
+    msg.answers = form.answers();
+  }
+  api.invoke('approval-win:respond', msg).catch(() => {});
 }
 
+$('send-answer').onclick = (e) => answer('once', e);
 $('allow').onclick = (e) => answer('once', e);
 $('always').onclick = (e) => answer('always', e);
 $('deny').onclick = (e) => answer('deny', e);

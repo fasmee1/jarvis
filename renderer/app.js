@@ -2,6 +2,7 @@
 // (a fixed allow-list of IPC channels). It never runs commands itself.
 
 import { Home } from './ui/home.js';
+import { buildQuestionForm } from './approval/question-form.js';
 import { Sections } from './ui/sections.js';
 import { runBoot, bootPrefs } from './ui/boot.js';
 import { CameraPanel } from './ui/camera-panel.js';
@@ -101,7 +102,8 @@ function updateTaskStatus() {
   taskStatus.update({
     running: !!phase,
     command: S.lastUserText || '',
-    phase: S.coreState === 'TOOL_RUNNING' && S.toolName ? toolPhase(S.toolName, S.toolInput) : phase,
+    phase: S.coreState === 'TOOL_RUNNING' && S.toolName ? toolPhase(S.toolName, S.toolInput)
+      : S.coreState === 'AWAITING_APPROVAL' && S.approvals[0] && S.approvals[0].questions ? 'รอคุณตอบคำถาม' : phase,
     attention: S.coreState === 'AWAITING_APPROVAL',
     step: S.stepInfo,
   });
@@ -760,11 +762,12 @@ function onApprovalRequest(req) {
     else $('ap-queue').textContent = `มีคำขอรออีก ${S.approvals.length - 1} รายการ`;
     return;
   }
+  const asking = !!req.questions;
   const row = el('div', { class: 'cv-perm', role: 'status' },
-    el('span', { class: 'cv-perm-k', text: 'ขออนุญาต' }),
-    el('span', { class: 'mono cv-perm-t', text: req.tool }),
+    el('span', { class: 'cv-perm-k', text: asking ? 'ถามคุณ' : 'ขออนุญาต' }),
+    el('span', { class: 'mono cv-perm-t', text: asking ? '' : req.tool }),
     el('span', { class: 'cv-perm-s', text: req.summary || '' }),
-    el('span', { class: 'cv-perm-st', text: 'รอคุณกดอนุญาตบนจอ' }));
+    el('span', { class: 'cv-perm-st', text: asking ? 'รอคุณเลือกคำตอบบนจอ' : 'รอคุณกดอนุญาตบนจอ' }));
   ensureAssistant().append(row);
   curText = null;
   approvalRows.set(req.id, row);
@@ -777,12 +780,52 @@ function onApprovalRequest(req) {
 }
 
 let apTimer = null;
+let apForm = null; // the form of the question on screen (or null)
+let apDockId = null; // id of the question the dock is showing
+
+/** The question panel sits above the chat's message box when the chat is open, else at the bottom of the screen. */
+function placeDock() {
+  const dock = $('ap-dock');
+  const foot = $('cv').querySelector('.cv-foot');
+  const inChat = !!foot && typeof talk !== 'undefined' && talk && talk.isFront;
+  dock.classList.toggle('in-chat', inChat);
+  if (inChat) foot.prepend(dock);
+  else if (dock.parentElement !== document.body) document.body.append(dock);
+}
+
+function showQuestionDock(req) {
+  const dock = $('ap-dock');
+  if (apDockId !== req.id) { // a new question: build the form once (re-showing must not lose what was ticked)
+    apDockId = req.id;
+    const form = buildQuestionForm(req.questions, () => { $('ap-dock-send').disabled = !form.complete(); });
+    apForm = form;
+    $('ap-dock-body').replaceChildren(form.el);
+    $('ap-dock-send').disabled = !form.complete();
+  }
+  dock.hidden = false;
+  placeDock();
+}
+
+function hideQuestionDock() {
+  apDockId = null;
+  apForm = null;
+  $('ap-dock').hidden = true;
+  $('ap-dock-body').replaceChildren();
+}
+
 function showApproval() {
   const req = S.approvals[0];
   const box = $('approval');
+  clearInterval(apTimer);
+  // a question from JARVIS: a panel above the message box, so the screen behind (a diagram, the plan) stays visible
+  if (req && req.questions) {
+    box.hidden = true;
+    showQuestionDock(req);
+    return;
+  }
+  hideQuestionDock();
   if (!req) {
     box.hidden = true;
-    clearInterval(apTimer);
     return;
   }
   box.hidden = false;
@@ -811,7 +854,6 @@ function showApproval() {
   $('ap-queue').textContent = S.approvals.length > 1 ? `มีคำขอรออีก ${S.approvals.length - 1} รายการ` : '';
   $('ap-deny-reason-wrap').hidden = true;
   $('ap-deny-reason').value = '';
-  clearInterval(apTimer);
   const end = req.createdAt + req.timeoutSec * 1000;
   const tick = () => { $('ap-timer').textContent = `ปฏิเสธอัตโนมัติใน ${Math.max(0, Math.ceil((end - Date.now()) / 1000))} วิ`; };
   tick();
@@ -824,7 +866,12 @@ async function answerApproval(decision, ev) {
   const req = S.approvals[0];
   if (!req) return;
   const reason = decision === 'deny-reason' ? $('ap-deny-reason').value.trim() : '';
-  await api.invoke('approval:respond', { id: req.id, projectId: req.projectId || 'main', decision, reason });
+  const msg = { id: req.id, projectId: req.projectId || 'main', decision, reason };
+  if (req.questions && decision === 'once') {
+    if (!apForm || !apForm.complete()) return;
+    msg.answers = apForm.answers();
+  }
+  await api.invoke('approval:respond', msg);
 }
 
 function onApprovalClose({ id }) {
@@ -1354,9 +1401,11 @@ const slashMenu = new SlashMenu({
 talk = new ConversationPopup({
   viewer,
   home,
-  canKey: () => home.visible && !home.booting && !sections.current && ['menu', 'approval', 'barge', 'hf-consent'].every((id) => $(id).hidden),
+  canKey: () => home.visible && !home.booting && !sections.current && ['menu', 'approval', 'ap-dock', 'barge', 'hf-consent'].every((id) => $(id).hidden),
   onOpenInteractive: () => openInteractive(),
   onEscape: () => historyPanel.escape(),
+  onOpen: () => placeDock(), // a question panel moves above the message box when the chat opens, and back when it closes
+  onClose: () => placeDock(),
 });
 
 const usagePanel = new UsagePanel({
@@ -1386,7 +1435,7 @@ const projectsPanel = new ProjectsPanel({
   el,
   notice: (text, level) => notice(text, level || 'info', null, 7000),
   viewer,
-  canKey: () => home.visible && !home.booting && !sections.current && ['menu', 'approval', 'barge', 'hf-consent'].every((id) => $(id).hidden),
+  canKey: () => home.visible && !home.booting && !sections.current && ['menu', 'approval', 'ap-dock', 'barge', 'hf-consent'].every((id) => $(id).hidden),
   isHomeVisible: () => home.visible && !sections.current,
   onPromoted: (messages, title) => showResumed(messages, title),
 });
@@ -2607,6 +2656,8 @@ function wireDom() {
   };
   $('display-tabs').onclick = (e) => { if (e.target.dataset.tab) selectTab(e.target.dataset.tab); };
   $('ap-once').onclick = (e) => answerApproval('once', e);
+  $('ap-dock-send').onclick = (e) => answerApproval('once', e);
+  $('ap-dock-skip').onclick = (e) => answerApproval('deny', e);
   $('ap-always').onclick = (e) => answerApproval('always', e);
   $('ap-deny').onclick = (e) => answerApproval('deny', e);
   $('ap-safe').onclick = async (e) => {

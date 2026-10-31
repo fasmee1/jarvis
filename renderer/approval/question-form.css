@@ -1,0 +1,57 @@
+/* Question panel: soft tiles, no outlines. The form (".qf") and the panel in the HUD (".ap-dock") are shared by the HUD
+   and the desktop popup; colors fall back to the HUD palette. */
+.qf { display: flex; flex-direction: column; gap: 14px; }
+.qf-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.qf-tab {
+  font: inherit; font-size: 12.5px; padding: 5px 14px; border-radius: 999px; border: 0; cursor: pointer;
+  color: var(--text-2, #8B98A5); background: rgba(255, 255, 255, 0.06); transition: background 0.15s, color 0.15s;
+}
+.qf-tab:hover { background: rgba(255, 255, 255, 0.1); }
+.qf-tab.on { color: var(--text-1, #E6EDF3); background: rgba(91, 225, 240, 0.18); }
+.qf-tab.done::after { content: ' ✓'; color: var(--accent, #5BE1F0); }
+.qf-q { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.qf-text { padding: 0; font-size: 16px; font-weight: 600; line-height: 1.55; color: var(--text-1, #E6EDF3); margin-bottom: 4px; }
+.qf-hint { font-size: 12px; color: var(--text-3, #7A8590); margin-top: -4px; margin-bottom: 2px; }
+.qf-opt {
+  display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-radius: 14px; border: 0; cursor: pointer;
+  background: rgba(255, 255, 255, 0.045); transition: background 0.15s;
+}
+.qf-opt:hover { background: rgba(255, 255, 255, 0.08); }
+.qf-opt:has(input:checked) { background: rgba(91, 225, 240, 0.14); }
+.qf-opt:has(input:focus-visible) { box-shadow: 0 0 0 2px rgba(91, 225, 240, 0.55); }
+.qf-opt input[type="checkbox"],
+.qf-opt input[type="radio"] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent, #5BE1F0); flex: none; cursor: pointer; }
+.qf-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.qf-label { color: var(--text-1, #E6EDF3); line-height: 1.5; }
+.qf-pill {
+  display: inline-block; margin-left: 8px; padding: 1px 9px; border-radius: 999px; vertical-align: 1px;
+  font-size: 11px; font-weight: 600; color: var(--accent, #5BE1F0); background: rgba(91, 225, 240, 0.16);
+}
+.qf-desc { font-size: 12.5px; line-height: 1.5; color: var(--text-2, #8B98A5); }
+.qf-other { cursor: text; background: rgba(255, 255, 255, 0.03); }
+.qf-other:focus-within { background: rgba(255, 255, 255, 0.07); }
+.qf-other input[type="text"] {
+  flex: 1; min-width: 0; padding: 2px 0; font: inherit; color: var(--text-1, #E6EDF3);
+  background: transparent; border: 0; outline: none;
+}
+.qf-other input[type="text"]::placeholder { color: var(--text-3, #7A8590); }
+
+/* The panel in the HUD: floats at the bottom of the screen with no backdrop, or sits above the chat's message box. */
+.ap-dock {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90;
+  width: min(720px, calc(100vw - 48px)); max-height: 60vh; overflow-y: auto; padding: 20px 20px 16px;
+  background: #121A25; border: 0; border-radius: 22px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.4);
+  scrollbar-width: thin;
+}
+.ap-dock[hidden] { display: none; }
+.ap-dock.in-chat { position: static; transform: none; width: auto; max-height: 46vh; margin-bottom: 6px; border-radius: 18px; box-shadow: none; background: rgba(255, 255, 255, 0.04); }
+.ap-dock-head { margin-bottom: 12px; }
+.ap-dock-title { font-size: 12.5px; letter-spacing: 0.04em; color: var(--text-3, #7A8590); }
+.ap-dock-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin-top: 16px; }
+.ap-dock-actions .btn { border: 0; border-radius: 12px; padding: 10px 22px; font-size: 14px; cursor: pointer; transition: background 0.15s, opacity 0.15s; }
+.ap-dock-actions .btn.ghost { background: transparent; color: var(--text-2, #8B98A5); }
+.ap-dock-actions .btn.ghost:hover { background: rgba(255, 255, 255, 0.07); color: var(--text-1, #E6EDF3); }
+.ap-dock-actions .btn.primary { background: var(--accent, #5BE1F0); color: #04222B; font-weight: 600; }
+.ap-dock-actions .btn.primary:hover { background: #7BEAF6; }
+.ap-dock-actions .btn[disabled] { opacity: 0.4; cursor: not-allowed; }

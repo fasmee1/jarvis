@@ -21,12 +21,25 @@ settings.update({ model: 'haiku', approvalTimeoutSec: 60, autoApproveSafe: false
 const events = [];
 let resolveTurn = null;
 const seenTools = [];
+const picked = [];
+let popups = 0; // question popups in the current turn; after 3 they are skipped so the try stays short
 const ui = (ch, p) => {
   events.push([ch, p]);
   if (ch === 'approval:request') {
     seenTools.push(p.tool);
-    // every approval is refused (this try must not touch files); the tool names are only recorded
-    setTimeout(() => core.respondApproval({ id: p.id, decision: 'deny' }), 50);
+    if (p.questions && ++popups <= 3) {
+      // a question popup: tick the first option that is not the recommended one, so the answer is recognisable
+      const answers = p.questions.map((q) => {
+        const other = q.options.find((o) => !/แนะนำ|recommended/i.test(o.label)) || q.options[0];
+        picked.push(other.label);
+        return { picked: [other.label], text: '' };
+      });
+      console.log('  [popup]', p.questions.map((q) => q.question).join(' / '), '→', answers.map((a) => a.picked[0]).join(', '));
+      setTimeout(() => core.respondApproval({ id: p.id, decision: 'once', answers }), 50);
+    } else {
+      // every other approval is refused (this try must not touch files); the tool names are only recorded
+      setTimeout(() => core.respondApproval({ id: p.id, decision: 'deny' }), 50);
+    }
   }
   if (ch === 'turn:result' && resolveTurn) resolveTurn(p);
   if (ch === 'error') console.log('  [error]', p.code, p.message);
@@ -36,6 +49,8 @@ const core = new JarvisCore({ settings, tempDir: path.join(work, 'tmp'), ui, app
 function turn(text) {
   events.length = 0;
   seenTools.length = 0;
+  picked.length = 0;
+  popups = 0;
   return new Promise((resolve) => {
     resolveTurn = resolve;
     core.send({ text, t0: Date.now() });
@@ -64,8 +79,13 @@ const SCOPE = `สรุปขอบเขตที่คุยกันแล�
   console.log('  พูด:', text1.slice(0, 400).replace(/\s+/g, ' '));
   check('turn 1 finished', !!r);
   check('turn 1 asks something', /[?？]|ไหม|หรือ|อะไร|ใคร|ยังไง|เท่าไร/.test(text1) || seenTools.includes('AskUserQuestion'), `tools: ${seenTools.join(',') || '-'}`);
-  check('turn 1 is short (<= 6 sentences)', text1.split(/[.!?ครับค่ะ]\s/).length <= 6, `${[...text1].length} chars`);
+  check('turn 1 stays brief (no long speech between popups)', [...text1].length / Math.max(1, popups) < 250, `${[...text1].length} chars over ${popups} popups`);
   check('turn 1 wrote no project file', mine().length === 0, mine().join(','));
+  const got = picked.map((l) => l.replace(/\(.*?\)/g, '').trim()).filter(Boolean);
+  check('the popup answer reached Claude', got.length > 0 && got.some((g) => text1.includes(g.slice(0, 6))), 'picked: ' + got.join(', '));
+  check('every question was a popup (at least 2 in turn 1)', popups >= 2, popups + ' popups');
+  // popups after the third are skipped on purpose (to keep the try short), so Claude may say the user skipped
+  check('Claude did not say the user refused', popups > 3 || !/ปฏิเสธ|แต่คุณ.*ไม่/.test(text1));
   check('turn 1 did not edit or run anything', !seenTools.some((t) => ['Write', 'Edit', 'Bash'].includes(t)), seenTools.join(','));
 
   r = await turn(SCOPE);

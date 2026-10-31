@@ -22,7 +22,8 @@ export class TaskStatus {
     this.cmd = part('ts-cmd');
     this.phase = part('ts-phase');
     this.time = part('ts-time');
-    el.append(this.dot, this.cmd, part('ts-sep'), this.phase, part('ts-sep'), this.time);
+    this.sep2 = part('ts-sep');
+    el.append(this.dot, this.cmd, part('ts-sep'), this.phase, this.sep2, this.time);
     document.body.append(el);
     this.el = el;
     this.running = false;
@@ -43,6 +44,9 @@ export class TaskStatus {
     this.cmd.title = text;
     this.phase.textContent = step && step.total ? `${phase} · ขั้น ${step.current}/${step.total}` : phase;
     this.el.classList.toggle('att', !!attention);
+    // waiting for the user (a question, a permission): no clock, the wait is not JARVIS's work time
+    this.time.style.display = attention ? 'none' : '';
+    this.sep2.style.display = attention ? 'none' : '';
     if (running === this.running) return;
     this.running = running;
     clearTimeout(this.hideTimer);

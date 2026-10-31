@@ -6,6 +6,7 @@
   <title>JARVIS — ขออนุญาตใช้เครื่องมือ</title>
   <link rel="stylesheet" href="../ui/fonts.css">
   <link rel="stylesheet" href="approval.css">
+  <link rel="stylesheet" href="question-form.css">
 </head>
 <body>
   <main id="ap" hidden data-kind="other">
@@ -20,7 +21,7 @@
         <svg class="ic ic-other" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6l8-3z"/><path d="M12 8v5M12 16v.5"/></svg>
       </div>
       <div class="title">
-        <span class="k">ขออนุญาตใช้เครื่องมือ</span>
+        <span id="title-k" class="k">ขออนุญาตใช้เครื่องมือ</span>
         <span id="tool" class="tool"></span>
       </div>
       <span id="queue" class="queue" hidden></span>
@@ -29,6 +30,7 @@
     <div class="body">
       <p id="summary" class="summary"></p>
       <p id="reason" class="reason" hidden></p>
+      <div id="question" hidden></div>
 
       <section id="file-sec" hidden>
         <h2 id="file-h">ไฟล์</h2>
@@ -62,6 +64,7 @@
         <button id="deny-send" class="btn no" type="button">ส่งเหตุผลและปฏิเสธ</button>
       </div>
       <div class="btns">
+        <button id="send-answer" class="btn ok" type="button" hidden>ส่งคำตอบ</button>
         <button id="allow" class="btn ok" type="button">อนุญาต</button>
         <button id="always" class="btn" type="button" hidden>อนุญาตเสมอ</button>
         <button id="deny" class="btn no" type="button">ปฏิเสธ</button>

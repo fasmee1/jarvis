@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="ui/projects.css">
   <link rel="stylesheet" href="ui/task-status.css">
   <link rel="stylesheet" href="ui/screen-watch.css">
+  <link rel="stylesheet" href="approval/question-form.css">
   <link rel="stylesheet" href="ui/video-editor.css">
 </head>
 <body>
@@ -827,6 +828,16 @@
     </div>
   </div>
 
+
+  <!-- A question from JARVIS (AskUserQuestion): a panel above the message box, not a dialog over the screen -->
+  <section id="ap-dock" class="ap-dock" role="group" aria-label="คำถามจาก JARVIS" hidden>
+    <div class="ap-dock-head"><span class="ap-dock-title">JARVIS ถามคุณ</span></div>
+    <div id="ap-dock-body" class="ap-dock-body"></div>
+    <div class="ap-dock-actions">
+      <button id="ap-dock-skip" class="btn ghost" type="button">ข้ามคำถามนี้</button>
+      <button id="ap-dock-send" class="btn primary" type="button">ส่งคำตอบ</button>
+    </div>
+  </section>
 
   <!-- Screen watching indicator: visible the whole time JARVIS is watching the screen or a window; click stops it -->
   <button id="watch-badge" class="watch-badge" type="button" hidden aria-live="polite"><span class="wb-dot"></span><span id="watch-badge-text"></span><span class="wb-stop">หยุด</span></button>
