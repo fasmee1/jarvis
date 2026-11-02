@@ -225,6 +225,9 @@ export class HudReactor {
   }
 
   setReduced(on) { this.reduced = !!on; }
+
+  /** Hold every moving part still (the beat of silence before the intro's ignition). */
+  setFrozen(b) { this.frozen = !!b; }
   setStyle() {}
   resize() {}
 
@@ -325,7 +328,7 @@ export class HudReactor {
     }
     const k2 = 1 - Math.exp(-dt / 0.55);
     this.spdA += (sp[0] - this.spdA) * k2; this.spdB += (sp[1] - this.spdB) * k2; this.scl += (sp[2] - this.scl) * k2;
-    if (!this.reduced) { this.angA = (this.angA + this.spdA * dt) % 360; this.angB = (this.angB + this.spdB * dt) % 360; }
+    if (!this.reduced && !this.frozen) { this.angA = (this.angA + this.spdA * dt) % 360; this.angB = (this.angB + this.spdB * dt) % 360; }
 
     // micro-parallax: core layers move most (the cards and the grid follow in Home)
     if (!this.reduced) {
@@ -341,7 +344,7 @@ export class HudReactor {
     }
 
     // outer degree scale: ticks ratchet left / right in irregular jerks (labels stay put)
-    if (!this.reduced) {
+    if (!this.reduced && !this.frozen) {
       if (st === 'ERROR') this.tkT = this.tkA;
       else if (now >= this.tkNext) {
         const busy = st === 'STANDBY' ? 1 : 0.55;
@@ -373,7 +376,7 @@ export class HudReactor {
     // data satellites: speed follows real activity; they gather at the top while TRANSCRIBING
     for (let i = 0; i < 4; i++) {
       if (st === 'TRANSCRIBING') { const tgt = -90 + (i - 1.5) * 9; this.satAng[i] += angDiff(this.satAng[i], tgt) * (1 - Math.exp(-dt / 0.45)); }
-      else if (!this.reduced) this.satAng[i] = (this.satAng[i] + (SAT[st] || 0) * SAT_DIR[i] * (1 + i * 0.12) * dt) % 360;
+      else if (!this.reduced && !this.frozen) this.satAng[i] = (this.satAng[i] + (SAT[st] || 0) * SAT_DIR[i] * (1 + i * 0.12) * dt) % 360;
       const [sx, sy] = pt(211, this.satAng[i]);
       this.sats[i].setAttribute('cx', f1(sx)); this.sats[i].setAttribute('cy', f1(sy));
     }

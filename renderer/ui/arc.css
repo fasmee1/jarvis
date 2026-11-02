@@ -1,0 +1,57 @@
+/* ============ ARC style: a calm soft-cyan HUD on deep navy, "J.A.R.V.I.S" in the middle ============
+   Everything lives under html[data-style="arc"]; the reactor itself is ui/arc-reactor.js. Loaded after hud.css. */
+
+/* tokens: monochrome cyan, depth by opacity (hero → main → mid → dim) */
+.arc-reactor { --c-hero: #6fd3f2; --c-main: #3aaed8; --c-mid: #2a86b4; --c-dim: #1d5f8a; --text: #cfeefa; --arc-glow-rgb: 58, 174, 216; }
+.arc-reactor.err { --c-hero: #f08a96; --c-main: #d85468; --c-mid: #b03a4e; --c-dim: #7d2a38; --arc-glow-rgb: 216, 84, 104; }
+.arc-reactor .s { fill: none; }
+.arc-reactor .s.h { stroke: var(--c-hero); }
+.arc-reactor .s.m { stroke: var(--c-main); }
+.arc-reactor .s.d { stroke: var(--c-mid); }
+.arc-reactor .s.rnd { stroke-linecap: round; }
+.arc-reactor .fh { fill: var(--c-hero); }
+.arc-reactor .fm { fill: var(--c-main); }
+.arc-reactor .arc-halo { filter: blur(5px); animation: arc-halo 5s ease-in-out infinite; }
+.arc-reactor .arc-core { animation: arc-breath 5s ease-in-out infinite; }
+@keyframes arc-breath { 0%, 100% { opacity: 0.8; } 50% { opacity: 0.95; } }
+@keyframes arc-halo { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.7; } }
+
+html[data-style="arc"] {
+  --bg-0: #020a22; --bg-1: #04112e; --bg-2: #071a40;
+  --surface: rgba(90, 190, 255, 0.04); --surface-2: rgba(90, 190, 255, 0.08);
+  --line: rgba(110, 200, 255, 0.18); --border: rgba(110, 200, 255, 0.22); --border-hover: rgba(110, 200, 255, 0.45);
+  --text-1: #e3f3ff; --text-2: #8fb6d6; --text-3: #6b93b4;
+  --accent: #4fd8ff; --accent-soft: rgba(79, 216, 255, 0.5); --accent-faint: rgba(79, 216, 255, 0.14); --accent-ghost: rgba(79, 216, 255, 0.07);
+}
+
+/* background: deep navy, a soft blue glow behind the HUD, faint scanlines */
+html[data-style="arc"] body,
+html[data-style="arc"] .home { background: radial-gradient(circle at 50% 50%, #0a3470 0%, #072654 25%, #04163a 45%, #020a1f 68%, #01050f 100%); }
+html[data-style="arc"] .home::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 3px); }
+
+/* the other styles' decoration is not part of this look */
+html[data-style="arc"] #grid-bg, html[data-style="arc"] #grid-fx, html[data-style="arc"] .corner-brk, html[data-style="arc"] .tick-layer,
+html[data-style="arc"] #cards, html[data-style="arc"] #leaders, html[data-style="arc"] #framing,
+html[data-style="arc"] .caption, html[data-style="arc"] .core-elapsed, html[data-style="arc"] .state-sub { display: none; }
+
+/* reactor */
+.arc-reactor { position: absolute; inset: 0; z-index: 1; pointer-events: none; will-change: transform; }
+.arc-lyr { position: absolute; left: 0; top: 0; width: 720px; height: 720px; overflow: visible; pointer-events: none; }
+.arc-name { font-family: 'Segoe UI', 'Inter', Arial, sans-serif; font-weight: 600; font-size: 32px; letter-spacing: 0.5px; fill: #cfeefa; filter: drop-shadow(0 0 8px rgba(58, 174, 216, 0.45)); }
+html[data-quality="low"] .arc-glow, html[data-quality="low"] .arc-reactor [filter], html[data-quality="low"] .arc-name, html[data-quality="low"] .arc-halo { filter: none; }
+html[data-style="arc"] .core-hit { left: 190px; top: 190px; width: 340px; height: 340px; }
+html[data-style="arc"] .core-hit:focus-visible { outline: 1px dashed var(--c-main, #3aaed8); outline-offset: 6px; }
+
+/* state text: below the rings, only while something is happening */
+html[data-style="arc"] .core-readout { top: 800px; }
+html[data-style="arc"] .state-label { font-family: 'Segoe UI', 'Inter', Arial, sans-serif; font-weight: 600; font-size: 16px; letter-spacing: 0.3em; padding-left: 0.3em; color: #9fd8ee; text-shadow: 0 0 8px rgba(58, 174, 216, 0.4); text-transform: uppercase; transition: opacity 0.4s; }
+html[data-style="arc"] .state-label.err { color: #f4a0aa; text-shadow: 0 0 8px rgba(216, 84, 104, 0.6); }
+html[data-style="arc"] .state-label.att { color: #f0be8a; text-shadow: 0 0 8px rgba(255, 154, 61, 0.45); }
+html[data-style="arc"] body[data-s="STANDBY"] .state-label, html[data-style="arc"] body:not([data-s]) .state-label { opacity: 0; }
+
+html[data-style="arc"] .proj-chip { top: 72px; }
+/* no cards here, so no card tray and no background-task panel under the rings */
+html[data-style="arc"] .dock-tray, html[data-style="arc"] .dock-all-btn, html[data-style="arc"] .proj-home { display: none; }
+
+/* dev overlay (arc-reactor.js, key O, only with localStorage jarvis.dev = 1) */
+#arc-ref-overlay { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: cover; pointer-events: none; z-index: 9999; }

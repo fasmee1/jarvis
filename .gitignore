@@ -2,3 +2,4 @@ node_modules/
 .jarvis/
 .jarvis-temp/
 *.log
+renderer/dev/

@@ -11,6 +11,7 @@
 // "voice" whose nodes are stopped and disconnected after it ends.
 // If Web Audio is missing or fails, every call is a silent no-op.
 
+import { SAMPLE_MAP, SAMPLE_FILES } from './sfx-samples.js';
 const KEY = {
   on: 'jarvis.hudSound',
   vol: 'jarvis.sfxVolume',
@@ -139,6 +140,7 @@ class Sfx {
       for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
 
       Object.assign(this, { ctx: c, bus, master, revIn, noiseBuf: noise });
+      this.samplesReady = this._loadSamples(c);
       if (this.sinkId) this._applySink();
       return c;
     } catch {
@@ -193,7 +195,7 @@ class Sfx {
     const c = this.enabled ? this.context() : null;
     if (!c) return Promise.resolve(false);
     const t0 = performance.now();
-    return new Promise((resolve) => {
+    const clock = new Promise((resolve) => {
       const check = () => {
         if (c.state === 'running' && c.currentTime > 0.02) return resolve(true);
         if (performance.now() - t0 > maxMs) return resolve(false);
@@ -201,6 +203,69 @@ class Sfx {
       };
       check();
     });
+    // the recorded sounds should be decoded before the first cue (max 1.5 s), otherwise that cue falls back to synth
+    return clock.then((ok) => Promise.race([this.samplesReady || null, new Promise((r) => setTimeout(r, 1500))]).then(() => ok));
+  }
+
+  // ================= recorded samples (renderer/sfx-samples.js) =================
+  async _loadSamples(c) {
+    this.buffers = this.buffers || new Map();
+    await Promise.all([...SAMPLE_FILES].map(async (name) => {
+      try {
+        const res = await fetch(new URL(`audio/sfx/${name}.ogg`, import.meta.url));
+        if (!res.ok) return;
+        this.buffers.set(name, await c.decodeAudioData(await res.arrayBuffer()));
+      } catch { /* a missing or undecodable file just keeps the synthesized sound for its cue */ }
+    }));
+  }
+
+  /** Play the recorded version of `cue`. Returns true when handled (so the synthesized one is skipped). */
+  _playSample(cue, args) {
+    const make = SAMPLE_MAP[cue];
+    if (!make || !this.buffers || !this.buffers.size) return false;
+    const spec = make(args);
+    if (spec.layers.some((l) => !this.buffers.has(l.f))) return false;
+    if (spec.gate === 'hover') {
+      const now = performance.now();
+      if (now - this.lastHover < 40) return true;
+      this.lastHover = now;
+    }
+    const c = this._ready(spec.group);
+    if (!c) return true; // muted: nothing plays, not even the synth
+    if (spec.skipReduced && this.reduced) return true;
+    let len = 0.2;
+    for (const l of spec.layers) len = Math.max(len, (l.at || 0) + (l.dur || this.buffers.get(l.f).duration / (Array.isArray(l.rate) ? l.rate[0] : l.rate || 1)));
+    const v = this._voice(c, { len: len + 0.1, pan: spec.pan || 0, wet: spec.wet ?? 0.2, group: spec.group });
+    for (const l of spec.layers) {
+      const at = v.t + (l.at || 0);
+      const src = c.createBufferSource();
+      src.buffer = this.buffers.get(l.f);
+      const r0 = Array.isArray(l.rate) ? l.rate[0] : l.rate || 1;
+      src.playbackRate.setValueAtTime(r0, at);
+      const dur = l.dur || src.buffer.duration / r0;
+      if (Array.isArray(l.rate)) src.playbackRate.linearRampToValueAtTime(l.rate[1], at + dur);
+      if (l.loop) src.loop = true;
+      src.start(at);
+      src.stop(at + dur + 0.05);
+      v.srcs.push(src);
+      v.nodes.push(src);
+      let tail = src;
+      for (const [type, hz] of [['lowpass', l.lp], ['highpass', l.hp]]) {
+        if (!hz) continue;
+        const f = this._filter(v, type, Array.isArray(hz) ? hz[0] : hz, 0.7);
+        if (Array.isArray(hz)) { f.frequency.setValueAtTime(hz[0], at); f.frequency.exponentialRampToValueAtTime(hz[1], at + dur); }
+        tail.connect(f);
+        tail = f;
+      }
+      const g = this._gain(v, l.fadeIn ? 0 : l.level ?? 1);
+      if (l.fadeIn) { g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(l.level ?? 1, at + l.fadeIn); }
+      if (l.fadeOut) {
+        g.gain.setValueAtTime(l.level ?? 1, Math.max(at + (l.fadeIn || 0), at + dur - l.fadeOut));
+        g.gain.linearRampToValueAtTime(0, at + dur);
+      }
+      tail.connect(g).connect(v.in);
+    }
+    return !spec.synth || 'both'; // 'both': the synthesized version also plays underneath
   }
 
   /** Resume the context from a click / key handler. */
@@ -458,6 +523,54 @@ class Sfx {
     trem.connect(amp).connect(v.in);
   }
 
+  // ================= cinematic intro (ui/hud-intro.js; group 'boot' so the boot mute applies) =================
+  /** The room tone of the power-up: a low sine that climbs for `len` s with a faint filtered-air bed. */
+  introHum(len = 4) {
+    const c = this._ready('boot');
+    if (!c) return;
+    const v = this._voice(c, { len: len + 0.6, group: 'boot', wet: 0.45 });
+    const { t } = v;
+    this._tone(v, { freq: 49, to: 98, glide: len, a: len * 0.55, d: len * 0.45, peak: 0.16 });
+    this._tone(v, { freq: 98.5, to: 196, glide: len, a: len * 0.7, d: len * 0.3, peak: 0.04 });
+    if (!this.reduced) this._whoosh(v, { at: t, dur: len, from: 160, to: 1400, q: 0.8, peak: 0.035, top: 0.9 });
+  }
+
+  /** A heartbeat of the spark: one soft low thump. */
+  introPulse(strength = 1) {
+    const c = this._ready('boot');
+    if (!c) return;
+    const v = this._voice(c, { len: 0.7, group: 'boot', wet: 0.35 });
+    this._tone(v, { freq: 84, to: 46, glide: 0.18, a: 0.004, d: 0.3, peak: 0.28 * strength });
+    this._tone(v, { freq: 1320, a: 0.004, d: 0.12, peak: 0.012 * strength });
+  }
+
+  /** A fine mechanical tick (dials locking into place). */
+  introTick(i = 0) {
+    const c = this._ready('boot');
+    if (!c) return;
+    const v = this._voice(c, { len: 0.12, group: 'boot', wet: 0.1, pan: ((i % 5) - 2) * 0.25 });
+    this._tone(v, { freq: 2400 + (i % 4) * 160, a: 0.001, d: 0.025, peak: 0.02 });
+  }
+
+  /** The ignition: a deep impact with a descending air burst and a bright shimmer on top. */
+  introImpact() {
+    const c = this._ready('boot');
+    if (!c) return;
+    const v = this._voice(c, { len: 1.9, group: 'boot', wet: 0.5 });
+    this._tone(v, { freq: 62, to: 28, glide: 0.5, a: 0.004, d: 0.9, peak: 0.5 });
+    this._tone(v, { freq: 124, to: 56, glide: 0.4, a: 0.004, d: 0.5, peak: 0.12 });
+    if (!this.reduced) this._whoosh(v, { dur: 0.7, from: 5200, to: 240, q: 0.9, peak: 0.16, top: 0.15 });
+    [1318.51, 1975.53, 2637.02].forEach((f, i) => this._tone(v, { freq: f, at: v.t + 0.06 + i * 0.07, a: 0.01, d: 1.1, peak: 0.03 }));
+  }
+
+  /** Greeting: a small rising two-note answer. */
+  introGreet() {
+    const c = this._ready('boot');
+    if (!c) return;
+    const v = this._voice(c, { len: 1.2, group: 'boot', wet: 0.45 });
+    [523.25, 783.99].forEach((f, i) => this._tone(v, { freq: f, at: v.t + i * 0.14, a: 0.01, d: 0.7, peak: 0.05 }));
+  }
+
   // ================= interaction =================
   /** Ultra-soft hover tick: 4 kHz sine, 8 ms. */
   hover(pan = 0) {
@@ -689,6 +802,18 @@ class Sfx {
       if (el && !el.disabled && !el.matches(SKIP)) this.click(this.panOf(el));
     }, true);
   }
+}
+
+// Every cue with a recorded version in sfx-samples.js plays the sample first and keeps the synthesized sound as the
+// fallback (and, where the map says `synth`, as a layer underneath).
+for (const cue of Object.keys(SAMPLE_MAP)) {
+  const synth = Sfx.prototype[cue];
+  if (typeof synth !== 'function') continue;
+  Sfx.prototype[cue] = function (...args) {
+    const r = this._playSample(cue, args);
+    if (r === true) return undefined;
+    return synth.apply(this, args);
+  };
 }
 
 export const sfx = new Sfx();

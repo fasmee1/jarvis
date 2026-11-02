@@ -4,6 +4,7 @@
 import './ease.js';
 import { W, H, pickLayout, setLayoutStyle } from './layout.js';
 import { HudReactor, normState } from './hud-reactor.js';
+import { ArcReactor } from './arc-reactor.js';
 import { HudBackdrop } from './hud-backdrop.js';
 import { Grid } from './grid.js';
 import { Core } from './core.js';
@@ -24,30 +25,32 @@ export function formatElapsed(ms) {
   return h ? `${h}:${p(m)}:${p(t % 60)}` : `${m}:${p(t % 60)}`;
 }
 
-/** One handle for the two reactors (calm canvas / HUD svg): state goes to both, drawing only to the active one. */
+/** One handle for the three reactors (calm canvas / HUD svg / ARC svg): state goes to all, drawing only to the active one. */
 class CoreSwitch {
-  constructor(calm, hud) {
+  constructor(calm, hud, arc) {
     this.calm = calm;
     this.hud = hud;
+    this.arc = arc;
     this.active = calm;
     for (const m of ['setState', 'setSignals', 'pulseActivity', 'wake', 'setFollow', 'setNodes', 'flashNode', 'holdNode', 'setHover', 'setDocked', 'resize']) {
-      this[m] = (...a) => { this.calm[m](...a); this.hud[m](...a); };
+      this[m] = (...a) => { this.calm[m](...a); this.hud[m](...a); this.arc[m](...a); };
     }
   }
 
   get quality() { return this.calm.quality; }
-  set quality(q) { this.calm.quality = q; this.hud.setQuality(q); }
+  set quality(q) { this.calm.quality = q; this.hud.setQuality(q); this.arc.setQuality(q); }
   get mini() { return this.calm.mini; }
   set mini(v) { this.calm.mini = v; }
   frame(now, dt) { this.active.frame(now, dt); }
   beginBoot(order) { return this.calm.beginBoot(order); }
   endBoot() { this.calm.endBoot(); }
-  setReduced(on) { this.calm.setReduced(on); this.hud.setReduced(on); }
+  setReduced(on) { this.calm.setReduced(on); this.hud.setReduced(on); this.arc.setReduced(on); }
   setStyle(style) { this.calm.setStyle(style); }
   use(style) {
-    this.active = style === 'hud' ? this.hud : this.calm;
+    this.active = style === 'hud' ? this.hud : style === 'arc' ? this.arc : this.calm;
     this.hud.setActive(style === 'hud');
-    this.calm.canvas.hidden = style === 'hud';
+    this.arc.setActive(style === 'arc');
+    this.calm.canvas.hidden = style !== 'calm';
   }
 }
 
@@ -58,7 +61,8 @@ export class Home {
     this.grid = new Grid($('grid-bg'), $('grid-fx'));
     this.calmCore = new Core($('core'));
     this.hud = new HudReactor($('core-wrap'));
-    this.core = new CoreSwitch(this.calmCore, this.hud);
+    this.arc = new ArcReactor($('core-wrap'));
+    this.core = new CoreSwitch(this.calmCore, this.hud, this.arc);
     this.backdrop = new HudBackdrop();
     this.ticks = new Ticks($('core-wrap'), $('core'));
     this.cards = new Cards({ container: $('cards'), leaders: $('leaders'), framing: $('framing'), core: this.core, tip: $('card-tip'), onOpen, onClose: (id) => this.docking && this.docking.close(id) });
@@ -73,7 +77,7 @@ export class Home {
     $('core-hit').addEventListener('click', () => onCoreClick());
     addEventListener('resize', () => this.resize());
     this._idle();
-    this._applyStyle(document.documentElement.dataset.style === 'calm' ? 'calm' : 'hud', true);
+    this._applyStyle(['calm', 'arc'].includes(document.documentElement.dataset.style) ? document.documentElement.dataset.style : 'hud', true);
     this.resize();
     this.docking = new Docking(this);
     this._clock();
@@ -88,9 +92,9 @@ export class Home {
     this.grid.quality = this.quality;
   }
 
-  /** 'hud' | 'calm' (ui/style-mode.js): the reactor and the background redraw in the new look. */
+  /** 'hud' | 'calm' | 'arc' (ui/style-mode.js): the reactor and the background redraw in the new look. */
   setStyle(style) {
-    const next = style === 'hud' ? 'hud' : 'calm';
+    const next = style === 'hud' || style === 'arc' ? style : 'calm';
     if (next === this.style) return;
     this._applyStyle(next, false);
   }

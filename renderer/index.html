@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="approval/question-form.css">
   <link rel="stylesheet" href="ui/video-editor.css">
   <link rel="stylesheet" href="ui/hud.css">
+  <link rel="stylesheet" href="ui/arc.css">
 </head>
 <body>
   <!-- HUD icon sprite (reference icons) -->
@@ -774,6 +775,7 @@
           <select id="ui-style">
             <option value="hud">HUD — โฮโลแกรม teal/ส้ม มุมตัด เรืองแสง</option>
             <option value="calm">Calm — เรียบ นิ่ง สีเดียว</option>
+            <option value="arc">ARC — วงแหวนฟ้าซ้อนชั้น ชื่อ J.A.R.V.I.S กลางจอ (ไม่มีการ์ด)</option>
           </select>
         </label>
         <label>อนิเมชั่น (motion)
@@ -781,6 +783,13 @@
             <option value="auto">ตามระบบ (Windows reduce motion)</option>
             <option value="full">เต็ม — เล่นอนิเมชั่นทั้งหมด</option>
             <option value="reduced">ลด — เกือบไม่มีอนิเมชั่น</option>
+          </select>
+        </label>
+        <label>ฉากเปิดตัว JARVIS (โหมด HUD)
+          <select id="ui-intro">
+            <option value="full">เต็ม — ภาพยนตร์สั้น ~7 วินาที</option>
+            <option value="quick">เร็ว — ย่อให้สั้นลง ~4 วินาที</option>
+            <option value="off">ปิด — ข้ามเข้าหน้าหลักทันที</option>
           </select>
         </label>
         <label>คุณภาพกราฟิก

@@ -5,6 +5,7 @@ import { Home } from './ui/home.js';
 import { buildQuestionForm } from './approval/question-form.js';
 import { Sections } from './ui/sections.js';
 import { getStyle, getMotion, setStyle, setMotion, onStyleChange } from './ui/style-mode.js';
+import { getIntroMode, setIntroMode } from './ui/hud-intro.js';
 import { runBoot, bootPrefs } from './ui/boot.js';
 import { CameraPanel } from './ui/camera-panel.js';
 import { Speaker } from './tts.js';
@@ -2067,6 +2068,8 @@ function wireSettings() {
   // style mode (hud | calm) and motion (auto | full | reduced): see ui/style-mode.js
   $('ui-style').value = getStyle();
   $('ui-motion').value = getMotion();
+  $('ui-intro').value = getIntroMode();
+  $('ui-intro').onchange = (e) => setIntroMode(e.target.value);
   $('ui-style').onchange = (e) => setStyle(e.target.value);
   $('ui-motion').onchange = (e) => setMotion(e.target.value);
   onStyleChange(({ style, reduced }) => {

@@ -399,3 +399,31 @@ html[data-style="hud"] .core-elapsed { font-family: var(--f-num); font-weight: 7
 /* small cards carry a longer hint line now: keep it clear of the meter */
 html[data-style="hud"] .card-small .hint { font-size: max(11px, calc(var(--u) * 14)); margin-top: 0; }
 html[data-style="hud"] .card-small .val, html[data-style="hud"] .card-small .val.na { font-size: clamp(22px, calc(var(--u) * 38), 44px); }
+
+/* ---------- cinematic intro (ui/hud-intro.js) ---------- */
+#bootIntro { position: fixed; inset: 0; z-index: 305; pointer-events: none; overflow: hidden; }
+#bootIntro svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+#bootIntro .bi-ring, #bootIntro .bi-dash { fill: none; stroke: var(--teal); filter: drop-shadow(0 0 5px var(--teal)); }
+#bootIntro .bi-dash { stroke-width: 1.4; opacity: 0.8; }
+#bootIntro .bi-or { fill: none; stroke: var(--orange); stroke-width: 4; filter: drop-shadow(0 0 6px var(--orange)); }
+#bootIntro .bi-ticks line { stroke: var(--teal-hot); stroke-width: 1.4; filter: drop-shadow(0 0 3px var(--teal)); }
+#bootIntro .bi-cross { fill: none; stroke: rgba(0, 229, 255, 0.55); stroke-width: 1.2; }
+#bootIntro .bi-dia { fill: rgba(0, 229, 255, 0.12); stroke: var(--teal-hot); stroke-width: 2; filter: drop-shadow(0 0 8px var(--teal)); }
+#bootIntro .bi-dot { fill: #fff; filter: drop-shadow(0 0 10px var(--teal-hot)) drop-shadow(0 0 22px var(--teal)); }
+#bootIntro .bi-pulse { fill: none; stroke: var(--teal-hot); stroke-width: 1.5; }
+#bootIntro .bi-ret path { fill: none; stroke: var(--teal-hot); stroke-width: 3; filter: drop-shadow(0 0 6px var(--teal)); }
+#bootIntro .bi-title { font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 46px; fill: var(--teal-hot); filter: drop-shadow(0 0 8px var(--teal)) drop-shadow(0 0 22px rgba(0, 229, 255, 0.6)); }
+#bootIntro .bi-sub { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.32em; fill: var(--text-2); }
+#bootIntro .bi-data text { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; fill: rgba(127, 184, 204, 0.8); }
+#bootIntro .bi-scan { position: absolute; left: 0; top: 0; width: 100%; height: 3px; background: linear-gradient(90deg, transparent, var(--teal-hot) 20%, #fff 50%, var(--teal-hot) 80%, transparent); box-shadow: 0 0 18px var(--teal), 0 -40px 60px rgba(0, 229, 255, 0.18); }
+
+/* ---------- cinematic intro, rewritten (ui/hud-intro.js) ---------- */
+#bootIntro .bi-halo { fill: rgba(0, 229, 255, 0.12); stroke: none; filter: blur(3px); }
+#bootIntro .bi-shock { fill: none; stroke: var(--teal-hot); filter: drop-shadow(0 0 8px var(--teal)); }
+#bootIntro .bi-echo { fill: none; stroke: var(--teal); filter: drop-shadow(0 0 10px var(--teal)); }
+#bootIntro .bi-title { filter: drop-shadow(0 0 22px rgba(0, 229, 255, 0.7)); }
+#bootIntro .bi-online { font-family: var(--font-mono); font-weight: 500; font-size: 15px; fill: var(--orange); filter: drop-shadow(0 0 8px var(--orange)); }
+#bootIntro .bi-greet { font-family: var(--f-thai, 'IBM Plex Sans Thai', sans-serif); font-size: 24px; letter-spacing: 0.06em; fill: var(--text-1); filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.45)); }
+#bootIntro .bi-lines { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px); opacity: 0.4; }
+#bootIntro .bi-beam { position: absolute; left: 0; top: 50%; width: 100%; height: 2px; margin-top: -1px; transform-origin: 50% 50%; background: linear-gradient(90deg, transparent, var(--teal-hot) 18%, #fff 50%, var(--teal-hot) 82%, transparent); box-shadow: 0 0 14px var(--teal), 0 0 40px rgba(0, 229, 255, 0.7); }
+#bootIntro .bi-flash { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, #fff 0%, rgba(150, 245, 255, 0.85) 20%, rgba(0, 229, 255, 0.25) 55%, transparent 80%); mix-blend-mode: screen; }

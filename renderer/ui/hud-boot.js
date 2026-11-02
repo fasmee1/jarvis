@@ -4,10 +4,11 @@
 // Cyan #00E5FF / orange #FF8A1F, power3.out / expo.out everywhere (linear only for the scan lines).
 
 import { CX_REF, CY_REF } from './hud-reactor.js';
+import { buildIntro, INTRO, getIntroMode } from './hud-intro.js';
 
 export const TIMING = {
   crtIn: 0.15, crtOut: 0.15, veilAt: 0.3, veilDur: 0.3, bgAt: 0.3,
-  gridAt: 0.3, gridDur: 0.7,
+  gridAt: 0.1, gridDur: 0.8,
   cornersAt: 0.3, frameFadeAt: 0.8,
   rulersAt: 0.4, rulerTick: 0.003, labelsAt: 0.5, labelsDur: 0.5,
   ringsAt: 0.6, ringGap: 0.1, ringDur: 0.9,
@@ -17,17 +18,17 @@ export const TIMING = {
   blocksAt: 1.0, blockStagger: 0.015,
   layersAt: 1.1, arcsAt: 1.3, arcsDur: 0.9, dashArcsAt: 1.6,
   textAt: 1.2, msgEvery: 0.4, msgDecode: 0.28,
-  logAt: 1.2, logEvery: 0.28, logFadeAt: 3.9, logFadeDur: 0.3,
-  logoAt: 1.5, flashAt: 1.65,
-  nodesAt: 2.2, nodeGap: 0.08, lineDur: 0.25,
-  panelsAt: 2.5, panelGap: 0.15,
+  logAt: 1.2, logEvery: 0.28, logFadeAt: 3.55, logFadeDur: 0.3,
+  logoAt: 3.25, flashAt: 3.25, // = INTRO.igniteAt - INTRO.mainAt: the emblem ignites exactly on the climax
+  nodesAt: 3.65, nodeGap: 0.08, lineDur: 0.25,
+  panelsAt: 4.05, panelGap: 0.15,
   borderDur: 0.3, expandDur: 0.25, glitchDur: 0.15, scanDur: 0.35, contentDelay: 0.45, countDur: 0.5,
-  readyAt: 4.4, pulseDur: 0.2, endAt: 4.8,
+  readyAt: 5.75, pulseDur: 0.2, endAt: 6.15,
   skipFade: 0.2, reducedFade: 0.4,
 };
 export const MESSAGES = ['INITIALIZING...', 'CALIBRATING SENSORS...', 'SYSTEMS ONLINE'];
 const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-const ORDER = ['reply', 'mic', 'tts', 'latency', 'tokens', 'elapsed', 'step'];
+const ORDER = ['reply', 'mic', 'tts', 'latency', 'tokens', 'edit', 'step', 'camera']; // every card gets its own deploy animation
 const $ = (id) => document.getElementById(id);
 
 /** Character scramble: characters left of progress*len are resolved, the rest cycle through A-Z/0-9 (spaces stay). */
@@ -65,7 +66,7 @@ export function playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, cou
   const parts = hud.parts();
   const finals = []; // work to do when the sequence ends or is skipped, so the live UI takes over cleanly
   const clearAll = [];
-  let finished = false, skipping = false, tl = null;
+  let finished = false, skipping = false, tl = null, master = null, intro = null;
   const q = (sel, root = stage) => [...root.querySelectorAll(sel)];
 
   function finish(skipped) {
@@ -77,6 +78,7 @@ export function playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, cou
     for (const [els, props] of clearAll) G.set(els, { clearProps: props });
     body.classList.remove('booting');
     label.classList.remove('boot');
+    if (intro) intro.kill();
     for (const id of ['bootLine', 'bootLog']) { const e = $(id); if (e) e.remove(); }
     for (const c of home.cards.cards.values()) { c.el.style.pointerEvents = ''; c.el.style.opacity = ''; }
     if (home.docking) home.docking.restoreDocked();
@@ -91,6 +93,8 @@ export function playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, cou
     skipping = true;
     if (e && e.type === 'keydown') e.stopPropagation();
     sfx.quiet(400);
+    master.pause();
+    master.remove(tl);
     tl.pause();
     overlay.hidden = false;
     G.to(overlay, { opacity: 1, duration: T.skipFade / 2, ease: 'power3.out', onComplete: () => {
@@ -120,14 +124,9 @@ export function playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, cou
   tl = G.timeline({ paused: true, defaults: { ease: 'power3.out' }, onComplete: () => finish(false) });
 
   // ===== PHASE 0 — power on: a CRT line flashes across the centre, then the navy background fades in =====
-  const crt = document.createElement('div');
-  crt.id = 'bootLine'; document.body.appendChild(crt);
-  G.set(crt, { scaleX: 0, scaleY: 1, opacity: 1 });
-  tl.to(crt, { scaleX: 1, duration: T.crtIn, ease: 'expo.out' }, 0)
-    .to(crt, { scaleY: 0, opacity: 0, duration: T.crtOut, ease: 'power3.out' }, T.crtIn)
-    .to(overlay, { opacity: 0, duration: T.veilDur, ease: 'power3.out' }, T.veilAt)
-    .set(bg, { opacity: 1 }, T.bgAt);
-  tl.call(() => sfx.powerOn(), [], 0);
+  // the intro (ui/hud-intro.js) already is the power-on: the black veil just dissolves under it, no CRT line
+  tl.to(overlay, { opacity: 0, duration: 0.45, ease: 'power2.out' }, 0)
+    .set(bg, { opacity: 1 }, 0);
   clearAll.push([bg, 'opacity']);
 
   // ===== PHASE 1 — grid (radial reveal), corner brackets, edge rulers, coordinate labels =====
@@ -180,13 +179,13 @@ export function playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, cou
   const disc = gs.firstElementChild;
   tl.to(disc, { opacity: 1, duration: 0.5 }, T.ringsAt);
   const handled = new Set([disc]);
-  // rings: stroke-dashoffset, 0.1 s apart, alternating clockwise / counter-clockwise
-  [['circle[r="243"]', 1], ['circle[r="231"]', -1], ['#ringIn', 1], ['circle[r="117"]', -1]].forEach(([sel, dir], i) => {
+  // rings draw themselves: the inner ones fast and sharp, the outer ones slow and heavy (inner first)
+  [['circle[r="117"]', -1, 0.5, 'expo.out', 0], ['#ringIn', 1, 0.6, 'expo.out', 0.06], ['circle[r="231"]', -1, 0.95, 'power4.out', 0.14], ['circle[r="243"]', 1, 1.25, 'power2.out', 0.22]].forEach(([sel, dir, dur, ease, off]) => {
     const c = gs.querySelector(sel); if (!c) return;
     handled.add(c);
-    const len = c.hasAttribute('pathLength') ? 360 : c.getTotalLength(), t = T.ringsAt + i * T.ringGap;
+    const len = c.hasAttribute('pathLength') ? 360 : c.getTotalLength(), t = T.ringsAt + off;
     G.set(c, { strokeDasharray: `${len} ${len}`, strokeDashoffset: dir * len });
-    tl.set(c, { opacity: 1 }, t).to(c, { strokeDashoffset: 0, duration: T.ringDur, ease: 'power3.out' }, t);
+    tl.set(c, { opacity: 1 }, t).to(c, { strokeDashoffset: 0, duration: dur, ease }, t);
     clearAll.push([c, 'opacity,strokeDasharray,strokeDashoffset']);
   });
   // radial ticks: a sweeping wave from the top, each tick scales from 0 to its full length
@@ -229,6 +228,14 @@ export function playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, cou
   G.set(shock, { opacity: 0, scale: 0.2, svgOrigin: cc });
   tl.fromTo(flash, { opacity: 0.95, scale: 0.3 }, { opacity: 0, scale: 1.6, duration: 0.6, ease: 'expo.out', immediateRender: false }, T.flashAt)
     ;
+  // chromatic aberration: the two colour ghosts of the emblem split apart on ignition, then snap back
+  const [ghostL, ghostR] = q('.chroma', emb);
+  if (ghostL && ghostR) {
+    tl.to(ghostL, { attr: { transform: 'translate(-11 0)' }, duration: 0.07 }, T.flashAt)
+      .to(ghostL, { attr: { transform: 'translate(-1.4 0)' }, duration: 0.7, ease: 'expo.out' }, T.flashAt + 0.07)
+      .to(ghostR, { attr: { transform: 'translate(11 0)' }, duration: 0.07 }, T.flashAt)
+      .to(ghostR, { attr: { transform: 'translate(1.4 0)' }, duration: 0.7, ease: 'expo.out' }, T.flashAt + 0.07);
+  }
   clearAll.push([[layers.L2, emb, flash, shock], 'opacity,transform,fill']);
 
   // ===== PHASE 3 — status text decodes under the logo; the boot log shows REAL checks =====
@@ -369,5 +376,21 @@ export function playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, cou
   clearAll.push([dot, 'opacity']);
   tl.to({}, { duration: 0.001 }, T.endAt);
 
-  requestAnimationFrame(() => tl.play(0));
+  // the cinematic intro (ui/hud-intro.js) runs first; the assembly above starts while it dissolves
+  intro = buildIntro(G, sfx, hud);
+  master = G.timeline({ paused: true });
+  tl.paused(false);
+  intro.tl.paused(false);
+  master.add(intro.tl, 0).add(tl, INTRO.mainAt);
+  // camera pull-back: the whole stage starts slightly zoomed in and eases out as the cards deploy
+  const pb = { s: INTRO.pullBackFrom };
+  const applyPB = () => {
+    stage.style.scale = String(pb.s);
+    stage.style.translate = `${(innerWidth / 2) * (1 - pb.s)}px ${(innerHeight / 2) * (1 - pb.s)}px`;
+  };
+  applyPB();
+  master.add(G.to(pb, { s: 1, duration: INTRO.pullBackLen, ease: 'expo.out', onUpdate: applyPB }), INTRO.pullBackAt);
+  finals.push(() => { stage.style.scale = ''; stage.style.translate = ''; });
+  if (getIntroMode() === 'quick') master.timeScale(1.7); // Settings → Display: shorter film
+  requestAnimationFrame(() => master.play(0));
 }

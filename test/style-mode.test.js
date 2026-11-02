@@ -45,3 +45,11 @@ test('style mode: subscribers get the current state at once and on change', asyn
   m.setStyle('hud');
   assert.deepEqual(seen, ['hud/false', 'calm/false', 'calm/true']);
 });
+
+test('style mode: the arc style is accepted and persisted', async () => {
+  const store = setup();
+  const m = await import(`../renderer/ui/style-mode.js?d=${Math.random()}`);
+  m.setStyle('arc');
+  assert.equal(m.getStyle(), 'arc');
+  assert.equal(store['jarvis.style'], 'arc');
+});
