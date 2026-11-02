@@ -8,6 +8,7 @@
 // Emits `app:ready` on window when the UI is fully usable.
 
 import { sfx, requireGestureForAudio } from '../sfx.js';
+import { playHudBoot } from './hud-boot.js';
 import './ease.js';
 
 const gsap = window.gsap;
@@ -146,6 +147,10 @@ function playBoot({ home }) {
 
     body.classList.add('booting');
     home.booting = true;
+    if (home.style === 'hud') { // the reference boot choreography (ui/hud-boot.js)
+      playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, countUp });
+      return;
+    }
     const cards = home.cards;
     const core = home.core;
     const ticks = home.ticks;

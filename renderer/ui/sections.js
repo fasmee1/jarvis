@@ -18,7 +18,7 @@ export class Sections {
     this.hb = $('hamburger');
     this.hb.addEventListener('click', () => this.toggleMenu());
     this.menu.addEventListener('click', (e) => {
-      if (e.target === this.menu) this.closeMenu();
+      if (e.target === this.menu || e.target.closest('[data-menu-close]')) this.closeMenu();
       const item = e.target.closest('[data-section]');
       if (item) this.show(item.dataset.section);
       const win = e.target.closest('[data-win]');
@@ -33,7 +33,12 @@ export class Sections {
   _fs(on) {
     document.body.classList.toggle('fullscreen', !!on);
     const b = $('win-fs');
-    if (b) b.textContent = on ? '⛶ ออกจากเต็มจอ (F11)' : '⛶ เต็มจอ (F11)';
+    if (!b) return;
+    const label = on ? '⛶ ออกจากเต็มจอ (F11)' : '⛶ เต็มจอ (F11)';
+    const wl = b.querySelector('.wl');
+    if (wl) wl.textContent = label;
+    else b.textContent = label;
+    b.title = label.replace('⛶ ', '');
   }
 
   _modalOpen() {
@@ -48,6 +53,11 @@ export class Sections {
       else if (this.current) this.home();
       return;
     }
+    if (!this.menu.hidden && (e.key === 'h' || e.key === 'H') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      this.home();
+      return;
+    }
     if (!this.menu.hidden && /^[1-7]$/.test(e.key)) {
       e.preventDefault(); // "1" must not end up typed in the conversation input
       this.show(ORDER[Number(e.key) - 1]);
@@ -59,18 +69,37 @@ export class Sections {
     else this.closeMenu();
   }
 
+  _markCurrent() {
+    const cur = this.current || 'home';
+    for (const it of this.menu.querySelectorAll('[data-section]')) it.classList.toggle('current', it.dataset.section === cur);
+  }
+
+  _tickClock() {
+    const el = $('menu-clock');
+    if (el) el.textContent = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  }
+
   openMenu() {
+    this._markCurrent();
+    this._tickClock();
+    clearInterval(this._clock);
+    this._clock = setInterval(() => this._tickClock(), 1000);
     this.menu.hidden = false;
     this.hb.setAttribute('aria-expanded', 'true');
     this.menu.querySelector('.menu-item').focus();
   }
 
   closeMenu() {
+    clearInterval(this._clock);
     this.menu.hidden = true;
     this.hb.setAttribute('aria-expanded', 'false');
   }
 
   show(name) {
+    if (name === 'home') {
+      this.home();
+      return;
+    }
     if (name === 'talk') {
       // the conversation lives on the HUD: back home, then the popup opens
       this.home();

@@ -14,6 +14,48 @@ export const W = 1920;
 export const H = 1080;
 export const CORE = { x: 960, y: 540, rNode: 276, rOuter: 292 };
 
+// ---- HUD style: the reference composition (1672×940 stage units) mapped onto the 1920×1080 canvas ----
+// One uniform scale; the reference core centre (836, 481) lands on CORE (960, 540).
+export const HS = 1920 / 1672;
+export const HUD_K = 1.15; // reference core scale: ring radius 243 · K
+export const HUD_R_OUT = 243 * HUD_K * HS; // node ring radius on the 1920 canvas
+const hx = (x) => (x - 836) * HS + 960;
+const hy = (y) => (y - 481) * HS + 540;
+// reference boxes (ref units): x,y,w,h · cut corners · node angle (ref: 0 = right, clockwise) · leader edge/t/route
+const HUD_BASE = {
+  reply: { x: 104, y: 116, w: 392, h: 240, cut: { tl: 26, br: 26 }, node: -135, edge: 'r', t: 0.55, route: 'h45', tag: 'A3', size: 'large', depth: 1 },
+  mic: { x: 584, y: 24, w: 240, h: 128, cut: { tr: 18 }, node: -110, edge: 'b', t: 0.6, route: 'v45', tag: 'B4', size: 'small', depth: 0.45 },
+  latency: { x: 1196, y: 140, w: 380, h: 214, cut: { tl: 16, br: 34 }, node: -40, edge: 'l', t: 0.7, route: 'h45', tag: 'D8', size: 'large', depth: 1 },
+  step: { x: 128, y: 452, w: 320, h: 160, cut: { tr: 20, bl: 20 }, node: 165, edge: 'r', t: 0.2, route: 'h45', tag: 'B2', size: 'medium', depth: 0.7 },
+  tokens: { x: 1292, y: 436, w: 264, h: 164, cut: { tl: 18 }, node: 22, edge: 'l', t: 0.25, route: 'h45', tag: 'C7', size: 'medium', depth: 0.7 },
+  tts: { x: 884, y: 24, w: 240, h: 128, cut: { tl: 18 }, node: -70, edge: 'b', t: 0.4, route: 'v45', tag: 'C6', size: 'small', depth: 0.45 },
+  camera: { x: 160, y: 662, w: 300, h: 160, cut: { bl: 16, tr: 16 }, node: 120, edge: 'r', t: 0.8, route: 'h45', tag: 'B5', size: 'medium', depth: 0.45 },
+  edit: { x: 1010, y: 770, w: 292, h: 140, cut: { br: 20, tl: 14 }, node: 75, edge: 'l', t: 0.5, route: 'h45', tag: 'D6', size: 'medium', depth: 0.45 },
+};
+const HUD_GROW = { wide: 1, mid: 1.05, narrow: 1.12 };
+// narrow windows hide cards in this order (window width below the limit)
+const HUD_HIDE = { tts: 1180, tokens: 1040, mic: 820 };
+
+function hudCards(name) {
+  const k = HUD_GROW[name];
+  const out = [];
+  for (const id of Object.keys(HUD_BASE)) {
+    const b = HUD_BASE[id];
+    const ew = b.w * (k - 1), eh = b.h * (k - 1);
+    const left = b.x + b.w / 2 < 836, up = b.y + b.h / 2 < 481;
+    const x = Math.round(left ? b.x - ew : b.x), y = Math.round(up ? b.y - eh : b.y);
+    const w = Math.round(b.w + ew), h = Math.round(b.h + eh);
+    const cutPx = {};
+    for (const c of ['tl', 'tr', 'br', 'bl']) cutPx[c] = (b.cut[c] || 0) * HS;
+    out.push({
+      id, hud: true, tag: b.tag, size: b.size, depth: b.depth, cut: Object.keys(b.cut), cutPx,
+      col: hx(x) / CELL, row: hy(y) / CELL, w: (w * HS) / CELL, h: (h * HS) / CELL,
+      anchor: { side: b.edge, at: b.t }, node: (b.node + 90 + 360) % 360, route: b.route,
+    });
+  }
+  return out;
+}
+
 // Three sizes — small 11×5 (MIC, TTS), medium 13×7 (STEP, TOKENS, CAMERA,
 // ELAPSED), large 18×9 (LAST REPLY, LATENCY) — mirrored around the reactor's
 // vertical axis (col 40): every left card has a twin at col 80 − col − w.
@@ -96,6 +138,7 @@ export function collides(cards) {
 
 /** Pick the layout for the current window size (falls through on collisions). */
 export function pickLayout(winW, winH) {
+  if (STYLE === 'hud') return pickHud(winW);
   const aspect = winW / winH;
   for (const l of LAYOUTS) {
     if (winW < l.minWidth) continue;
@@ -103,4 +146,25 @@ export function pickLayout(winW, winH) {
     if (!collides(l.cards)) return l;
   }
   return LAYOUTS[LAYOUTS.length - 1];
+}
+
+// ---------- style switch ----------
+let STYLE = 'calm';
+export const getLayoutStyle = () => STYLE;
+
+/** 'hud' moves the node ring out to the reference radius and swaps the card composition. */
+export function setLayoutStyle(style) {
+  STYLE = style === 'hud' ? 'hud' : 'calm';
+  CORE.rNode = STYLE === 'hud' ? HUD_R_OUT : 276;
+  CORE.rOuter = STYLE === 'hud' ? HUD_R_OUT : 292;
+}
+
+function pickHud(winW) {
+  const order = ['wide', 'mid', 'narrow'];
+  let i = winW >= 1600 ? 0 : winW >= 1360 ? 1 : 2;
+  for (; i < order.length; i++) if (!collides(hudCards(order[i]))) break;
+  const name = order[Math.min(i, 2)];
+  const cards = hudCards(name).map((c) => ({ ...c, hidden: !!c.hidden || (HUD_HIDE[c.id] ? winW < HUD_HIDE[c.id] : false) }));
+  const off = cards.filter((c) => c.hidden && c.id !== 'camera' && c.id !== 'edit').map((c) => c.id).join(',');
+  return { name: `hud-${name}${off ? '-' + off : ''}`, minWidth: 0, cards };
 }

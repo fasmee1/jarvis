@@ -2,7 +2,9 @@
 // runs the render loop and turns real app signals into visuals.
 
 import './ease.js';
-import { W, H, pickLayout } from './layout.js';
+import { W, H, pickLayout, setLayoutStyle } from './layout.js';
+import { HudReactor, normState } from './hud-reactor.js';
+import { HudBackdrop } from './hud-backdrop.js';
 import { Grid } from './grid.js';
 import { Core } from './core.js';
 import { Cards } from './cards.js';
@@ -22,12 +24,42 @@ export function formatElapsed(ms) {
   return h ? `${h}:${p(m)}:${p(t % 60)}` : `${m}:${p(t % 60)}`;
 }
 
+/** One handle for the two reactors (calm canvas / HUD svg): state goes to both, drawing only to the active one. */
+class CoreSwitch {
+  constructor(calm, hud) {
+    this.calm = calm;
+    this.hud = hud;
+    this.active = calm;
+    for (const m of ['setState', 'setSignals', 'pulseActivity', 'wake', 'setFollow', 'setNodes', 'flashNode', 'holdNode', 'setHover', 'setDocked', 'resize']) {
+      this[m] = (...a) => { this.calm[m](...a); this.hud[m](...a); };
+    }
+  }
+
+  get quality() { return this.calm.quality; }
+  set quality(q) { this.calm.quality = q; this.hud.setQuality(q); }
+  get mini() { return this.calm.mini; }
+  set mini(v) { this.calm.mini = v; }
+  frame(now, dt) { this.active.frame(now, dt); }
+  beginBoot(order) { return this.calm.beginBoot(order); }
+  endBoot() { this.calm.endBoot(); }
+  setReduced(on) { this.calm.setReduced(on); this.hud.setReduced(on); }
+  setStyle(style) { this.calm.setStyle(style); }
+  use(style) {
+    this.active = style === 'hud' ? this.hud : this.calm;
+    this.hud.setActive(style === 'hud');
+    this.calm.canvas.hidden = style === 'hud';
+  }
+}
+
 export class Home {
   constructor({ onOpen, onCoreClick }) {
     this.root = $('home');
     this.stage = $('stage');
     this.grid = new Grid($('grid-bg'), $('grid-fx'));
-    this.core = new Core($('core'));
+    this.calmCore = new Core($('core'));
+    this.hud = new HudReactor($('core-wrap'));
+    this.core = new CoreSwitch(this.calmCore, this.hud);
+    this.backdrop = new HudBackdrop();
     this.ticks = new Ticks($('core-wrap'), $('core'));
     this.cards = new Cards({ container: $('cards'), leaders: $('leaders'), framing: $('framing'), core: this.core, tip: $('card-tip'), onOpen, onClose: (id) => this.docking && this.docking.close(id) });
     this.state = 'STANDBY';
@@ -41,6 +73,7 @@ export class Home {
     $('core-hit').addEventListener('click', () => onCoreClick());
     addEventListener('resize', () => this.resize());
     this._idle();
+    this._applyStyle(document.documentElement.dataset.style === 'calm' ? 'calm' : 'hud', true);
     this.resize();
     this.docking = new Docking(this);
     this._clock();
@@ -50,8 +83,38 @@ export class Home {
 
   setQuality(q) {
     this.quality = q === 'low' ? 'low' : 'high';
+    document.documentElement.dataset.quality = this.quality;
     this.core.quality = this.quality;
     this.grid.quality = this.quality;
+  }
+
+  /** 'hud' | 'calm' (ui/style-mode.js): the reactor and the background redraw in the new look. */
+  setStyle(style) {
+    const next = style === 'hud' ? 'hud' : 'calm';
+    if (next === this.style) return;
+    this._applyStyle(next, false);
+  }
+
+  _applyStyle(style, init) {
+    this.style = style;
+    setLayoutStyle(style);
+    this.core.use(style);
+    this.core.setStyle(style);
+    this.grid.setStyle(style);
+    this.backdrop.setActive(style === 'hud');
+    this.hud.onParallax = (px, py) => {
+      this.backdrop.parallax(px, py);
+      for (const c of this.cards.cards.values()) c.el.style.translate = `${(-px * (c.def.depth || 0) * 3).toFixed(2)}px ${(-py * (c.def.depth || 0) * 3).toFixed(2)}px`;
+    };
+    if (init) return;
+    this.layoutName = ''; // rebuild the cards for the new composition
+    this.resize();
+    this._replay();
+  }
+
+  /** Reduced motion: the reactor holds still instead of breathing / orbiting. */
+  setReduced(on) {
+    this.core.setReduced(on);
   }
 
   setVisible(v) {
@@ -67,7 +130,7 @@ export class Home {
     const scale = Math.min(innerWidth / W, innerHeight / H);
     // snap the stage origin so the window grid and the stage grid coincide
     const ox = Math.round((innerWidth - W * scale) / 2);
-    const oy = Math.round((innerHeight - H * scale) / 2);
+    const oy = Math.round((innerHeight - H * scale) / 2 + (this.style === 'hud' ? 12.3 * scale : 0)); // HUD: core centre sits at 481/940 like the reference
     this.t = { scale, ox, oy };
     this.stage.style.transform = `translate(${ox}px, ${oy}px) scale(${scale})`;
     this.grid.resize(this.t);
@@ -242,6 +305,7 @@ export class Home {
     if (!this._lastEl || now - this._lastEl > 100) {
       this._lastEl = now;
       $('core-elapsed').textContent = formatElapsed(el);
+      if (this.style === 'hud') this.cards.setElapsed(el, normState(this.state) !== 'STANDBY');
     }
   }
 

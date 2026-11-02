@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' data: blob: https://tiles.openfreemap.org https://s3.amazonaws.com https://api.rainviewer.com https://tilecache.rainviewer.com https://server.arcgisonline.com https://mts0.googleapis.com https://mts1.googleapis.com https://mts2.googleapis.com https://mts3.googleapis.com https://tile.googleapis.com https://api.cesium.com https://assets.ion.cesium.com; worker-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src https:">
   <title>Mee JARVIS</title>
+  <script src="ui/style-boot.js"></script>
   <link rel="stylesheet" href="ui/fonts.css">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="ui/camera.css">
@@ -15,8 +16,34 @@
   <link rel="stylesheet" href="ui/screen-watch.css">
   <link rel="stylesheet" href="approval/question-form.css">
   <link rel="stylesheet" href="ui/video-editor.css">
+  <link rel="stylesheet" href="ui/hud.css">
 </head>
 <body>
+  <!-- HUD icon sprite (reference icons) -->
+  <svg id="sprite" width="0" height="0" aria-hidden="true">
+  <defs>
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0A2236" stop-opacity=".94"/><stop offset="1" stop-color="#030C18" stop-opacity=".9"/></linearGradient>
+    <symbol id="i-mic" viewBox="0 0 32 32"><rect x="12" y="3" width="8" height="15" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 15a9 9 0 0 0 18 0M16 24v5M11 29h10" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-speaker" viewBox="0 0 32 32"><path d="M4 12h5l7-6v20l-7-6H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M20 11a7 7 0 0 1 0 10M23.5 7.5a12 12 0 0 1 0 17" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 32 32"><path d="M4 5h24v17H15l-6 5v-5H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="11" cy="13.5" r="1.3" fill="currentColor"/><circle cx="16" cy="13.5" r="1.3" fill="currentColor"/><circle cx="21" cy="13.5" r="1.3" fill="currentColor"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M16 8v8.5l5 3" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 32 32"><path d="M16 3l11 6v14l-11 6-11-6V9zM5 9l11 6 11-6M16 15v14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-db" viewBox="0 0 32 32"><ellipse cx="16" cy="7" rx="10" ry="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 7v18c0 2.2 4.5 4 10 4s10-1.8 10-4V7M6 16c0 2.2 4.5 4 10 4s10-1.8 10-4" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-home" viewBox="0 0 32 32"><path d="M4 15L16 4l12 11M7 13v14h18V13M13 27v-8h6v8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 32 32"><path d="M20 4a7 7 0 0 0-6 9L4 23l5 5 10-10a7 7 0 0 0 9-6l-4 3-4-1-1-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-board" viewBox="0 0 32 32"><rect x="6" y="6" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="12" y="12" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2v4M16 2v4M22 2v4M10 26v4M16 26v4M22 26v4M2 10h4M2 16h4M2 22h4M26 10h4M26 16h4M26 22h4" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-3d" viewBox="0 0 32 32"><path d="M16 3l11 6v14l-11 6-11-6V9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M16 3v26M5 9l22 14M27 9L5 23" fill="none" stroke="currentColor" stroke-width="1" opacity=".6"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 32 32"><path d="M3 9h6l2-4h10l2 4h6v18H3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="16" cy="17" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 32 32"><path d="M3 8h9l3 3h14v15H3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 32 32"><path d="M2 17h7l3-9 5 17 4-12 2 4h7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-diag" viewBox="0 0 32 32"><path d="M4 27V5M4 27h24M9 21l5-6 4 3 8-10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 32 32"><circle cx="16" cy="16" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M16 3l2.5 3.5 4.3-.8 1 4.2 3.9 2-1.6 4 1.6 4-3.9 2-1 4.2-4.3-.8L16 29l-2.5-3.5-4.3.8-1-4.2-3.9-2 1.6-4-1.6-4 3.9-2 1-4.2 4.3.8z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+    <symbol id="i-full" viewBox="0 0 32 32"><path d="M4 11V4h7M21 4h7v7M28 21v7h-7M11 28H4v-7" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-min" viewBox="0 0 32 32"><path d="M6 24h20" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-close" viewBox="0 0 32 32"><path d="M7 7l18 18M25 7L7 25" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 16 32"><path d="M3 6l10 10L3 26" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  </defs>
+</svg>
   <!-- ============ HOME: one full-screen instrument ============ -->
   <div id="home" class="home">
     <canvas id="grid-bg" class="layer-fill"></canvas>
@@ -254,7 +281,7 @@
 
   <!-- The only control on home -->
   <button id="hamburger" class="hamburger" aria-label="เมนู" aria-haspopup="true" aria-expanded="false">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16 M4 12h16 M4 17h16"/></svg>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path class="hb-calm" d="M4 7h16 M4 12h16 M4 17h16"/><g class="hb-hud" transform="scale(.6)"><path class="brk" d="M1 13V4l3-3h9M27 1h9l3 3v9M39 27v9l-3 3h-9M13 39H4l-3-3v-9"/><path class="ln" d="M11 14h18M11 20h18M11 26h18"/></g></svg>
     <span id="hb-dot" class="hb-dot" hidden></span>
   </button>
   <button id="proj-chip" class="proj-chip" type="button" title="งานเบื้องหลัง — เปิดหน้าต่าง PROJECTS" hidden><span class="proj-chip-dot" aria-hidden="true"></span><span id="proj-chip-text"></span></button>
@@ -276,16 +303,20 @@
   <nav id="menu" class="menu" hidden>
     <div class="menu-panel cut">
       <div class="menu-head">
+        <span class="menu-brand-ic" aria-hidden="true"><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="21"/><circle cx="24" cy="24" r="14"/><path d="M24 14l9 10-9 10-9-10z"/></svg></span>
         <span class="mono dim">MEE JARVIS</span>
+        <button class="menu-close" type="button" data-menu-close aria-label="ปิดเมนู" title="ปิดเมนู (Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12 M18 6 6 18"/></svg></button>
+        <span id="menu-clock" class="menu-clock" aria-hidden="true"></span>
         <span id="menu-project" class="mono menu-project"></span>
       </div>
-      <button class="menu-item" data-section="talk"><span class="mi-k">01</span><span class="mi-t">TALK</span><span class="mi-th">บทสนทนา · Tab / Space</span></button>
-      <button class="menu-item" data-section="maker"><span class="mi-k">02</span><span class="mi-t">MAKER</span><span class="mi-th">ขั้นตอน · แผนผัง · อุปกรณ์ · โค้ด</span></button>
-      <button class="menu-item" data-section="activity"><span class="mi-k">03</span><span class="mi-t">ACTIVITY</span><span class="mi-th">เครื่องมือที่ Claude ใช้</span></button>
-      <button class="menu-item" data-section="diagnostics"><span class="mi-k">04</span><span class="mi-t">DIAGNOSTICS</span><span class="mi-th">latency · tokens · terminal</span></button>
-      <button class="menu-item" data-section="projects"><span class="mi-k">05</span><span class="mi-t">PROJECTS</span><span class="mi-th">งานเบื้องหลัง · หลายโปรเจกต์</span></button>
-      <button class="menu-item" id="btn-settings" data-section="settings"><span class="mi-k">06</span><span class="mi-t">SETTINGS</span><span class="mi-th">ตั้งค่า</span></button>
-      <button class="menu-item" data-section="video"><span class="mi-k">07</span><span class="mi-t">EDIT</span><span class="mi-th">ตัดต่อคลิปสั้น</span></button>
+      <button class="menu-item" title="หน้าหลัก · Esc" data-section="home"><span class="mi-k">00</span><span class="mi-ic" aria-hidden="true"><svg viewBox="0 0 32 32"><use href="#i-home"/></svg></span><span class="mi-t">HOME</span><span class="mi-th">หน้าหลัก</span><kbd class="mi-kb">H</kbd></button>
+      <button class="menu-item" title="บทสนทนา · Tab / Space" data-section="talk"><span class="mi-k">01</span><span class="mi-ic" aria-hidden="true"><svg viewBox="0 0 32 32"><use href="#i-chat"/></svg></span><span class="mi-t">TALK</span><span class="mi-th">สนทนา</span><kbd class="mi-kb">1</kbd></button>
+      <button class="menu-item" title="ขั้นตอน · แผนผัง · อุปกรณ์ · โค้ด" data-section="maker"><span class="mi-k">02</span><span class="mi-ic" aria-hidden="true"><svg viewBox="0 0 32 32"><use href="#i-wrench"/></svg></span><span class="mi-t">MAKER</span><span class="mi-th">โหมดประดิษฐ์</span><kbd class="mi-kb">2</kbd></button>
+      <button class="menu-item" title="เครื่องมือที่ Claude ใช้" data-section="activity"><span class="mi-k">03</span><span class="mi-ic" aria-hidden="true"><svg viewBox="0 0 32 32"><use href="#i-pulse"/></svg></span><span class="mi-t">ACTIVITY</span><span class="mi-th">กิจกรรม</span><kbd class="mi-kb">3</kbd></button>
+      <button class="menu-item" title="latency · tokens · terminal" data-section="diagnostics"><span class="mi-k">04</span><span class="mi-ic" aria-hidden="true"><svg viewBox="0 0 32 32"><use href="#i-diag"/></svg></span><span class="mi-t">DIAGNOSTICS</span><span class="mi-th">วินิจฉัย</span><kbd class="mi-kb">4</kbd></button>
+      <button class="menu-item" title="งานเบื้องหลัง · หลายโปรเจกต์" data-section="projects"><span class="mi-k">05</span><span class="mi-ic" aria-hidden="true"><svg viewBox="0 0 32 32"><use href="#i-folder"/></svg></span><span class="mi-t">PROJECTS</span><span class="mi-th">โปรเจกต์</span><kbd class="mi-kb">5</kbd></button>
+      <button class="menu-item" title="ตั้งค่า" id="btn-settings" data-section="settings"><span class="mi-k">06</span><span class="mi-ic" aria-hidden="true"><svg viewBox="0 0 32 32"><use href="#i-gear"/></svg></span><span class="mi-t">SETTINGS</span><span class="mi-th">ตั้งค่า</span><kbd class="mi-kb">6</kbd></button>
+      <button class="menu-item" title="ตัดต่อคลิปสั้น" data-section="video"><span class="mi-k">07</span><span class="mi-ic" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14"/><path d="M10 9l5 3-5 3z"/></svg></span><span class="mi-t">EDIT</span><span class="mi-th">ตัดต่อคลิป</span><kbd class="mi-kb">7</kbd></button>
       <div class="menu-sep"></div>
       <div class="menu-snd">
         <span class="mono dim">SOUND</span>
@@ -295,9 +326,9 @@
       </div>
       <div class="menu-sep"></div>
       <div class="menu-win">
-        <button class="btn small" data-win="toggle-fullscreen" id="win-fs">⛶ เต็มจอ (F11)</button>
-        <button class="btn small" data-win="minimize">— ย่อ</button>
-        <button class="btn small danger" data-win="close">✕ ปิดแอป</button>
+        <button class="btn small" data-win="toggle-fullscreen" id="win-fs" title="เต็มจอ (F11)" aria-label="เต็มจอ"><svg class="wi" viewBox="0 0 32 32" aria-hidden="true"><use href="#i-full"/></svg><span class="wl">⛶ เต็มจอ (F11)</span></button>
+        <button class="btn small" data-win="minimize" title="ย่อ" aria-label="ย่อ"><svg class="wi" viewBox="0 0 32 32" aria-hidden="true"><use href="#i-min"/></svg><span class="wl">— ย่อ</span></button>
+        <button class="btn small danger" data-win="close" title="ปิดแอป" aria-label="ปิดแอป"><svg class="wi" viewBox="0 0 32 32" aria-hidden="true"><use href="#i-close"/></svg><span class="wl">✕ ปิดแอป</span></button>
       </div>
     </div>
   </nav>
@@ -739,6 +770,19 @@
         <p class="dim">ตรวจจับคำเรียกด้วย openWakeWord (โมเดล hey_jarvis + โมเดล “จาร์วิส” ที่ฝึกเพิ่ม) และ Silero VAD ทำงานในเครื่องทั้งหมด</p>
       </div>
       <div class="stab" id="stab-display" hidden>
+        <label>สไตล์หน้าจอ (style mode)
+          <select id="ui-style">
+            <option value="hud">HUD — โฮโลแกรม teal/ส้ม มุมตัด เรืองแสง</option>
+            <option value="calm">Calm — เรียบ นิ่ง สีเดียว</option>
+          </select>
+        </label>
+        <label>อนิเมชั่น (motion)
+          <select id="ui-motion">
+            <option value="auto">ตามระบบ (Windows reduce motion)</option>
+            <option value="full">เต็ม — เล่นอนิเมชั่นทั้งหมด</option>
+            <option value="reduced">ลด — เกือบไม่มีอนิเมชั่น</option>
+          </select>
+        </label>
         <label>คุณภาพกราฟิก
           <select id="ui-quality">
             <option value="high">High — 60 fps, แสงนุ่มที่โลโก้</option>

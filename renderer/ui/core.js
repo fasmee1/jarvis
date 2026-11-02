@@ -65,6 +65,8 @@ const GYRO = { rx: 322, ry: 132, rot: -0.14 }; // one tilted orbit, drawn very d
 const SWEEP = 8; // seconds per radar sweep turn
 
 // Boot parameters (tweened by ui/boot.js). FULL = normal operation.
+// HUD style: teal rings and glow (tints replace the neutral white / cyan of the calm style)
+const HUD = { accent: [44, 240, 210], ring: [44, 240, 210], orange: [255, 138, 42] };
 const FULL = { rings: 1, arc: 1, lines: null, nodes: 99, order: [], logo: 1 };
 const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
@@ -90,6 +92,7 @@ export class Core {
     this.nodes = []; // [{deg, flashAt, holdAt, dock}]
     this.hoverDeg = null;
     this.quality = 'high';
+    this.style = 'calm'; // 'calm' | 'hud' (ui/style-mode.js)
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.err = 0;
     this.mini = false;
@@ -106,6 +109,15 @@ export class Core {
   /** Hands-free wake word heard: logo 1 → 1.08 → 1, one soft ripple, one bright ring sweep. */
   wake() {
     this.wakeAt = performance.now();
+  }
+
+  setStyle(style) {
+    this.style = style === 'hud' ? 'hud' : 'calm';
+  }
+
+  /** Reduced motion (OS setting or the user's choice): no breathing, pulses or orbiting dashes. */
+  setReduced(on) {
+    this.reduced = !!on;
   }
 
   /** Follow-up window: a thin arc around the core that shrinks over ms (null = hide). */
@@ -375,15 +387,17 @@ export class Core {
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.setTransform(k, 0, 0, k, C * k, C * k);
     const B = this.boot || FULL;
-    const accent = mix(PAL.accent, PAL.red, this.err * 0.9);
-    const W = PAL.white;
+    const hud = this.style === 'hud';
+    const accent = mix(hud ? HUD.accent : PAL.accent, PAL.red, this.err * 0.9);
+    const W = hud ? HUD.ring : PAL.white;
+    const ra = hud ? 4.2 : 1; // ring / segment strength: teal hairlines are clearly visible in HUD
     const breathe = this.reduced ? 1 : 0.5 + 0.5 * Math.sin((now / 4000) * TAU); // 4 s cycle
 
     // ---- inner disc: cyan 5% at the centre fading to transparent ----
     if (B.rings > 0) {
       const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R.inner);
-      g.addColorStop(0, rgba(PAL.accent, 0.05 * B.rings));
-      g.addColorStop(1, rgba(PAL.accent, 0));
+      g.addColorStop(0, rgba(accent, (hud ? 0.1 : 0.05) * B.rings));
+      g.addColorStop(1, rgba(accent, 0));
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.arc(0, 0, R.inner, 0, TAU);
@@ -391,12 +405,13 @@ export class Core {
     }
 
     // ---- hairline rings + the dim full track (never bright) ----
-    this._ring(ctx, R.outer, rgba(W, 0.08), B.rings);
-    this._ring(ctx, R.node, rgba(W, 0.07), B.rings);
-    this._ring(ctx, R.inner, rgba(W, 0.08), B.rings);
-    this._ring(ctx, R.track, rgba(W, 0.08), B.rings);
+    this._ring(ctx, R.outer, rgba(W, 0.08 * ra), B.rings);
+    this._ring(ctx, R.node, rgba(W, 0.07 * ra), B.rings);
+    this._ring(ctx, R.inner, rgba(W, 0.08 * ra), B.rings);
+    this._ring(ctx, R.track, rgba(W, 0.08 * ra), B.rings);
 
-    if (B.rings > 0) this._decor(ctx, accent, B.rings);
+    if (B.rings > 0) this._decor(ctx, accent, B.rings * (hud ? 2.2 : 1));
+    if (hud && B.rings > 0) this._hudDecor(ctx, now, B.rings);
 
     // ---- the live arc: 2px cyan, round caps ----
     if (B.arc > 0 && this.arcLen > 0.5) {
@@ -406,8 +421,8 @@ export class Core {
         // soft bloom under the arc
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = rgba(accent, 0.12 * calmA);
-        ctx.lineWidth = 9;
+        ctx.strokeStyle = rgba(accent, (hud ? 0.28 : 0.12) * calmA);
+        ctx.lineWidth = hud ? 16 : 9;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.arc(0, 0, R.track, this.head, this.head + len);
@@ -415,7 +430,7 @@ export class Core {
         ctx.restore();
       }
       ctx.strokeStyle = rgba(accent, calmA);
-      ctx.lineWidth = 2;
+      ctx.lineWidth = hud ? 3 : 2;
       ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.arc(0, 0, R.track, this.head, this.head + len);
@@ -428,7 +443,7 @@ export class Core {
       const ripples = this.lineRipples.filter((r) => now - r.t < 700);
       this.lineRipples = ripples;
       const shown = B.lines == null ? SEGS : Math.min(SEGS, Math.round(B.lines));
-      ctx.lineWidth = 2;
+      ctx.lineWidth = hud ? 5 : 2;
       for (let i = 0; i < shown; i++) {
         const a = deg((i / SEGS) * 360);
         let v = this.seg[i];
@@ -440,7 +455,7 @@ export class Core {
         }
         const c = Math.cos(a);
         const sn = Math.sin(a);
-        ctx.strokeStyle = rgba(W, 0.08);
+        ctx.strokeStyle = rgba(W, hud ? 0.22 : 0.08);
         ctx.beginPath();
         ctx.moveTo(c * R.segIn, sn * R.segIn);
         ctx.lineTo(c * R.segOut, sn * R.segOut);
@@ -491,8 +506,8 @@ export class Core {
       if (this.quality === 'high') {
         const hr = 104;
         const g = ctx.createRadialGradient(0, 0, 0, 0, 0, hr);
-        g.addColorStop(0, rgba(accent, 0.2 * (0.75 + 0.25 * breathe) * B.logo));
-        g.addColorStop(0.45, rgba(accent, 0.06 * B.logo));
+        g.addColorStop(0, rgba(accent, (hud ? 0.38 : 0.2) * (0.75 + 0.25 * breathe) * B.logo));
+        g.addColorStop(0.45, rgba(accent, (hud ? 0.12 : 0.06) * B.logo));
         g.addColorStop(1, rgba(accent, 0));
         ctx.fillStyle = g;
         ctx.beginPath();
@@ -534,10 +549,11 @@ export class Core {
     }
 
     // ---- amber arcs: thin, only while listening or speaking (300 ms fades) ----
-    if (this.amber > 0.01) {
+    const amberA = hud ? Math.max(this.amber, 0.45) : this.amber;
+    if (amberA > 0.01) {
       const span = ((32 + Math.min(1, this.level * 1.4) * 16) * Math.PI) / 180;
-      ctx.strokeStyle = rgba(PAL.amber, 0.85 * this.amber);
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = rgba(hud ? HUD.orange : PAL.amber, 0.85 * amberA);
+      ctx.lineWidth = hud ? 3 : 1.5;
       ctx.lineCap = 'round';
       for (const mid of [0, Math.PI]) {
         ctx.beginPath();
@@ -546,6 +562,33 @@ export class Core {
       }
       ctx.lineCap = 'butt';
     }
+  }
+
+  /** HUD only: dashed orange arcs orbiting the track and two orange sweeps (still when motion is reduced). */
+  _hudDecor(ctx, now, a) {
+    const t = this.reduced ? 0 : now / 1000;
+    ctx.save();
+    ctx.lineCap = 'butt';
+    ctx.strokeStyle = rgba(HUD.orange, 0.8 * a);
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([2, 6]);
+    ctx.beginPath();
+    ctx.arc(0, 0, R.track + 8, deg(180) + t * 0.12, deg(180) + t * 0.12 + 1.6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, R.track + 8, deg(350) - t * 0.12, deg(350) - t * 0.12 + 1.0);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = rgba(HUD.orange, 0.6 * a);
+    ctx.beginPath();
+    ctx.arc(0, 0, R.segIn - 18, deg(205) + t * 0.05, deg(205) + t * 0.05 + 0.9);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, R.segIn - 18, deg(25) + t * 0.05, deg(25) + t * 0.05 + 0.9);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /** The emblem: a flat diamond with a W cutout, drawn from a cached sprite. */

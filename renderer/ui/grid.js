@@ -12,6 +12,11 @@ export class Grid {
     this.bg = bgCanvas;
     this.fx = fxCanvas;
     this.quality = 'high';
+    this.style = 'calm';
+  }
+
+  setStyle(style) {
+    this.style = style === 'hud' ? 'hud' : 'calm'; // the HUD draws its own background (hud-backdrop.js)
   }
 
   /** @param {{scale:number, ox:number, oy:number}} t stage transform */

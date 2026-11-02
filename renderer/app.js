@@ -4,6 +4,7 @@
 import { Home } from './ui/home.js';
 import { buildQuestionForm } from './approval/question-form.js';
 import { Sections } from './ui/sections.js';
+import { getStyle, getMotion, setStyle, setMotion, onStyleChange } from './ui/style-mode.js';
 import { runBoot, bootPrefs } from './ui/boot.js';
 import { CameraPanel } from './ui/camera-panel.js';
 import { Speaker } from './tts.js';
@@ -2063,6 +2064,16 @@ function wireSettings() {
   try { quality = localStorage.getItem('jarvis.quality') || 'high'; } catch { /* storage unavailable */ }
   $('ui-quality').value = quality;
   home.setQuality(quality);
+  // style mode (hud | calm) and motion (auto | full | reduced): see ui/style-mode.js
+  $('ui-style').value = getStyle();
+  $('ui-motion').value = getMotion();
+  $('ui-style').onchange = (e) => setStyle(e.target.value);
+  $('ui-motion').onchange = (e) => setMotion(e.target.value);
+  onStyleChange(({ style, reduced }) => {
+    home.setStyle(style);
+    home.setReduced(reduced);
+    $('ui-style').value = style;
+  });
   $('ui-boot-mode').value = bootPrefs.mode;
   $('ui-boot-mode').onchange = (e) => { bootPrefs.mode = e.target.value; };
   // HUD sound: 🔊/🔇 next to the menu button, ON/OFF + volume in the menu, and

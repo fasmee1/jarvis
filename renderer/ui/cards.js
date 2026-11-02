@@ -3,6 +3,7 @@
 // Thai line, in exactly the same layout as a real value.
 
 import { cardRect, leaderPoints, nodePoint, CORE } from './layout.js';
+import { outlinePath, cornerAccent } from './hud-geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const CUT = 6; // one subtle chamfer, top-left + bottom-right on every card
@@ -32,6 +33,7 @@ export const ICONS = {
   camera: 'M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z',
   x: 'M18 6 6 18 M6 6l12 12',
   chev: 'm9 18 6-6-6-6',
+  elapsed: 'M12 6v6l4 2 M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z',
 };
 
 /** A 24×24 stroke icon as an <svg>. */
@@ -48,13 +50,22 @@ const TIPS = {
   latency: 'เวลาตั้งแต่กดส่งจนเริ่มพูดประโยคแรก (t3−t0) — กราฟ 13 รอบล่าสุด · แท่งจางคือรอบที่ไม่มีเสียง จึงใช้เวลาถึงข้อความแรก (t2−t0) · คลิกเพื่อดู DIAGNOSTICS',
   step: 'ขั้นตอนปัจจุบันจากโหมดสอนประดิษฐ์ (บล็อก jarvis-steps ล่าสุด) — คลิกเพื่อเปิด MAKER',
   tokens: 'การใช้งาน Claude Code จริง: ลิมิตรายสัปดาห์ (%) และรอบ 5 ชั่วโมง พร้อมเวลารีเซ็ต — คลิกเพื่อดูรายละเอียด token ใน DIAGNOSTICS',
+  elapsed: 'เวลาที่อยู่ในสถานะปัจจุบัน',
   edit: 'JARVIS ตัดต่อคลิปอยู่เบื้องหลังถึงไหนแล้ว — คลิกเพื่อเปิดหน้า EDIT (เวลาที่อยู่ในสถานะปัจจุบันดูได้ที่แกนกลาง)',
   camera: 'กล้อง — เปิดเองด้วยปุ่มหรือ Ctrl+Shift+C เท่านั้น ไม่เปิดอัตโนมัติ · ภาพจะส่งให้ Claude เฉพาะตอนกด "ดูนี่" หรือพูดคำเรียกให้ดู',
 };
 
-export const NAMES = { reply: 'Last Reply', mic: 'Mic', tts: 'TTS', latency: 'Latency', step: 'Step', tokens: 'Tokens', edit: 'Editing', camera: 'Camera' };
+export const NAMES = { reply: 'Last Reply', mic: 'Mic', tts: 'TTS', latency: 'Latency', step: 'Step', tokens: 'Tokens', elapsed: 'Elapsed', edit: 'Editing', camera: 'Camera' };
 
-const OPEN = { camera: null, reply: 'talk', latency: 'diagnostics', step: 'maker', tokens: 'diagnostics', mic: 'talk', tts: 'settings', edit: 'video' };
+// HUD style icons: 32×32 symbols of the reference sprite (index.html #i-*)
+const HUD_ICON = { reply: 'chat', mic: 'mic', tts: 'speaker', latency: 'clock', step: 'cube', tokens: 'db', elapsed: 'clock', camera: 'camera', edit: 'cube' };
+function hudIcon(id) {
+  const s = svgEl('svg', { class: 'hico', 'aria-hidden': 'true' });
+  s.append(svgEl('use', { href: `#i-${HUD_ICON[id] || 'cube'}` }));
+  return s;
+}
+
+const OPEN = { elapsed: null, camera: null, reply: 'talk', latency: 'diagnostics', step: 'maker', tokens: 'diagnostics', mic: 'talk', tts: 'settings', edit: 'video' };
 
 function framePath(w, hh, cut, size = CUT, pad = 6) {
   const c = (k) => (cut.includes(k) ? size : 0);
@@ -90,6 +101,34 @@ export function drawFrame(svg, W0, H0, cut, { size = CUT, pad = 6, arm = ARM } =
   const ay = Math.min(arm, hh * 0.2);
   svg.querySelector('.acc-tl').replaceChildren(svgEl('path', { d: L([P(0, tl + ay), P(0, tl), P(tl, 0), P(tl + ax, 0)]) }));
   svg.querySelector('.acc-br').replaceChildren(svgEl('path', { d: L([P(w, hh - br - ay), P(w, hh - br), P(w - br, hh), P(w - br - ax, hh)]) }));
+}
+
+/** HUD card border: outline + two corner accents (top-left, bottom-right) that grow a little on hover (CSS vars). */
+export function drawHudFrame(svg, w, hh, cutPx, pad = 6) {
+  svg.setAttribute('viewBox', `0 0 ${w + pad * 2} ${hh + pad * 2}`);
+  if (!svg.querySelector('.base')) {
+    svg.replaceChildren(svgEl('path', { class: 'base' }), svgEl('g', { class: 'acc acc-tl' }), svgEl('g', { class: 'acc acc-br' }));
+    svg.querySelector('.acc-tl').append(svgEl('path', { class: 'accp' }));
+    svg.querySelector('.acc-br').append(svgEl('path', { class: 'accp' }));
+  }
+  const tf = `translate(${pad} ${pad})`;
+  const base = svg.querySelector('.base');
+  base.setAttribute('d', outlinePath(w, hh, cutPx));
+  base.setAttribute('transform', tf);
+  for (const [sel, corner] of [['.acc-tl .accp', 'tl'], ['.acc-br .accp', 'br']]) {
+    const a = cornerAccent(w, hh, cutPx, corner), p = svg.querySelector(sel);
+    p.setAttribute('d', a.d);
+    p.setAttribute('transform', tf);
+    p.style.setProperty('--da', a.rest.dash);
+    p.style.setProperty('--do', a.rest.offset);
+    p.style.setProperty('--dah', a.hover.dash);
+    p.style.setProperty('--doh', a.hover.offset);
+  }
+}
+
+function clipPolyPx(w, hh, c) {
+  const k = (n) => `${(c[n] || 0).toFixed(1)}px`;
+  return `polygon(${k('tl')} 0, calc(100% - ${k('tr')}) 0, 100% ${k('tr')}, 100% calc(100% - ${k('br')}), calc(100% - ${k('br')}) 100%, ${k('bl')} 100%, 0 calc(100% - ${k('bl')}), 0 ${k('tl')})`;
 }
 
 function clipPoly(w, hh, cut) {
@@ -160,8 +199,10 @@ export class Cards {
       }
       head.append(close);
       inner.append(head, h('div', 'rule'));
+      head.insertBefore(hudIcon(def.id), head.querySelector('.lbl'));
       el.append(fill, frame, inner);
       const parts = this[`_body_${def.id}`](inner, def);
+      if (def.hud) this._hudExtras(el, inner, def, parts);
       el.addEventListener('mouseenter', (e) => this._hover(def, e));
       el.addEventListener('mousemove', (e) => this._moveTip(e));
       el.addEventListener('mouseleave', () => this._hover(null));
@@ -183,6 +224,11 @@ export class Cards {
   _shape(el, fill, frame, def) {
     const r = cardRect(def);
     Object.assign(el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+    if (def.cutPx) {
+      fill.style.clipPath = clipPolyPx(r.w, r.h, def.cutPx);
+      drawHudFrame(frame, r.w, r.h, def.cutPx);
+      return;
+    }
     fill.style.clipPath = clipPoly(r.w, r.h, ['tl', 'br']);
     drawFrame(frame, r.w, r.h, ['tl', 'br']);
   }
@@ -249,10 +295,11 @@ export class Cards {
     inner.append(b);
     return { val, seg, hint };
   }
-  _body_latency(inner) {
+  _body_latency(inner, def) {
     const chart = h('div', 'chart');
     const bars = [];
-    for (let i = 0; i < 8; i++) {
+    const nBars = 8;
+    for (let i = 0; i < nBars; i++) {
       const b = h('i', 'empty');
       bars.push(b);
       chart.append(b);
@@ -261,7 +308,7 @@ export class Cards {
     avg.hidden = true;
     chart.append(avg);
     const row = h('div', 'lrow');
-    const meta = h('div', 'meta', '0 / 8 TURNS');
+    const meta = h('div', 'meta', `0 / ${nBars} TURNS`);
     const val = h('div', 'val na', '—');
     row.append(meta, val);
     inner.append(chart, row);
@@ -297,6 +344,56 @@ export class Cards {
     return { val, sub, seg };
   }
 
+  /** HUD-only details of the reference cards: ID tag, serial-number micro line, ruler. (Hidden in the calm style.) */
+  _hudExtras(el, inner, def, parts) {
+    el.append(h('span', 'tg', def.tag || ''));
+    if (def.id === 'reply') {
+      const m = h('div', 'micro');
+      const seg4 = h('span', 'seg4');
+      for (let i = 0; i < 4; i++) seg4.append(h('i'));
+      m.append(seg4, h('span', 'sn', 'SN A3-0417'));
+      inner.append(m);
+      parts.seg4 = seg4;
+    } else if (def.id === 'latency') {
+      const ruler = h('div', 'ruler');
+      for (let i = 0; i < 24; i++) ruler.append(h('i'));
+      const m = h('div', 'micro');
+      m.append(h('span', 'sn', 'SN D8-2291'));
+      inner.append(ruler, m);
+    }
+  }
+
+  _body_elapsed(inner) {
+    const b = h('div', 'body');
+    const row = h('div', 'vrow');
+    const val = h('div', 'val na', '—');
+    const dial = svgEl('svg', { class: 'dial', viewBox: '0 0 48 48', 'aria-hidden': 'true' });
+    dial.append(svgEl('circle', { class: 'tr', cx: 24, cy: 24, r: 19 }));
+    const fg = svgEl('circle', { class: 'fg', cx: 24, cy: 24, r: 19, pathLength: 100, 'stroke-dasharray': '0 100' });
+    dial.append(fg);
+    row.append(val, dial);
+    const hint = h('div', 'hint', 'ไม่ได้ทำงานอยู่');
+    b.append(row, hint);
+    inner.append(b);
+    return { val, hint, dial, fg };
+  }
+
+  /** ELAPSED: time in the current state (only while the app is doing something). */
+  setElapsed(ms, active) {
+    const c = this.cards.get('elapsed');
+    if (!c) return;
+    if (!active) {
+      this._setVal('elapsed', c.parts.val, '—', '', { na: true, live: true });
+      c.parts.hint.textContent = 'ไม่ได้ทำงานอยู่';
+      c.parts.fg.setAttribute('stroke-dasharray', '0 100');
+      return;
+    }
+    const sec = ms / 1000;
+    this._setVal('elapsed', c.parts.val, sec.toFixed(1), 's', { live: true });
+    c.parts.hint.textContent = '';
+    c.parts.fg.setAttribute('stroke-dasharray', `${(((sec % 10) / 10) * 100).toFixed(1)} 100`);
+  }
+
   /** A single thin 2px progress line. */
   _meter() {
     return h('div', 'meter');
@@ -330,7 +427,7 @@ export class Cards {
     el.className = `val${na ? ' na' : ''}${hot ? ' hot' : ''}`;
     el.replaceChildren();
     el.append(h('span', changed && !hot ? 'roll' : '', text));
-    if (unit) el.append(h('span', 'u', unit));
+    if (unit) el.append(h('span', 'u', unit)); // the HUD shows a bare dash when there is no value
     if (changed && !na && !hot && !live) this._updated(c);
   }
 
@@ -339,6 +436,7 @@ export class Cards {
     const now = performance.now();
     if (now - (c.pulsedAt || 0) < 1200) return; // live values (mic, voice) must not stream pulses
     c.pulsedAt = now;
+    if (c.def.hud && !matchMedia('(prefers-reduced-motion: reduce)').matches) { c.el.classList.remove('bump'); void c.el.offsetWidth; c.el.classList.add('bump'); }
     this.core.flashNode(c.def.node);
     this.pulse(c.def.id, true);
   }
@@ -365,6 +463,10 @@ export class Cards {
       this._updated(c);
     }
     if (t && c.parts.more) c.parts.more.hidden = false;
+    if (c.parts.seg4) {
+      const lit = t ? Math.min(4, Math.ceil(t.length / 64)) : 0;
+      [...c.parts.seg4.children].forEach((e, i) => e.classList.toggle('on', i < lit));
+    }
     if (total) {
       this._seg(c.parts.seg, spoken / total);
       c.parts.cnt.textContent = `${spoken}/${total}`;
@@ -426,24 +528,25 @@ export class Cards {
   setLatency(hist) {
     const c = this.cards.get('latency');
     if (!c) return;
-    const last8 = hist.slice(-8);
+    const nb = c.parts.bars.length;
+    const last8 = hist.slice(-nb);
     const max = Math.max(1, ...last8.map((x) => x.ms));
     const PAD = 8; // highest bar stops just short of the chart top
     const pct = (ms) => Math.max(6, (ms / max) * (100 - PAD));
     c.parts.bars.forEach((b, i) => {
-      const it = last8[i - (8 - last8.length)];
+      const it = last8[i - (nb - last8.length)];
       if (!it) {
         b.className = 'empty';
         b.style.height = '';
         return;
       }
-      b.className = `${it.kind === 'text' ? 'text' : ''}${i === 7 ? ' last' : ''}`;
+      b.className = `${it.kind === 'text' ? 'text' : ''}${i === nb - 1 ? ' last' : ''}`;
       b.style.height = `${pct(it.ms)}%`;
     });
     const avg = c.parts.avg;
     avg.hidden = last8.length < 2;
     if (last8.length >= 2) avg.style.bottom = `${pct(last8.reduce((a, x) => a + x.ms, 0) / last8.length)}%`;
-    c.parts.meta.textContent = `${last8.length} / 8 TURNS`;
+    c.parts.meta.textContent = `${last8.length} / ${nb} TURNS`;
     const cur = last8[last8.length - 1];
     if (!cur) this._setVal('latency', c.parts.val, '—', 's', { na: true });
     else this._setVal('latency', c.parts.val, (cur.ms / 1000).toFixed(2), 's');
