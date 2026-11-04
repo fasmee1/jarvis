@@ -1,0 +1,153 @@
+diff --git a/renderer/ui/hud-reactor.js b/renderer/ui/hud-reactor.js
+index cd50e73..03bb5a3 100644
+--- a/renderer/ui/hud-reactor.js
++++ b/renderer/ui/hud-reactor.js
+@@ -114,7 +114,8 @@ export class HudReactor {
+     for (const [a, b, c, d] of [[300, 640, 560, 880], [1372, 640, 1112, 880], [560, 40, 700, 120], [1112, 40, 972, 120]]) mk('path', { d: `M${a} ${b}L${c} ${d}`, stroke: 'rgba(0,229,255,.06)', 'stroke-width': 1.2 }, g0);
+     const gs = this._scaled(L0, { id: 'g-static' });
+     this.gs = gs;
+-    mk('circle', { cx: CX, cy: CY, r: 238, fill: 'rgba(2,8,18,.42)' }, gs); // dark backing for the core text
++    defs.innerHTML += '<radialGradient id="hud-core-bg" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#03121e" stop-opacity=".78"/><stop offset=".5" stop-color="#02101a" stop-opacity=".5"/><stop offset=".86" stop-color="#00e5ff" stop-opacity=".07"/><stop offset="1" stop-color="#00e5ff" stop-opacity=".02"/></radialGradient>';
++    mk('circle', { cx: CX, cy: CY, r: 238, fill: 'url(#hud-core-bg)' }, gs); // dark backing for the core text
+     this.outer = mk('circle', { cx: CX, cy: CY, r: R0, pathLength: 360, fill: 'none', stroke: 'rgba(0,229,255,.38)', 'stroke-width': 1.2, class: 'outer' }, gs);
+     const gMin = mk('g', { id: 'ticksMin', stroke: 'rgba(0,229,255,.22)', 'stroke-width': 0.8, fill: 'none' }, gs);
+     const gMid = mk('g', { id: 'ticksMid', stroke: 'rgba(0,229,255,.38)', 'stroke-width': 1, fill: 'none' }, gs);
+@@ -135,20 +136,36 @@ export class HudReactor {
+     const arcPath = (r, a1, a2) => { const [x1, y1] = pt(r, a1), [x2, y2] = pt(r, a2); return `M${f1(x1)} ${f1(y1)}A${r} ${r} 0 0 1 ${f1(x2)} ${f1(y2)}`; };
+     for (const [a1, a2] of [[-125, -55], [108, 158], [22, 72]]) mk('path', { d: arcPath(R0 - 7, a1, a2), class: 'dash-or' }, gs);
+     let tIn = '', tIn2 = '';
+-    for (let a = 0; a < 360; a += 2) { const [x1, y1] = pt(212, a), [x2, y2] = pt(a % 10 === 0 ? 220 : 216, a); tIn += `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; }
+-    for (let a = 0; a < 360; a += 6) { const [x1, y1] = pt(99, a), [x2, y2] = pt(a % 30 === 0 ? 107 : 103, a); tIn2 += `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; }
++    for (let a = 0; a < 360; a += 3) { const [x1, y1] = pt(205, a), [x2, y2] = pt(a % 15 === 0 ? 212 : 208.5, a); tIn += `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; }
++    for (let a = 0; a < 360; a += 6) { const [x1, y1] = pt(86, a), [x2, y2] = pt(a % 30 === 0 ? 94 : 90, a); tIn2 += `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; }
+     mk('path', { d: tIn, stroke: 'rgba(0,229,255,.34)', 'stroke-width': 0.9, fill: 'none' }, gs);
+     mk('path', { d: tIn2, stroke: 'rgba(0,229,255,.3)', 'stroke-width': 0.9, fill: 'none' }, gs);
+     for (const a of [0, 90, 180, 270]) { const [x1, y1] = pt(62, a), [x2, y2] = pt(R0 - 12, a); mk('path', { d: `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`, stroke: 'rgba(0,229,255,.13)', 'stroke-width': 0.9 }, gs); }
+     this.tk1 = gMin; this.tk2 = gMaj; this.tk3 = gMid;
+     for (const e of [gMin, gMaj, gMid]) e.style.transformOrigin = `${CX}px ${CY}px`;
+-    mk('circle', { cx: CX, cy: CY, r: 231, fill: 'none', stroke: 'rgba(0,229,255,.16)', 'stroke-width': 1 }, gs);
++    mk('circle', { cx: CX, cy: CY, r: 231, fill: 'none', stroke: 'rgba(0,229,255,.22)', 'stroke-width': 1 }, gs);
++    for (const a of [-90, 0, 90, 180]) { // small inward pointers on the 231 ring (cardinal points)
++      const [x1, y1] = pt(231, a - 2.2), [x2, y2] = pt(231, a + 2.2), [x3, y3] = pt(222.5, a);
++      mk('path', { d: `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}L${f1(x3)} ${f1(y3)}Z`, fill: 'rgba(0,229,255,.55)', stroke: 'none' }, gs);
++    }
++    for (const a of [-45, 45, 135, 225]) { // diagonal bracket marks
++      const [x1, y1] = pt(226, a - 5), [x2, y2] = pt(226, a + 5);
++      mk('path', { d: `M${f1(x1)} ${f1(y1)}A226 226 0 0 1 ${f1(x2)} ${f1(y2)}`, fill: 'none', stroke: 'rgba(255,138,42,.55)', 'stroke-width': 1.6 }, gs);
++    }
++    { // top pointer on the outer ring + small beads on the 231 ring + soft core glow
++      const [px1, py1] = pt(R0 + 17, -90 - 1.8), [px2, py2] = pt(R0 + 17, -90 + 1.8), [px3, py3] = pt(R0 + 6, -90);
++      mk('path', { d: `M${f1(px1)} ${f1(py1)}L${f1(px2)} ${f1(py2)}L${f1(px3)} ${f1(py3)}Z`, fill: '#FF8A2A', stroke: 'none' }, gs);
++      for (let a = 0; a < 360; a += 30) { const [bx, by] = pt(231, a + 15); mk('circle', { cx: f1(bx), cy: f1(by), r: 1.6, fill: 'rgba(0,229,255,.7)' }, gs); }
++      defs.innerHTML += '<radialGradient id="hud-core-glow"><stop offset="0" stop-color="#00e5ff" stop-opacity=".16"/><stop offset="1" stop-color="#00e5ff" stop-opacity="0"/></radialGradient>';
++      mk('circle', { cx: CX, cy: CY, r: 120, fill: 'url(#hud-core-glow)' }, gs);
++    }
++    mk('circle', { cx: CX, cy: CY, r: 140, fill: 'none', stroke: 'rgba(0,229,255,.16)', 'stroke-width': 1, 'stroke-dasharray': '1.5 6' }, gs); // fine dotted ring between blocks and inner ring
+     mk('circle', { id: 'ringIn', cx: CX, cy: CY, r: 125, fill: 'none', stroke: 'rgba(0,229,255,.5)', 'stroke-width': 1.2 }, gs);
+     mk('circle', { cx: CX, cy: CY, r: 117, fill: 'none', stroke: 'rgba(0,229,255,.2)', 'stroke-width': 1 }, gs);
+     for (const a of [-90, 0, 90, 180]) { const [x1, y1] = pt(121, a), [x2, y2] = pt(129, a); mk('path', { d: `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`, stroke: 'rgba(0,229,255,.7)', 'stroke-width': 1.4 }, gs); }
+     for (const a of [-45, 45, 135, 225]) { const [x1, y1] = pt(117, a), [x2, y2] = pt(125, a); mk('path', { d: `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`, stroke: 'rgba(0,229,255,.45)', 'stroke-width': 1 }, gs); }
+-    const brL = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 107, pathLength: 360, 'stroke-width': 5.5 }, gs);
+-    const brR = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 107, pathLength: 360, 'stroke-width': 5.5 }, gs);
++    const brL = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 105, pathLength: 360, 'stroke-width': 4 }, gs);
++    const brR = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 105, pathLength: 360, 'stroke-width': 4 }, gs);
+     arcDash(brL, 150, 60); arcDash(brR, -30, 60);
+     this.brL = brL; this.brR = brR;
+ 
+@@ -160,31 +177,48 @@ export class HudReactor {
+     const gA = this._scaled(LA);
+     const aOr = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 219, pathLength: 360, 'stroke-width': 4.5 }, gA);
+     arcDash(aOr, -78, 62);
+-    const aTl = mk('circle', { class: 'teal-s arc sq', cx: CX, cy: CY, r: 203, pathLength: 360, 'stroke-width': 3, opacity: 0.85 }, gA);
++    const aTl = mk('circle', { class: 'teal-s arc sq', cx: CX, cy: CY, r: 219, pathLength: 360, 'stroke-width': 3, opacity: 0.85 }, gA);
+     arcDash(aTl, 200, 38);
+     const aTl2 = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 231, pathLength: 360, 'stroke-width': 2.4, opacity: 0.9 }, gA);
+     arcDash(aTl2, 100, 26);
+     const LB = (this.LB = this._layer('spin'));
+     const gB = this._scaled(LB);
+-    const bOr = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 196, pathLength: 360, 'stroke-width': 4.5 }, gB);
++    const bOr = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 194, pathLength: 360, 'stroke-width': 4.5 }, gB);
+     arcDash(bOr, 160, 52);
+-    const bOr2 = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 196, pathLength: 360, 'stroke-width': 3 }, gB);
++    const bOr2 = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 194, pathLength: 360, 'stroke-width': 3 }, gB);
+     arcDash(bOr2, 20, 34);
+-    const bTl = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 203, pathLength: 360, 'stroke-width': 2.4, opacity: 0.8 }, gB);
++    const bTl = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 194, pathLength: 360, 'stroke-width': 2.4, opacity: 0.8 }, gB);
+     arcDash(bTl, -20, 30);
+-    const bTl2 = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 203, pathLength: 360, 'stroke-width': 2.4, opacity: 0.8 }, gB);
++    const bTl2 = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 194, pathLength: 360, 'stroke-width': 2.4, opacity: 0.8 }, gB);
+     arcDash(bTl2, 60, 28);
+-    mk('circle', { cx: CX, cy: CY, r: 186, fill: 'none', stroke: 'rgba(0,229,255,.30)', 'stroke-width': 1.2, 'stroke-dasharray': '2 7' }, gB);
++    mk('circle', { cx: CX, cy: CY, r: 183, fill: 'none', stroke: 'rgba(0,229,255,.22)', 'stroke-width': 1, 'stroke-dasharray': '1.5 7' }, gB);
+     this.aOr = aOr; this.bOr = bOr; this.bOr2 = bOr2;
+ 
++    // layer C (film-style detail): hollow pill chain, rising bar stack and a trail of shrinking squares, turning faster than A / B
++    const LC = (this.LC = this._layer('spin'));
++    const gC = this._scaled(LC);
++    const rot = (r, deg, w, h, attrs) => { // rounded rect centred on radius r, long side tangent to the ring
++      const [x, y] = pt(r, deg);
++      return mk('rect', { x: f1(x - w / 2), y: f1(y - h / 2), width: w, height: h, rx: Math.min(w, h) * 0.3, transform: `rotate(${f1(deg + 90)} ${f1(x)} ${f1(y)})`, ...attrs }, gC);
++    };
++    for (let i = 0; i < 15; i++) rot(176, -70 + i * 8.6, 6.5, 13, { fill: 'none', stroke: 'rgba(0,229,255,.62)', 'stroke-width': 1.3 });
++    for (let i = 0; i < 14; i++) { // bar stack: brightens toward its head
++      const a = 150 + i * 3.4, [x1, y1] = pt(161, a), [x2, y2] = pt(169, a);
++      mk('path', { d: `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`, stroke: '#3FF5FF', 'stroke-width': 2.2, opacity: (0.18 + (i / 13) * 0.7).toFixed(2) }, gC);
++    }
++    for (let i = 0; i < 7; i++) { // trail: squares shrink and fade behind the head
++      const sz = 7 - i * 0.8;
++      rot(207, 30 + i * 5, sz, sz, { fill: i < 2 ? '#FF8A2A' : '#3FF5FF', opacity: (0.95 - i * 0.12).toFixed(2) });
++    }
++    mk('circle', { cx: CX, cy: CY, r: 176, fill: 'none', stroke: 'rgba(0,229,255,.1)', 'stroke-width': 1 }, gC);
++
+     // block ring + data band + satellites
+     const L1 = (this.L1 = this._layer());
+     const gK = this._scaled(L1);
+     this.blockG = mk('g', { class: 'glowed' }, gK);
+     this._buildBlocks();
+     this.band = mk('path', { class: 'band' }, gK);
+-    mk('circle', { cx: CX, cy: CY, r: 211, fill: 'none', stroke: 'rgba(0,229,255,.14)', 'stroke-width': 1 }, gK);
+-    this.sats = this.satAng.map((a) => { const [x, y] = pt(211, a); return mk('circle', { cx: f1(x), cy: f1(y), r: 2.4, fill: '#3FF5FF', class: 'sat' }, gK); });
++    this.sats = this.satAng.map((a) => { const [x, y] = pt(225, a); return mk('circle', { cx: f1(x), cy: f1(y), r: 2.4, fill: '#3FF5FF', class: 'sat' }, gK); });
+ 
+     // top layer: emblem + ripple + shock + flash
+     const L2 = (this.L2 = this._layer());
+@@ -206,10 +240,10 @@ export class HudReactor {
+   _buildBlocks() {
+     this.blockG.replaceChildren();
+     this.blockEl = []; this.blockVal = []; this.blockTgt = [];
+-    const n = this.nBlocks, step = 360 / n, half = n >= 40 ? 9.5 : 17;
++    const n = this.nBlocks, step = 360 / n, half = n >= 40 ? 8 : 15;
+     for (let i = 0; i < n; i++) {
+-      // square segments centred on r = 155; index 0 sits at the top, then runs counter-clockwise
+-      const phi = (-90 - (i + 1) * step) * RAD, cx = CX + 155 * Math.cos(phi), cy = CY + 155 * Math.sin(phi);
++      // square segments centred on r = 151; index 0 sits at the top, then runs counter-clockwise
++      const phi = (-90 - (i + 1) * step) * RAD, cx = CX + 151 * Math.cos(phi), cy = CY + 151 * Math.sin(phi);
+       const ux = Math.cos(phi), uy = Math.sin(phi), vx = -uy, vy = ux;
+       const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => `${f1(cx + (a * ux + b * vx) * half)} ${f1(cy + (a * uy + b * vy) * half)}`);
+       const p = mk('path', { class: 'blk', d: `M${pts.join('L')}Z` }, this.blockG);
+@@ -361,6 +395,7 @@ export class HudReactor {
+     }
+     this.LA.style.transform = `rotate(${this.angA.toFixed(2)}deg) scale(${this.scl.toFixed(4)})`;
+     this.LB.style.transform = `rotate(${this.angB.toFixed(2)}deg) scale(${this.scl.toFixed(4)})`;
++    this.LC.style.transform = `rotate(${(this.angA * -2.2).toFixed(2)}deg) scale(${this.scl.toFixed(4)})`;
+ 
+     // orange arcs react to the real level / state (quantised so the DOM isn't touched every frame)
+     const lvl = st === 'LISTENING' ? clamp(lvlIn * 1.7, 0, 1) : st === 'SPEAKING' ? clamp(lvlIn * 1.4, 0, 1) : 0;
+@@ -377,7 +412,7 @@ export class HudReactor {
+     for (let i = 0; i < 4; i++) {
+       if (st === 'TRANSCRIBING') { const tgt = -90 + (i - 1.5) * 9; this.satAng[i] += angDiff(this.satAng[i], tgt) * (1 - Math.exp(-dt / 0.45)); }
+       else if (!this.reduced && !this.frozen) this.satAng[i] = (this.satAng[i] + (SAT[st] || 0) * SAT_DIR[i] * (1 + i * 0.12) * dt) % 360;
+-      const [sx, sy] = pt(211, this.satAng[i]);
++      const [sx, sy] = pt(225, this.satAng[i]);
+       this.sats[i].setAttribute('cx', f1(sx)); this.sats[i].setAttribute('cy', f1(sy));
+     }
+ 
+@@ -415,7 +450,7 @@ export class HudReactor {
+     const fresh = now - this.bandsAt < 250;
+     if (now - this.bandAt > 33 && (fresh || this.band.__live)) {
+       this.bandAt = now;
+-      const N = 120, r0 = 175;
++      const N = 120, r0 = 168;
+       let d = '';
+       for (let t = 0; t < N; t++) {
+         const u = t / N, s = u < 0.5 ? u * 2 : (1 - u) * 2, b = Math.min(15, Math.floor(s * 16));
