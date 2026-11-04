@@ -10,6 +10,7 @@ import { Core } from './core.js';
 import { Cards } from './cards.js';
 import { Ticks } from './ticks.js';
 import { Docking } from './docking.js';
+import { OrbitLayer } from './orbits.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -136,12 +137,20 @@ export class Home {
     this.bandsProvider = null;
     this.speaking = false;
     this.layoutName = '';
+    // calm style: satellites on Saturn-like orbits open the cards (ui/orbits.js)
+    this.orbit = new OrbitLayer({ stage: this.stage, onPick: (id) => this.docking && this.docking.toggle(id) });
+    this.cards.onPing = (id) => this.orbit.ping(id);
     $('core-hit').addEventListener('click', () => onCoreClick());
     addEventListener('resize', () => this.resize());
     this._idle();
     this._applyStyle(document.documentElement.dataset.style === 'calm' ? 'calm' : 'hud', true);
     this.resize();
     this.docking = new Docking(this);
+    this.docking.onChange(() => {
+      const d = this.docking;
+      this.orbit.setOpen([...d.st.keys()].filter((id) => !d.isDocked(id)));
+    });
+    this.docking._sync();
     this._clock();
     this._last = performance.now();
     requestAnimationFrame((t) => this._loop(t));
@@ -168,6 +177,9 @@ export class Home {
     this.core.setStyle(style);
     this.grid.setStyle(style);
     this.backdrop.setActive(style === 'hud');
+    // orbital cards in calm: leaders end on the moving satellites; the dock state is per session
+    this.cards.nodeAt = style === 'calm' ? (id) => this.orbit.pointOf(id) : null;
+    if (this.docking) this.docking.setOrbital(style === 'calm');
     this.hud.onParallax = (px, py) => {
       this.backdrop.parallax(px, py);
       for (const c of this.cards.cards.values()) c.el.style.translate = `${(-px * (c.def.depth || 0) * 3).toFixed(2)}px ${(-py * (c.def.depth || 0) * 3).toFixed(2)}px`;
@@ -181,6 +193,7 @@ export class Home {
   /** Reduced motion: the reactor holds still instead of breathing / orbiting. */
   setReduced(on) {
     this.core.setReduced(on);
+    this.orbit.setReduced(on);
   }
 
   setVisible(v) {
@@ -364,6 +377,13 @@ export class Home {
     }
     this.core.setSignals({ level, bands });
     this.core.frame(now, dt);
+    // orbits run in calm, but not in camera mode (the reactor is the mini one there)
+    const orbOn = this.style === 'calm' && !(this.docking && this.docking.camMode);
+    if (orbOn !== this.orbit.active) {
+      this.orbit.setActive(orbOn);
+      this.root.classList.toggle('orbital', orbOn);
+    }
+    this.orbit.frame(now, dt, this.cards.hovered && this.cards.hovered.id);
     this.cards.layoutLeaders();
     this.cards.frame(now, { speaking: this.speaking });
 

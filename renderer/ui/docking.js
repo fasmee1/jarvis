@@ -72,6 +72,11 @@ export class Docking {
     this.locked = false;
     this.pending = [];
     this.listeners = new Set();
+    // calm style (orbital): cards start hidden, one opens at a time, nothing is persisted
+    // (the HUD keeps its own saved set in userDocked)
+    this.orbital = home.style === 'calm';
+    this.orbitOpen = new Set();
+    this.seq = []; // timers of a running "open all" sequence
     this._buildLayers();
     this._keys();
     this.cards.onBuilt.push(() => this._rebuilt());
@@ -82,7 +87,26 @@ export class Docking {
   /** Is this card docked (or on its way into the reactor)? */
   isDocked(id) {
     const s = this.st.get(id);
-    return s ? s.target : this.userDocked.has(id);
+    return s ? s.target : this._userClosed(id);
+  }
+
+  /** Did the user leave this card closed? (orbital: session only, HUD: saved) */
+  _userClosed(id) {
+    return this.orbital ? !this.orbitOpen.has(id) : this.userDocked.has(id);
+  }
+
+  /** Calm style on / off. Called before the card rebuild that follows a style switch. */
+  setOrbital(on) {
+    on = !!on;
+    if (on === this.orbital) return;
+    this._stopSeq();
+    this.orbital = on;
+    this.orbitOpen.clear();
+  }
+
+  _stopSeq() {
+    for (const t of this.seq) clearTimeout(t);
+    this.seq = [];
   }
 
   dockedIds() {
@@ -103,8 +127,11 @@ export class Docking {
   close(id) {
     if (this.locked) return this._defer(() => this.close(id));
     const s = this.st.get(id);
-    this.userDocked.add(id);
-    saveDocked(this.userDocked);
+    if (this.orbital) this.orbitOpen.delete(id);
+    else {
+      this.userDocked.add(id);
+      saveDocked(this.userDocked);
+    }
     if (!s || s.target) return;
     s.target = true;
     this._play(id, true, this.camMode ? 'float' : 'home');
@@ -115,6 +142,18 @@ export class Docking {
   toggleAll() {
     const ids = [...this.st.keys()];
     const anyOpen = ids.some((id) => !this.isDocked(id));
+    if (this.orbital) {
+      this._stopSeq();
+      if (anyOpen) {
+        for (const id of ids) if (!this.isDocked(id)) this.close(id);
+        return;
+      }
+      // OPEN ALL: one card at a time, 300 ms apart, each with its own unfold along its energy line
+      ORDER.filter((id) => this.st.has(id)).forEach((id, i) => {
+        this.seq.push(setTimeout(() => { this.bulk = true; this.open(id); this.bulk = false; }, i * (this.reduced ? 60 : 300)));
+      });
+      return;
+    }
     for (const id of ids) {
       if (anyOpen ? !this.isDocked(id) : this.isDocked(id)) (anyOpen ? this.close(id) : this.open(id));
     }
@@ -123,8 +162,17 @@ export class Docking {
   open(id) {
     if (this.locked) return this._defer(() => this.open(id));
     const s = this.st.get(id);
-    this.userDocked.delete(id);
-    saveDocked(this.userDocked);
+    if (this.orbital) {
+      // one card at a time (OPEN ALL is the exception)
+      if (!this.bulk) {
+        this._stopSeq();
+        for (const other of this.st.keys()) if (other !== id && !this.isDocked(other)) this.close(other);
+      }
+      this.orbitOpen.add(id);
+    } else {
+      this.userDocked.delete(id);
+      saveDocked(this.userDocked);
+    }
     if (!s || !s.target) return;
     s.target = false;
     if (this.camMode) this._placeFloat(id);
@@ -208,7 +256,7 @@ export class Docking {
     }
     const back = this._visible().filter((c) => {
       const s = this.st.get(c.def.id);
-      return s.target && !this.userDocked.has(c.def.id) && !c.float;
+      return s.target && !this._userClosed(c.def.id) && !c.float;
     });
     back.sort((a, b) => this._dist(a) - this._dist(b));
     back.forEach((c, i) => {
@@ -518,8 +566,8 @@ export class Docking {
     this.layer.replaceChildren();
     for (const c of this._visible()) {
       const id = c.def.id;
-      const floating = this.camMode && this.floatOrder.includes(id) && !this.userDocked.has(id);
-      const docked = this.userDocked.has(id) || (this.camMode && !floating);
+      const floating = this.camMode && this.floatOrder.includes(id) && !this._userClosed(id);
+      const docked = this._userClosed(id) || (this.camMode && !floating);
       const s = { tl: null, mode: null, target: docked, docked: false, nd: { v: 0 }, dot: null, btn: null };
       this.st.set(id, s);
       // node hit area on every node: hover shows a cyan ring + the card name;
@@ -567,7 +615,7 @@ export class Docking {
       if (s.target) n++;
     }
     const { tray, btn, list } = this.tray;
-    tray.hidden = n === 0;
+    tray.hidden = n === 0 || this.orbital; // orbital: the satellites are the way back to a card
     btn.textContent = `${n} DOCKED`;
     btn.setAttribute('aria-label', `การ์ดที่เก็บไว้ ${n} ใบ — คลิกเพื่อดูรายการ`);
     if (n === 0 && !list.hidden) this._toggleList(false);

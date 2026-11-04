@@ -2,7 +2,7 @@
 // Cards only ever show real values; unknown values show a dim "—" + one short
 // Thai line, in exactly the same layout as a real value.
 
-import { cardRect, leaderPoints, nodePoint, CORE } from './layout.js';
+import { cardRect, leaderPoints, anchorPoint, nodePoint, CORE } from './layout.js';
 import { outlinePath, cornerAccent } from './hud-geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -152,6 +152,8 @@ export class Cards {
     this.lastPulse = 0;
     this.hovered = null;
     this.waveHist = new Float32Array(160);
+    this.nodeAt = null; // calm orbital: id → moving satellite point (stage px) or null
+    this.onPing = null; // calm orbital: a card's real data changed
     this._framing();
   }
 
@@ -215,7 +217,8 @@ export class Cards {
       this.leadersSvg.append(pl, dot);
       this.cards.set(def.id, { def, el, parts, pl, dot, last: {} });
     }
-    this.core.setNodes(layout.cards.filter((c) => !c.hidden).map((c) => c.node));
+    // the orbital layout replaces the reactor's node ring with satellites
+    this.core.setNodes(this.nodeAt ? [] : layout.cards.filter((c) => !c.hidden).map((c) => c.node));
     this.layoutLeaders();
     for (const fn of this.onBuilt) fn();
   }
@@ -438,6 +441,7 @@ export class Cards {
     c.pulsedAt = now;
     if (c.def.hud && !matchMedia('(prefers-reduced-motion: reduce)').matches) { c.el.classList.remove('bump'); void c.el.offsetWidth; c.el.classList.add('bump'); }
     this.core.flashNode(c.def.node);
+    if (this.onPing) this.onPing(c.def.id);
     this.pulse(c.def.id, true);
   }
 
@@ -648,6 +652,17 @@ export class Cards {
     for (const c of this.cards.values()) {
       const off = c.float ? { x: c.float.x, y: c.float.y } : { x: 0, y: 0 };
       c.el.style.transform = off.x || off.y ? `translate(${off.x}px, ${off.y}px)` : '';
+      const sat = this.nodeAt && !c.float ? this.nodeAt(c.def.id) : null;
+      if (sat) {
+        // orbital: a straight energy line from the card to its moving satellite
+        const a = anchorPoint(c.def);
+        c.pts = [a, sat];
+        c.pl.setAttribute('points', `${a.x.toFixed(1)},${a.y.toFixed(1)} ${sat.x.toFixed(1)},${sat.y.toFixed(1)}`);
+        c.dot.setAttribute('cx', a.x);
+        c.dot.setAttribute('cy', a.y);
+        c.pl.style.display = c.dot.style.display = c.def.hidden || c.noLeader || c.folded ? 'none' : '';
+        continue;
+      }
       const pts = leaderPoints(c.def);
       const n = pts.length - 1;
       const mapped = pts.map((p, i) => {

@@ -56,31 +56,23 @@ function hudCards(name) {
   return out;
 }
 
-// Three sizes — small 11×5 (MIC, TTS), medium 13×7 (STEP, TOKENS, CAMERA,
-// ELAPSED), large 18×9 (LAST REPLY, LATENCY) — mirrored around the reactor's
-// vertical axis (col 40): every left card has a twin at col 80 − col − w.
-const BASE = [
-  { id: 'reply', col: 6, row: 5, w: 18, h: 9, tag: 'A3', size: 'large', cut: ['tl', 'br'], anchor: { side: 'r', at: 0.45 }, node: 310, route: 'h45', depth: 1 },
-  { id: 'mic', col: 26, row: 3, w: 11, h: 5, tag: 'B4', size: 'small', cut: ['tl', 'br'], anchor: { side: 'b', at: 0.55 }, node: 334, route: 'v45', depth: 0 },
-  { id: 'tts', col: 43, row: 3, w: 11, h: 5, tag: 'C6', size: 'small', cut: ['tl', 'br'], anchor: { side: 'b', at: 0.45 }, node: 26, route: 'v45', depth: 0 },
-  { id: 'latency', col: 56, row: 5, w: 18, h: 9, tag: 'D8', size: 'large', cut: ['tl', 'br'], anchor: { side: 'l', at: 0.45 }, node: 50, route: 'h45', depth: 1 },
-  { id: 'step', col: 10, row: 21, w: 13, h: 7, tag: 'B2', size: 'medium', cut: ['tl', 'br'], anchor: { side: 'r', at: 36 / 168 }, node: 270, route: 'd', depth: 1 },
-  { id: 'tokens', col: 57, row: 21, w: 13, h: 7, tag: 'C7', size: 'medium', cut: ['tl', 'br'], anchor: { side: 'l', at: 36 / 168 }, node: 90, route: 'd', depth: 0 },
-  // bottom pair: straight 45° connectors into the 225° / 135° nodes
-  { id: 'camera', col: 15, row: 36, w: 13, h: 7, tag: 'B5', size: 'medium', cut: ['tl', 'br'], anchor: { side: 't', at: 276 / 312 }, node: 225, route: 'd', depth: 0 },
-  { id: 'edit', col: 52, row: 36, w: 13, h: 7, tag: 'D6', size: 'medium', cut: ['tl', 'br'], anchor: { side: 't', at: 36 / 312 }, node: 135, route: 'd', depth: 1 },
+// Calm style (orbital): the orbits fill the middle band (y ≈ 280–800), so the cards sit in a top
+// and a bottom row, mirrored around the vertical axis. Each card's energy line leaves the middle of
+// its inner edge and runs straight to its moving satellite (ui/orbits.js). `node` is kept for the
+// 2D reactor and the dock timelines; the satellite replaces it on screen.
+const top = (id, col, w, h, size, node) => ({ id, col, row: 4, w, h, tag: '', size, cut: ['tl', 'br'], anchor: { side: 'b', at: 0.5 }, node, route: 'd', depth: 0 });
+const bottom = (id, col, node) => ({ id, col, row: 34, w: 13, h: 7, tag: '', size: 'medium', cut: ['tl', 'br'], anchor: { side: 't', at: 0.5 }, node, route: 'd', depth: 0 });
+const ORBIT_CARDS = [
+  top('reply', 2, 16, 9, 'large', 310),
+  top('mic', 23, 11, 5, 'small', 334),
+  top('tts', 46, 11, 5, 'small', 26),
+  top('latency', 62, 16, 9, 'large', 50),
+  bottom('step', 2, 250),
+  bottom('camera', 16, 210),
+  bottom('edit', 51, 150),
+  bottom('tokens', 65, 110),
 ];
-
-// ~1440: pull the far cards a little closer to the core.
-const MID = BASE.map((c) => ({ ...c, ...({ reply: { col: 7, w: 17 }, latency: { col: 56, w: 17 } }[c.id] || {}) }));
-// ≤1280 / narrow aspect: drop the least important cards (hide order: tts, tokens, latency chart, mic).
-const NARROW = BASE.map((c) => ({ ...c, hidden: c.id === 'tts' || c.id === 'tokens', compact: c.id === 'latency' }));
-
-export const LAYOUTS = [
-  { name: 'wide', minWidth: 1700, cards: BASE },
-  { name: 'mid', minWidth: 1300, cards: MID },
-  { name: 'narrow', minWidth: 0, cards: NARROW },
-];
+const ORBIT_LAYOUT = { name: 'orbit', minWidth: 0, cards: ORBIT_CARDS };
 
 // Frame: only four thin corner brackets (drawn in window space by cards.js).
 
@@ -137,15 +129,9 @@ export function collides(cards) {
 }
 
 /** Pick the layout for the current window size (falls through on collisions). */
-export function pickLayout(winW, winH) {
+export function pickLayout(winW) {
   if (STYLE === 'hud') return pickHud(winW);
-  const aspect = winW / winH;
-  for (const l of LAYOUTS) {
-    if (winW < l.minWidth) continue;
-    if (aspect < 1.45 && l.name !== 'narrow') continue;
-    if (!collides(l.cards)) return l;
-  }
-  return LAYOUTS[LAYOUTS.length - 1];
+  return ORBIT_LAYOUT; // one composition: the stage scales uniformly to the window
 }
 
 // ---------- style switch ----------

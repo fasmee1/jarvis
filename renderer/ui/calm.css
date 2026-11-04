@@ -169,3 +169,45 @@ html[data-style="calm"] .caption { color: #5B708C; letter-spacing: 0.14em; }
 html[data-style="calm"] .caption-bl { color: #465A73; }
 html[data-style="calm"] .cap-key { color: var(--text-2); border-color: var(--panel-line); }
 html[data-style="calm"] .corner-brk { border-color: rgba(32, 184, 255, 0.2); }
+
+/* ---------- orbital navigation (ui/orbits.js) ---------- */
+.orbit-layer[hidden], .orbit-hits[hidden] { display: none; }
+.orbit-layer { transition: opacity 0.9s var(--ease); }
+.orbit-back { z-index: 0; }
+body.booting .orbit-layer, body.booting .orbit-hits { opacity: 0; }
+
+.orb-path { fill: none; stroke: rgba(32, 184, 255, 0.16); stroke-width: 1; vector-effect: non-scaling-stroke; transition: stroke 0.5s var(--ease), stroke-width 0.5s var(--ease); }
+.orbit-front .orb-path { stroke: rgba(112, 223, 255, 0.26); }
+.orb-path.o2 { stroke-dasharray: 2 5; }
+.orb-path.sel { stroke: rgba(112, 223, 255, 0.62); stroke-width: 1.6; stroke-dasharray: none; }
+.orb-dots { fill: none; stroke: rgba(112, 223, 255, 0.22); stroke-width: 1.4; stroke-dasharray: 0.6 9; stroke-linecap: round; }
+
+.sat-trail { fill: none; stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+.sat-glow { opacity: 0.55; transition: opacity 0.3s var(--ease); }
+.sat-ring { fill: rgba(4, 14, 30, 0.85); stroke: rgba(112, 223, 255, 0.75); stroke-width: 1.2; transition: stroke 0.3s var(--ease), fill 0.3s var(--ease); }
+.sat-halo { fill: none; stroke: rgba(112, 223, 255, 0); stroke-width: 1; transition: stroke 0.3s var(--ease); }
+.sat-ico path { fill: none; stroke: #9FE6FF; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.sat-lbl { font-family: 'Rajdhani', sans-serif; font-weight: 500; font-size: 12px; letter-spacing: 0.22em; fill: rgba(220, 235, 255, 0.62); transition: fill 0.3s var(--ease); }
+.sat.hover .sat-glow, .sat.open .sat-glow { opacity: 1; }
+.sat.hover .sat-halo { stroke: rgba(112, 223, 255, 0.55); }
+.sat.hover .sat-lbl, .sat.open .sat-lbl { fill: #DCEBFF; }
+.sat.open .sat-ring { fill: rgba(32, 184, 255, 0.28); stroke: #70DFFF; }
+.sat.open .sat-halo { stroke: rgba(112, 223, 255, 0.4); }
+/* real data changed in the card: one warm pulse */
+.sat.ping .sat-ring { animation: sat-ping 1.2s var(--ease) 1; }
+.sat.ping .sat-halo { animation: sat-ping-halo 1.2s var(--ease) 1; }
+@keyframes sat-ping { 0% { stroke: #FF9B45; } 100% { stroke: rgba(112, 223, 255, 0.75); } }
+@keyframes sat-ping-halo { 0% { stroke: rgba(255, 155, 69, 0.8); } 100% { stroke: rgba(255, 155, 69, 0); } }
+
+/* hit targets ride on the satellites (44 px, always clickable, also behind the core) */
+.orbit-hits { position: absolute; inset: 0; pointer-events: none; z-index: 6; }
+.orbit-hit { position: absolute; left: 0; top: 0; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; pointer-events: auto; will-change: transform; }
+.orbit-hit:focus-visible { outline: 1px solid rgba(112, 223, 255, 0.8); outline-offset: 2px; }
+
+/* the orbits replace the reactor's node ring and the docked-card tray */
+.home.orbital .dock-node, .home.orbital .dock-tray { display: none !important; }
+/* open cards show no line to their satellite (nor the end dot / data pulses that ride on it);
+   the card still unfolds from and folds back into its satellite (the dock dot travels the path) */
+.home.orbital #leaders .ld, .home.orbital #leaders .dot, .home.orbital #leaders .pulse { display: none !important; }
+/* background jobs sit between the two bottom cards */
+html[data-style="calm"] .proj-home { left: 720px; width: 480px; top: 900px; }
