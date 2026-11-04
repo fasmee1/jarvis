@@ -1,8 +1,9 @@
 // Source of renderer/ui/vendor/holo-core.min.js (bundled by scripts/build-holo-core.js).
 // Calm style reactor: a holographic energy core in WebGL. Overlapping transparent
 // ribbons (fresnel edges, fine wires, speckle), thin orbital lines with travelling
-// light points, a few thousand particles, an inner waveform ring and a horizontal
-// light streak behind the J.A.R.V.I.S wordmark (the wordmark itself is HTML).
+// light points, a few thousand particles, a horizontal light streak behind the
+// J.A.R.V.I.S wordmark (the wordmark itself is HTML) and, while JARVIS speaks or
+// listens, glowing voice strands that stream out of both sides of the wordmark.
 // Driven only by real app state + real audio (setState / setSignals / pulseActivity / wake);
 // see renderer/ui/holo-state.js for the state → visual mapping.
 
@@ -231,28 +232,70 @@ void main() {
   gl_FragColor = vec4(col * a * vA, a * vA);
 }`;
 
-// ---------- waveform ring (camera-facing) ----------
-const WAVE_VS = /* glsl */`
-attribute float aU;
+// ---------- voice strands (camera-facing) ----------
+// Glowing threads leaving both sides of the wordmark. The real spectrum is laid out from
+// the core outward (low → high); waves travel outward with the voice. Silent behind the text.
+const VOICE_VS = /* glsl */`
+attribute float aX;    // -1..1 along the strand
+attribute float aSide; // -1 / 1 across its width
 uniform float uBands[${BANDS}];
-uniform float uAmp, uTime, uR;
-varying float vU;
+uniform float uLevel, uFlow, uOff, uFreq, uHalf, uSpan, uGain;
+varying float vSide;
+varying float vEnv;
 void main() {
-  vU = aU;
-  float m = abs(aU * 2.0 - 1.0);                // mirrored left / right of 12 o'clock
-  float f = m * ${BANDS - 1}.0;
+  float x = aX * uSpan;
+  float ax = abs(x);
+  // from the wordmark's ends (±0.66) out through the rings, fading before the cards
+  float env = smoothstep(0.64, 0.84, ax) * (1.0 - smoothstep(uSpan * 0.7, uSpan, ax));
+  float f = clamp((ax - 0.66) / (uSpan - 0.66), 0.0, 1.0) * ${BANDS - 1}.0;
   int i0 = int(floor(f));
   float b0 = 0.0, b1 = 0.0;
   for (int i = 0; i < ${BANDS}; i++) { if (i == i0) b0 = uBands[i]; if (i == i0 + 1) b1 = uBands[i]; }
   float band = mix(b0, b1, fract(f));
-  float r = uR * (1.0 + uAmp * band * 0.16 + uAmp * 0.006 * sin(aU * 6.2831 * 24.0 + uTime * 3.0));
-  float t = aU * 6.2831853 + 1.5707963;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(cos(t) * r, sin(t) * r, 0.0, 1.0);
+  float amp = uGain * (0.02 + uLevel * 0.12 + band * 0.3) * env;
+  float y = amp * sin(ax * uFreq - uFlow + uOff) * (0.62 + 0.38 * sin(ax * uFreq * 0.41 + uFlow * 0.37 + uOff * 1.7));
+  float hw = uHalf * (0.5 + env * (0.7 + band));
+  vSide = aSide;
+  vEnv = env;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(x, y + aSide * hw, 0.0, 1.0);
 }`;
-const WAVE_FS = /* glsl */`
+const VOICE_FS = /* glsl */`
 uniform vec3 uColor;
 uniform float uAlpha;
-void main() { gl_FragColor = vec4(uColor * uAlpha, uAlpha); }`;
+varying float vSide;
+varying float vEnv;
+void main() {
+  float s2 = vSide * vSide;
+  float core = exp(-s2 * 28.0);
+  float a = clamp((0.3 * exp(-s2 * 2.5) + core) * vEnv * uAlpha, 0.0, 1.0);
+  vec3 col = mix(uColor, vec3(1.0), core * 0.45);
+  gl_FragColor = vec4(col * a, a);
+}`;
+const STRANDS = [
+  { off: 0.0, freq: 9.0, color: 'cyan', gain: 1.0, half: 0.016, a: 1.0 },
+  { off: 2.1, freq: 6.8, color: 'holo', gain: 0.85, half: 0.013, a: 0.8 },
+  { off: 4.3, freq: 12.5, color: 'blue', gain: 0.7, half: 0.011, a: 0.75 },
+  { off: 1.2, freq: 5.2, color: 'amber', gain: 0.5, half: 0.01, a: 0.45 },
+];
+
+function strandGeometry(n = 240) {
+  const x = new Float32Array((n + 1) * 2);
+  const side = new Float32Array((n + 1) * 2);
+  const idx = [];
+  for (let i = 0; i <= n; i++) {
+    const v = (i / n) * 2 - 1;
+    x[i * 2] = x[i * 2 + 1] = v;
+    side[i * 2] = -1;
+    side[i * 2 + 1] = 1;
+    if (i < n) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(new Float32Array((n + 1) * 2 * 3), 3));
+  g.setAttribute('aX', new BufferAttribute(x, 1));
+  g.setAttribute('aSide', new BufferAttribute(side, 1));
+  g.setIndex(idx);
+  return g;
+}
 
 // ---------- streak (horizontal light line behind the wordmark) ----------
 const STREAK_FS = /* glsl */`
@@ -314,6 +357,11 @@ class HoloCore {
     this.phase = 0; // accumulated orbit phase (speed changes never jump)
     this.pulseClock = 0;
     this.pulseN = 0;
+    this.voiceFlow = 0; // voice strand wave clock
+    this.voice = 0; // smoothed voice level (also lights the wordmark)
+    this.lvSlow = 0; // slow level, for syllable onsets
+    this.lastOnset = -1e9;
+    this.onsetN = 0;
     this.lastAct = -1e9;
     this.wakeAt = -1e9;
     this.lost = false;
@@ -451,24 +499,20 @@ class HoloCore {
       this.cluster.add(this.particles);
     }
 
-    // inner waveform: two thin loops following the real audio bands
-    this.waves = [0.6, 0.63].map((R, i) => {
-      const n = 256;
-      const pos = new Float32Array(n * 3);
-      const u = new Float32Array(n);
-      for (let k = 0; k < n; k++) u[k] = k / n;
-      const g = new BufferGeometry();
-      g.setAttribute('position', new BufferAttribute(pos, 3));
-      g.setAttribute('aU', new BufferAttribute(u, 1));
-      g.boundingSphere = null;
+    // voice strands (speaking / listening)
+    this.strands = STRANDS.map((d) => {
       const mat = additive({
-        vertexShader: WAVE_VS, fragmentShader: WAVE_FS,
-        uniforms: { uBands: bandsU, uAmp: { value: i ? 0.7 : 1 }, uTime: shared.uTime, uR: { value: R }, uColor: { value: i ? C.holo : C.cyan }, uAlpha: { value: 0 } },
+        side: DoubleSide,
+        vertexShader: VOICE_VS, fragmentShader: VOICE_FS,
+        uniforms: {
+          uBands: bandsU, uLevel: { value: 0 }, uFlow: { value: 0 }, uOff: { value: d.off }, uFreq: { value: d.freq },
+          uHalf: { value: d.half }, uSpan: { value: 1.65 }, uGain: { value: d.gain }, uColor: { value: C[d.color] }, uAlpha: { value: 0 },
+        },
       });
-      const line = new LineLoop(g, mat);
-      line.frustumCulled = false;
-      this.flat.add(line);
-      return mat;
+      const m = new Mesh(strandGeometry(this.quality === 'high' ? 320 : 160), mat);
+      m.frustumCulled = false;
+      this.flat.add(m);
+      return { d, mat };
     });
 
     // wake ripple
@@ -628,8 +672,21 @@ class HoloCore {
     this.partMat.uniforms.uGlow.value = Math.min(1.2, glow * 0.85 + wakeK);
     this.partMat.uniforms.uOrangeShare.value = cur.orange;
 
-    this.waves[0].uniforms.uAlpha.value = cur.wave * 0.55 * bootK;
-    this.waves[1].uniforms.uAlpha.value = cur.wave * 0.28 * bootK;
+    // voice: strands stream outward with the real spectrum; each syllable onset fires a ribbon pulse
+    const lv = tgt.level;
+    this.voice += (lv - this.voice) * Math.min(1, dt * 10);
+    if (!this.reduced) this.voiceFlow += dt * (2.2 + this.voice * 7);
+    if (cur.wave > 0.2 && !this.reduced && lv - this.lvSlow > 0.07 && this.t - this.lastOnset > 0.16) {
+      this.lastOnset = this.t;
+      this._pulse(this.onsetN++ % 5 === 4, 0.45 + lv * 0.6);
+    }
+    this.lvSlow += (lv - this.lvSlow) * Math.min(1, dt * 3);
+    for (const s of this.strands) {
+      const u = s.mat.uniforms;
+      u.uLevel.value = this.voice;
+      u.uFlow.value = this.voiceFlow;
+      u.uAlpha.value = cur.wave * s.d.a * bootK * (0.45 + this.voice * 1.1);
+    }
 
     const rp = (this.t - this.wakeAt) / 1.1;
     if (rp >= 0 && rp < 1) {

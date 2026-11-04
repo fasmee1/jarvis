@@ -66,8 +66,11 @@ html[data-style="calm"] .core-wrap.holo-on .core-mark {
   line-height: 1;
   letter-spacing: 0.52em;
   padding-left: 0.52em; /* letter-spacing trails the last glyph: keep the word centred */
-  color: #DCEBFF;
-  text-shadow: 0 0 2px rgba(220, 235, 255, 0.55), 0 0 14px rgba(32, 184, 255, 0.55), 0 0 32px rgba(8, 123, 255, 0.35);
+  --vl: 0; /* real voice level 0..1, set by home.js while JARVIS speaks or listens */
+  color: rgb(calc(220 + var(--vl) * 25), calc(235 + var(--vl) * 20), 255);
+  text-shadow: 0 0 2px rgba(220, 235, 255, 0.55),
+    0 0 calc(14px + var(--vl) * 16px) rgba(32, 184, 255, calc(0.55 + var(--vl) * 0.4)),
+    0 0 calc(32px + var(--vl) * 40px) rgba(8, 123, 255, calc(0.35 + var(--vl) * 0.45));
   transition: opacity 0.6s var(--ease), color var(--mid) var(--ease);
 }
 html[data-style="calm"] body:has(.state-label.err) .core-wrap.holo-on .core-mark { color: #FFD9BD; }

@@ -62,6 +62,9 @@ class CoreSwitch {
     // the wordmark follows the boot's logo step, then belongs to CSS again
     if (B) this.mark.style.opacity = String(B.logo);
     else if (this.mark.style.opacity) this.mark.style.opacity = '';
+    // the wordmark glows with the real voice level (only written when it changes)
+    const v = Math.round((this.holo.voice || 0) * 30) / 30;
+    if (v !== this._vl) { this._vl = v; this.mark.style.setProperty('--vl', v.toFixed(3)); }
   }
   beginBoot(order) { return this.calm.beginBoot(order); }
   endBoot() { this.calm.endBoot(); }
