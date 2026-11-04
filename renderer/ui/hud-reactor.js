@@ -133,16 +133,15 @@ export class HudReactor {
       t.textContent = `${a}°`;
     }
     const arcPath = (r, a1, a2) => { const [x1, y1] = pt(r, a1), [x2, y2] = pt(r, a2); return `M${f1(x1)} ${f1(y1)}A${r} ${r} 0 0 1 ${f1(x2)} ${f1(y2)}`; };
-    for (const [a1, a2] of [[-125, -55], [108, 158], [22, 72]]) mk('path', { d: arcPath(R0 - 7, a1, a2), class: 'dash-or' }, gs);
+    for (const [a1, a2] of [[-125, -55], [108, 158], [22, 72]]) mk('path', { d: arcPath(R0 - 5, a1, a2), class: 'dash-or' }, gs);
     let tIn = '', tIn2 = '';
-    for (let a = 0; a < 360; a += 2) { const [x1, y1] = pt(212, a), [x2, y2] = pt(a % 10 === 0 ? 220 : 216, a); tIn += `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; }
-    for (let a = 0; a < 360; a += 6) { const [x1, y1] = pt(99, a), [x2, y2] = pt(a % 30 === 0 ? 107 : 103, a); tIn2 += `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; }
+    for (let a = 0; a < 360; a += 2) { const [x1, y1] = pt(214, a), [x2, y2] = pt(a % 10 === 0 ? 220 : 217, a); tIn += `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; }
+    for (let a = 0; a < 360; a += 6) { const [x1, y1] = pt(92, a), [x2, y2] = pt(a % 30 === 0 ? 100 : 96, a); tIn2 += `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`; }
     mk('path', { d: tIn, stroke: 'rgba(0,229,255,.34)', 'stroke-width': 0.9, fill: 'none' }, gs);
     mk('path', { d: tIn2, stroke: 'rgba(0,229,255,.3)', 'stroke-width': 0.9, fill: 'none' }, gs);
     for (const a of [0, 90, 180, 270]) { const [x1, y1] = pt(62, a), [x2, y2] = pt(R0 - 12, a); mk('path', { d: `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`, stroke: 'rgba(0,229,255,.13)', 'stroke-width': 0.9 }, gs); }
     this.tk1 = gMin; this.tk2 = gMaj; this.tk3 = gMid;
     for (const e of [gMin, gMaj, gMid]) e.style.transformOrigin = `${CX}px ${CY}px`;
-    mk('circle', { cx: CX, cy: CY, r: 231, fill: 'none', stroke: 'rgba(0,229,255,.16)', 'stroke-width': 1 }, gs);
     mk('circle', { id: 'ringIn', cx: CX, cy: CY, r: 125, fill: 'none', stroke: 'rgba(0,229,255,.5)', 'stroke-width': 1.2 }, gs);
     mk('circle', { cx: CX, cy: CY, r: 117, fill: 'none', stroke: 'rgba(0,229,255,.2)', 'stroke-width': 1 }, gs);
     for (const a of [-90, 0, 90, 180]) { const [x1, y1] = pt(121, a), [x2, y2] = pt(129, a); mk('path', { d: `M${f1(x1)} ${f1(y1)}L${f1(x2)} ${f1(y2)}`, stroke: 'rgba(0,229,255,.7)', 'stroke-width': 1.4 }, gs); }
@@ -158,23 +157,22 @@ export class HudReactor {
     // spinning layer A (clockwise) and B (counter-clockwise)
     const LA = (this.LA = this._layer('spin'));
     const gA = this._scaled(LA);
-    const aOr = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 219, pathLength: 360, 'stroke-width': 4.5 }, gA);
+    const aOr = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 224, pathLength: 360, 'stroke-width': 4.5 }, gA);
     arcDash(aOr, -78, 62);
-    const aTl = mk('circle', { class: 'teal-s arc sq', cx: CX, cy: CY, r: 203, pathLength: 360, 'stroke-width': 3, opacity: 0.85 }, gA);
+    const aTl = mk('circle', { class: 'teal-s arc sq', cx: CX, cy: CY, r: 201, pathLength: 360, 'stroke-width': 3, opacity: 0.85 }, gA);
     arcDash(aTl, 200, 38);
-    const aTl2 = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 231, pathLength: 360, 'stroke-width': 2.4, opacity: 0.9 }, gA);
+    const aTl2 = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 232, pathLength: 360, 'stroke-width': 2.4, opacity: 0.9 }, gA);
     arcDash(aTl2, 100, 26);
     const LB = (this.LB = this._layer('spin'));
     const gB = this._scaled(LB);
-    const bOr = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 196, pathLength: 360, 'stroke-width': 4.5 }, gB);
+    const bOr = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 187, pathLength: 360, 'stroke-width': 4.5 }, gB);
     arcDash(bOr, 160, 52);
-    const bOr2 = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 196, pathLength: 360, 'stroke-width': 3 }, gB);
+    const bOr2 = mk('circle', { class: 'acc-s arc sq', cx: CX, cy: CY, r: 187, pathLength: 360, 'stroke-width': 3 }, gB);
     arcDash(bOr2, 20, 34);
-    const bTl = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 203, pathLength: 360, 'stroke-width': 2.4, opacity: 0.8 }, gB);
+    const bTl = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 195, pathLength: 360, 'stroke-width': 2.4, opacity: 0.8 }, gB);
     arcDash(bTl, -20, 30);
-    const bTl2 = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 203, pathLength: 360, 'stroke-width': 2.4, opacity: 0.8 }, gB);
+    const bTl2 = mk('circle', { class: 'teal-s sq', cx: CX, cy: CY, r: 195, pathLength: 360, 'stroke-width': 2.4, opacity: 0.8 }, gB);
     arcDash(bTl2, 60, 28);
-    mk('circle', { cx: CX, cy: CY, r: 186, fill: 'none', stroke: 'rgba(0,229,255,.30)', 'stroke-width': 1.2, 'stroke-dasharray': '2 7' }, gB);
     this.aOr = aOr; this.bOr = bOr; this.bOr2 = bOr2;
 
     // block ring + data band + satellites
@@ -183,23 +181,34 @@ export class HudReactor {
     this.blockG = mk('g', { class: 'glowed' }, gK);
     this._buildBlocks();
     this.band = mk('path', { class: 'band' }, gK);
-    mk('circle', { cx: CX, cy: CY, r: 211, fill: 'none', stroke: 'rgba(0,229,255,.14)', 'stroke-width': 1 }, gK);
-    this.sats = this.satAng.map((a) => { const [x, y] = pt(211, a); return mk('circle', { cx: f1(x), cy: f1(y), r: 2.4, fill: '#3FF5FF', class: 'sat' }, gK); });
+    mk('circle', { cx: CX, cy: CY, r: 207, fill: 'none', stroke: 'rgba(0,229,255,.14)', 'stroke-width': 1 }, gK);
+    this.sats = this.satAng.map((a) => { const [x, y] = pt(207, a); return mk('circle', { cx: f1(x), cy: f1(y), r: 2.4, fill: '#3FF5FF', class: 'sat' }, gK); });
 
     // top layer: emblem + ripple + shock + flash
     const L2 = (this.L2 = this._layer());
     const gT = this._scaled(L2);
     const emb = (this.emb = mk('g', { class: 'breathe glowed' }, gT));
+    const dE = mk('defs', {}, L2);
+    dE.innerHTML = '<linearGradient id="hud-emb-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B6FDFF"/><stop offset=".5" stop-color="#19D9F2"/><stop offset="1" stop-color="#0A7FB8"/></linearGradient>';
+    const ey = CY - 25; // emblem centre
+    const dia = (hw, hh) => `M${CX} ${ey - hh}L${CX + hw} ${ey}L${CX} ${ey + hh}L${CX - hw} ${ey}Z`;
+    // outer frame: broken diamond outline + tip markers (kept clear of the gem so nothing overlaps)
+    mk('path', { d: dia(55, 51), fill: 'none', stroke: 'rgba(0,229,255,.5)', 'stroke-width': 1.2, 'stroke-dasharray': '30 12', 'stroke-linejoin': 'miter' }, emb);
+    for (const [x, y, c] of [[CX, ey - 51, '#FF9A2E'], [CX + 55, ey, '#3FF5FF'], [CX, ey + 51, '#FF9A2E'], [CX - 55, ey, '#3FF5FF']]) mk('circle', { cx: x, cy: y, r: 2.6, fill: c }, emb);
+    // gem
     const body = `M${CX} ${CY - 61}L${CX + 38} ${CY - 25}L${CX} ${CY + 11}L${CX - 38} ${CY - 25}Z`;
     mk('path', { d: body, fill: 'rgba(70,150,255,.55)', transform: 'translate(-1.4 0)', class: 'chroma' }, emb);
     mk('path', { d: body, fill: 'rgba(0,229,255,.7)', transform: 'translate(1.4 0)', class: 'chroma' }, emb);
-    mk('path', { d: body, fill: 'rgba(0,229,255,.92)' }, emb);
+    mk('path', { d: body, fill: 'url(#hud-emb-g)' }, emb);
+    mk('path', { d: `M${CX} ${CY - 61}L${CX + 38} ${CY - 25}L${CX} ${CY - 25}Z`, fill: 'rgba(255,255,255,.2)' }, emb);
+    mk('path', { d: `M${CX - 38} ${CY - 25}L${CX} ${CY + 11}L${CX + 38} ${CY - 25}L${CX} ${CY - 25}Z`, fill: 'rgba(0,30,80,.3)' }, emb);
+    mk('path', { d: `M${CX} ${CY - 54}L${CX + 31} ${CY - 25}L${CX} ${CY + 4}L${CX - 31} ${CY - 25}Z`, fill: 'none', stroke: 'rgba(255,255,255,.55)', 'stroke-width': 0.9 }, emb);
     mk('path', { d: `M${CX - 24} ${CY - 33}L${CX - 12} ${CY - 13}L${CX} ${CY - 30}L${CX + 12} ${CY - 13}L${CX + 24} ${CY - 33}`, fill: 'none', stroke: '#051220', 'stroke-width': 5.5, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' }, emb);
     this.ripple = mk('circle', { cx: CX, cy: CY, r: R0 * 0.92, fill: 'none', stroke: '#00E5FF', 'stroke-width': 1.6, opacity: 0 }, gT);
     this.shock = mk('circle', { id: 'shock', cx: CX, cy: CY, r: R0, fill: 'none', stroke: '#3FF5FF', 'stroke-width': 1.5, opacity: 0 }, gT);
     this.flash = mk('circle', { id: 'flash', cx: CX, cy: CY, r: 60 }, gT);
     for (const e of [this.ripple, this.shock, this.flash]) e.style.transformOrigin = `${CX}px ${CY}px`;
-    this.followArc = mk('circle', { cx: CX, cy: CY, r: 56, pathLength: 100, fill: 'none', stroke: '#3FF5FF', 'stroke-width': 1.5, opacity: 0, transform: `rotate(-90 ${CX} ${CY})` }, gT);
+    this.followArc = mk('circle', { cx: CX, cy: CY - 25, r: 64, pathLength: 100, fill: 'none', stroke: '#3FF5FF', 'stroke-width': 1.5, opacity: 0, transform: `rotate(-90 ${CX} ${CY - 25})` }, gT);
     this.follow = null;
   }
 
@@ -377,7 +386,7 @@ export class HudReactor {
     for (let i = 0; i < 4; i++) {
       if (st === 'TRANSCRIBING') { const tgt = -90 + (i - 1.5) * 9; this.satAng[i] += angDiff(this.satAng[i], tgt) * (1 - Math.exp(-dt / 0.45)); }
       else if (!this.reduced && !this.frozen) this.satAng[i] = (this.satAng[i] + (SAT[st] || 0) * SAT_DIR[i] * (1 + i * 0.12) * dt) % 360;
-      const [sx, sy] = pt(211, this.satAng[i]);
+      const [sx, sy] = pt(207, this.satAng[i]);
       this.sats[i].setAttribute('cx', f1(sx)); this.sats[i].setAttribute('cy', f1(sy));
     }
 
@@ -415,7 +424,7 @@ export class HudReactor {
     const fresh = now - this.bandsAt < 250;
     if (now - this.bandAt > 33 && (fresh || this.band.__live)) {
       this.bandAt = now;
-      const N = 120, r0 = 175;
+      const N = 120, r0 = 169;
       let d = '';
       for (let t = 0; t < N; t++) {
         const u = t / N, s = u < 0.5 ? u * 2 : (1 - u) * 2, b = Math.min(15, Math.floor(s * 16));

@@ -9,7 +9,6 @@
 
 import { sfx, requireGestureForAudio } from '../sfx.js';
 import { playHudBoot } from './hud-boot.js';
-import { playArcBoot } from './arc-boot.js';
 import { getIntroMode } from './hud-intro.js';
 import './ease.js';
 
@@ -149,10 +148,6 @@ function playBoot({ home }) {
 
     body.classList.add('booting');
     home.booting = true;
-    if (home.style === 'arc') { // rings open from the middle (ui/arc-boot.js)
-      playArcBoot({ home, overlay, ready, greetIn, chimeOnly });
-      return;
-    }
     if (home.style === 'hud') { // the reference boot choreography (ui/hud-boot.js)
       playHudBoot({ home, sfx, overlay, ready, greetIn, chimeOnly, countUp });
       return;

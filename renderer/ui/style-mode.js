@@ -1,7 +1,7 @@
-// UI style (hud | calm | arc) and motion (auto | full | reduced) — pure state + <html> attributes.
+// UI style (hud | calm) and motion (auto | full | reduced) — pure state + <html> attributes.
 // Per-viewer preferences live in localStorage; ui/style-boot.js applies them before first paint.
 
-export const STYLES = ['hud', 'calm', 'arc'];
+export const STYLES = ['hud', 'calm'];
 export const MOTIONS = ['auto', 'full', 'reduced'];
 
 const listeners = new Set();

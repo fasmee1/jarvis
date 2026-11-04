@@ -647,6 +647,7 @@ export class StageViewer {
         defaults: { ease: 'calm' },
         onComplete: () => {
           wrap.classList.add('mini');
+          document.getElementById('leaders').style.visibility = 'hidden'; // card leaders point at the old reactor spot, not the mini one
           wrap.classList.toggle('mini-web', last.s === MINI_WEB);
           gsap.set([root, head, bodies, foot, base, ...accs], { clearProps: 'transform,opacity,strokeDasharray,strokeDashoffset,transformOrigin' });
           dock.unlock();
@@ -695,6 +696,7 @@ export class StageViewer {
     const g = this.g || this._geom();
     dock.lock();
     wrap.classList.remove('mini', 'mini-web');
+    document.getElementById('leaders').style.visibility = '';
     const apply = () => home.applyReactor();
     const accs = frame.querySelectorAll('.acc');
 

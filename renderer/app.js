@@ -2076,6 +2076,7 @@ function wireSettings() {
     home.setStyle(style);
     home.setReduced(reduced);
     $('ui-style').value = style;
+    orbBridge.set({ style }); // the desktop icon follows the screen style
   });
   $('ui-boot-mode').value = bootPrefs.mode;
   $('ui-boot-mode').onchange = (e) => { bootPrefs.mode = e.target.value; };

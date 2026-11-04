@@ -24,6 +24,8 @@
 .cv-ctl[hidden] { display: none; }
 .cv-icon { width: 32px; padding: 0; justify-content: center; }
 .cv-i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
+.cv-i-dots { fill: currentColor; stroke: none; width: 18px; height: 18px; } /* "⋯": real dots, a 1.5px stroke dot was invisible */
+#cv-more { color: var(--text-1); border-color: var(--line); }
 .cv-folder { color: var(--text-1); border-color: var(--line); }
 .cv-folder .cv-i { color: var(--text-2); }
 .cv-cwd { font-size: 12px; letter-spacing: 0; }

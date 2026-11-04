@@ -2291,6 +2291,7 @@ body.booting .hf-btn {
 }
 
 .dock-tray {
+  display: none !important; /* ซ่อนปุ่ม "N DOCKED" (เปิดกลับได้โดยลบบรรทัดนี้) */
   position: relative;
   margin-top: 8px;
   pointer-events: auto;

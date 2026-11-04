@@ -177,15 +177,15 @@ function send(channel, payload) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1500,
-    height: 940,
+    width: Number((process.env.JARVIS_WIN_SIZE || '').split('x')[0]) || 1500,
+    height: Number((process.env.JARVIS_WIN_SIZE || '').split('x')[1]) || 940,
     minWidth: 1100,
     minHeight: 700,
     backgroundColor: '#01060D',
     title: 'Mee JARVIS',
     autoHideMenuBar: true,
     frame: false,
-    fullscreen: true,
+    fullscreen: !process.env.JARVIS_WIN_SIZE, // dev aid: JARVIS_WIN_SIZE=1500x940 → windowed at that size
     webPreferences: {
       preload: path.join(APP_ROOT, 'preload.js'),
       nodeIntegration: false,
@@ -916,6 +916,7 @@ function registerIpc() {
     for (const [k, x] of Object.entries(p)) {
       if (k === 'state') out[k] = v.oneOf(x, ORB_STATES, 'state');
       else if (['hf', 'micOff', 'voiceMuted', 'replyDone', 'result'].includes(k)) out[k] = v.bool(x, k);
+      else if (k === 'style') out[k] = v.oneOf(x, ['hud', 'calm'], 'style');
       else if (k === 'transcript') out[k] = v.str(x, 500, k);
       else if (k === 'reply') out[k] = v.str(x, 800, k);
       else if (k === 'attention' || k === 'error') out[k] = v.str(x, 300, k);

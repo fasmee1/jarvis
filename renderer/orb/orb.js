@@ -246,6 +246,7 @@ function applyState() {
 }
 
 orb.on('orb:state', (p) => {
+  if (p.style) document.documentElement.dataset.style = p.style; // hud | calm, same as the main window
   const fresh = (k) => k in p && p[k] && p[k] !== st[k];
   if (fresh('transcript') || fresh('reply') || fresh('attention')) want.reply = true;
   Object.assign(st, p);

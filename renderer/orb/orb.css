@@ -8,7 +8,15 @@
   --border: rgba(255, 255, 255, 0.1);
   --border-hover: rgba(255, 255, 255, 0.18);
   --accent: #5BE1F0;
+  --acc-rgb: 91, 225, 240;
   --amber: #FF9A3D;
+  --amber-rgb: 255, 154, 61;
+  --err: var(--amber);
+  --err-rgb: var(--amber-rgb);
+  --glass-a: #090D12;
+  --glass-b: #07090C;
+  --card-bg: rgba(7, 11, 16, 0.92);
+  --cut: 6px;
   --warning: #FFB547;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --s: 88px; /* orb diameter (S 64 · M 88 · L 120) */
@@ -22,10 +30,11 @@ body.grabbing, body.grabbing * { cursor: grabbing !important; }
 [hidden] { display: none !important; }
 
 /* ---------- orb ---------- */
-.orb { --c: var(--accent); --c-rgb: 91, 225, 240; position: absolute; left: 28px; top: 28px; width: var(--s); height: var(--s); border-radius: 50%; cursor: pointer; opacity: 0.88; transition: opacity 240ms var(--ease); outline: none; }
+.orb { --c: var(--accent); --c-rgb: var(--acc-rgb); position: absolute; left: 28px; top: 28px; width: var(--s); height: var(--s); border-radius: 50%; cursor: pointer; opacity: 0.88; transition: opacity 240ms var(--ease); outline: none; }
 .orb:hover, .orb.active { opacity: 1; }
 .orb.faded { opacity: 0.45; }
-.orb.listening, .orb.error { --c: var(--amber); --c-rgb: 255, 154, 61; }
+.orb.listening { --c: var(--amber); --c-rgb: var(--amber-rgb); }
+.orb.error { --c: var(--err); --c-rgb: var(--err-rgb); }
 .orb.muted { --c: var(--text-3); --c-rgb: 122, 133, 144; }
 .orb.faded * { animation-play-state: paused !important; }
 .o-in { position: absolute; inset: 0; border-radius: 50%; opacity: 0; transform: scale(0.6); transition: opacity 220ms var(--ease), transform 220ms var(--ease); }
@@ -34,7 +43,7 @@ body.shown .o-in { opacity: 1; transform: scale(1); }
 
 .glass {
   position: absolute; inset: 0; border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, rgba(var(--c-rgb), 0.07) 0%, transparent 48%), radial-gradient(circle at 50% 50%, #090D12 0%, #07090C 100%);
+  background: radial-gradient(circle at 50% 50%, rgba(var(--c-rgb), 0.07) 0%, transparent 48%), radial-gradient(circle at 50% 50%, var(--glass-a) 0%, var(--glass-b) 100%);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 4px 14px rgba(0, 0, 0, 0.55);
   transition: box-shadow 240ms var(--ease);
 }
@@ -105,12 +114,13 @@ body.shown .o-in { opacity: 1; transform: scale(1); }
 .orb.idle .arc { animation: spin 12s linear infinite; }
 .orb.listening .arc { animation: spin 3.2s linear infinite; }
 .orb.listening .arc circle { stroke: var(--amber); stroke-dasharray: 8 92; opacity: 0.9; }
+.orb.error .arc { filter: drop-shadow(0 0 3px rgba(var(--err-rgb), 0.55)); }
 .orb.thinking .arc { animation: spin 1.15s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite; }
 .orb.thinking .arc circle { stroke-dasharray: 30 70; opacity: 0.95; }
 .orb.speaking .arc { animation: spin 5s linear infinite; }
 .orb.speaking .arc circle { stroke-dasharray: 18 82; opacity: 0.7; }
 .orb.muted .arc, .orb.muted .ring { display: none; }
-.orb.error .arc circle { stroke: var(--amber); stroke-dasharray: 100 0; opacity: 0.55; }
+.orb.error .arc circle { stroke: var(--err); stroke-dasharray: 100 0; opacity: 0.55; }
 @keyframes spin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
 
 /* fine segmented ring: follows the mic (listening) or the voice (speaking) */
@@ -125,15 +135,15 @@ body.shown .o-in { opacity: 1; transform: scale(1); }
 .orb.muted .badge { display: block; }
 
 /* error: a brief amber pulse */
-.pulse { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--amber); opacity: 0; pointer-events: none; }
+.pulse { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--err); opacity: 0; pointer-events: none; }
 .orb.pulsing .pulse { animation: pulse 0.6s var(--ease) 2; }
 @keyframes pulse { from { transform: scale(1); opacity: 0.7; } to { transform: scale(1.3); opacity: 0; } }
 
 /* ---------- reply bubble ---------- */
 .panel { position: absolute; pointer-events: none; }
 .card { position: absolute; max-width: 100%; min-width: 120px; padding: 12px 14px; pointer-events: auto; cursor: default;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)), rgba(7, 11, 16, 0.92);
-  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)), var(--card-bg);
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
   opacity: 0; transition: opacity 180ms var(--ease), transform 180ms var(--ease); }
 .panel.h-left .card { right: 0; transform-origin: right center; transform: translateX(6px) scale(0.97); }
 .panel.h-right .card { left: 0; transform-origin: left center; transform: translateX(-6px) scale(0.97); }
@@ -155,16 +165,16 @@ body.shown .o-in { opacity: 1; transform: scale(1); }
 .row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .sp { flex: 1; }
 button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
-.chip { font-size: 12px; padding: 2px 8px; border-radius: 4px; color: var(--accent); background: rgba(91, 225, 240, 0.08); border: 1px solid rgba(91, 225, 240, 0.25); transition: background 180ms var(--ease); }
-.chip:hover { background: rgba(91, 225, 240, 0.16); }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 4px; color: var(--accent); background: rgba(var(--acc-rgb), 0.08); border: 1px solid rgba(var(--acc-rgb), 0.25); transition: background 180ms var(--ease); }
+.chip:hover { background: rgba(var(--acc-rgb), 0.16); }
 .link { font-size: 12px; color: var(--text-2); transition: color 180ms var(--ease); }
 .link:hover { color: var(--accent); }
 .kb { width: 22px; height: 22px; border-radius: 4px; font-size: 14px; line-height: 22px; color: var(--text-3); transition: color 180ms var(--ease), background 180ms var(--ease); }
 .kb:hover, .kb.on { color: var(--text-1); background: rgba(255, 255, 255, 0.06); }
 .form { margin-top: 8px; }
 .form input { width: 100%; height: 30px; padding: 0 10px; font: inherit; font-size: 13px; color: var(--text-1); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border); border-radius: 6px; outline: none; user-select: text; }
-.form input:focus { border-color: rgba(91, 225, 240, 0.5); }
-:focus-visible { outline: 1px solid rgba(91, 225, 240, 0.6); outline-offset: 2px; }
+.form input:focus { border-color: rgba(var(--acc-rgb), 0.5); }
+:focus-visible { outline: 1px solid rgba(var(--acc-rgb), 0.6); outline-offset: 2px; }
 
 /* reduced motion: no orbiting arc, just static state colours */
 @media (prefers-reduced-motion: reduce) {
@@ -174,6 +184,70 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
   .arc, .segs { display: none; }
   .ring { transform: none; }
   .orb.listening .glass { border-color: var(--amber); }
-  .orb.thinking .glass, .orb.speaking .glass { border-color: rgba(91, 225, 240, 0.6); }
+  .orb.thinking .glass, .orb.speaking .glass { border-color: rgba(var(--acc-rgb), 0.6); }
   .orb.error .glass { border-color: var(--warning); }
 }
+
+/* ================= style modes (same names as the main window: ui/style-mode.js) =================
+   calm = the base look above. hud / arc override tokens + a few shapes. */
+
+/* ---- HUD: holographic instrument. Teal on near-black, orange for the live arc, cut corners, glow ---- */
+html[data-style="hud"] {
+  --accent: #00E5FF; --acc-rgb: 0, 229, 255;
+  --amber: #FF8A1F; --amber-rgb: 255, 138, 31;
+  --err: #FF4D5E; --err-rgb: 255, 77, 94;
+  --text-1: #DDF9FF; --text-2: #7FB8CC; --text-3: #4F8296;
+  --glass-a: #04101C; --glass-b: #020812;
+  --card-bg: rgba(2, 8, 18, 0.94);
+  --cut: 12px;
+  --font-ui: 'Rajdhani', 'Oxanium', 'IBM Plex Sans Thai', 'Segoe UI', system-ui, sans-serif;
+}
+html[data-style="hud"] .glass { box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.35), inset 0 0 14px rgba(0, 229, 255, 0.12), 0 0 12px rgba(0, 229, 255, 0.25), 0 4px 14px rgba(0, 0, 0, 0.6); }
+html[data-style="hud"] .orb:hover .glass { box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.7), inset 0 0 16px rgba(0, 229, 255, 0.2), 0 0 18px rgba(0, 229, 255, 0.45), 0 4px 14px rgba(0, 0, 0, 0.6); }
+html[data-style="hud"] .ticks path { stroke: rgba(0, 229, 255, 0.5); }
+html[data-style="hud"] .hud .hair { stroke: rgba(0, 229, 255, 0.3); }
+html[data-style="hud"] .hud .hair.dim, html[data-style="hud"] .hud .hair.track { stroke: rgba(0, 229, 255, 0.16); }
+html[data-style="hud"] .hud .seg { stroke: rgba(0, 229, 255, 0.22); }
+html[data-style="hud"] .hud .node { fill: #3FF5FF; }
+html[data-style="hud"] .hud .node.on { fill: var(--amber); }
+html[data-style="hud"] .hud .node-ring { stroke: rgba(0, 229, 255, 0.55); }
+html[data-style="hud"] .segs circle { stroke: var(--accent); }
+/* orange live arc with glow, like the orange segments on the HUD ring */
+html[data-style="hud"] .arc { filter: drop-shadow(0 0 4px rgba(255, 138, 31, 0.8)); }
+html[data-style="hud"] .arc circle { stroke: var(--amber); stroke-width: 3; }
+html[data-style="hud"] .orb.listening .arc circle { stroke: #FFC38A; }
+html[data-style="hud"] .orb.error .arc { filter: drop-shadow(0 0 4px rgba(255, 77, 94, 0.8)); }
+/* emblem like the HUD reactor: slight blue / cyan colour split on both sides, then the glow */
+html[data-style="hud"] .logo { fill: #3FF5FF; filter: drop-shadow(calc(var(--s) * -0.016) 0 0 rgba(70, 150, 255, 0.6)) drop-shadow(calc(var(--s) * 0.016) 0 0 rgba(0, 229, 255, 0.6)) drop-shadow(0 0 calc(var(--s) * 0.04) #00E5FF) drop-shadow(0 0 calc(var(--s) * 0.09) rgba(0, 229, 255, 0.55)); }
+html[data-style="hud"] .orb.listening .logo { fill: #FFC38A; filter: drop-shadow(0 0 calc(var(--s) * 0.05) rgba(255, 138, 31, 0.9)); }
+html[data-style="hud"] .orb.error .logo { fill: var(--err); }
+html[data-style="hud"] .orb.muted .logo { fill: var(--text-3); filter: none; }
+html[data-style="hud"] .ring circle { stroke: var(--accent); }
+html[data-style="hud"] .orb.listening .ring circle { stroke: #FFC38A; }
+html[data-style="hud"] .badge { background: #04101C; border-color: rgba(0, 229, 255, 0.4); stroke: var(--accent); }
+html[data-style="hud"] .frame .base { stroke: rgba(0, 229, 255, 0.28); }
+html[data-style="hud"] .frame .acc { stroke: var(--amber); stroke-width: 2; }
+html[data-style="hud"] .tip, html[data-style="hud"] .you, html[data-style="hud"] .row .link { font-family: 'Rajdhani', 'Oxanium', 'IBM Plex Sans Thai', sans-serif; letter-spacing: 0.05em; }
+html[data-style="hud"] .chip { border-radius: 0; }
+html[data-style="hud"] .form input { border-radius: 0; border-color: rgba(0, 229, 255, 0.3); background: rgba(0, 229, 255, 0.04); }
+
+/* ---- HUD: same arc layers as the main reactor (hud-reactor.js), turning at its standby speeds (6 / -9 deg/s) ---- */
+.hx { display: none; position: absolute; inset: 0; width: 100%; height: 100%; fill: none; pointer-events: none; }
+html[data-style="hud"] .hx { display: block; }
+.hx path { stroke-linecap: butt; vector-effect: non-scaling-stroke; }
+.hx .dor { stroke: var(--amber); stroke-width: 1.5; stroke-dasharray: 2 1.6; opacity: 0.9; }
+.hx .or { stroke: var(--amber); stroke-width: 2.2; filter: drop-shadow(0 0 2px rgba(255, 138, 31, 0.8)); }
+.hx .or.in { stroke-width: 2.4; }
+.hx .cy { stroke: #3FF5FF; stroke-width: 1.8; filter: drop-shadow(0 0 2px rgba(0, 229, 255, 0.7)); }
+.orb.idle .hx-a { animation: spin-cw 60s linear infinite; }
+.orb.idle .hx-b { animation: spin-back 40s linear infinite; }
+.orb.thinking .hx-a { animation: spin-cw 3s linear infinite; }
+.orb.listening .hx-a, .orb.speaking .hx-a { animation: spin-cw 26s linear infinite; }
+.orb.listening .hx-b, .orb.speaking .hx-b { animation: spin-back 18s linear infinite; }
+.orb.listening .hx .or, .orb.listening .hx .dor { stroke: #FFC38A; }
+.orb.error .hx .or, .orb.error .hx .dor, .orb.error .hx .cy { stroke: var(--err); }
+.orb.muted .hx { display: none; }
+/* wide block ring like the reactor's, in dim teal; lit by the standby wave */
+html[data-style="hud"] .hud .seg { stroke: rgba(0, 229, 255, 0.2); stroke-width: 4.5; stroke-dasharray: 0.62 0.38; }
+html[data-style="hud"] .segs circle { stroke-width: 4.5; stroke-dasharray: 0.62 0.38; }
+@media (prefers-reduced-motion: reduce) { .hx { animation: none !important; } }
