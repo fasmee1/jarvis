@@ -24,30 +24,93 @@ export function formatElapsed(ms) {
   return h ? `${h}:${p(m)}:${p(t % 60)}` : `${m}:${p(t % 60)}`;
 }
 
-/** One handle for the three reactors (calm canvas / HUD svg): state goes to all, drawing only to the active one. */
+/** One handle for the reactors (calm canvas + WebGL holo core / HUD svg): state goes to all, drawing only to the active one. */
 class CoreSwitch {
   constructor(calm, hud) {
     this.calm = calm;
     this.hud = hud;
     this.active = calm;
+    this.holo = null; // calm style: vendor/holo-core.min.js, loaded on first use
+    this.holoCanvas = document.createElement('canvas');
+    this.holoCanvas.className = 'holo-canvas';
+    this.holoCanvas.setAttribute('aria-hidden', 'true');
+    calm.canvas.before(this.holoCanvas);
+    this.mark = document.getElementById('core-mark');
+    this.last = { state: 'STANDBY', scale: 1, reduced: false };
     for (const m of ['setState', 'setSignals', 'pulseActivity', 'wake', 'setFollow', 'setNodes', 'flashNode', 'holdNode', 'setHover', 'setDocked', 'resize']) {
-      this[m] = (...a) => { this.calm[m](...a); this.hud[m](...a); };
+      this[m] = (...a) => {
+        this.calm[m](...a);
+        this.hud[m](...a);
+        if (this.holo && this.holo[m]) this.holo[m](...a);
+      };
     }
+    const setState = this.setState;
+    this.setState = (s) => { this.last.state = s; setState(s); };
+    const resize = this.resize;
+    this.resize = (k) => { this.last.scale = k; resize(k); };
   }
 
   get quality() { return this.calm.quality; }
-  set quality(q) { this.calm.quality = q; this.hud.setQuality(q); }
+  set quality(q) { this.calm.quality = q; this.hud.setQuality(q); if (this.holo) this.holo.setQuality(q); }
   get mini() { return this.calm.mini; }
   set mini(v) { this.calm.mini = v; }
-  frame(now, dt) { this.active.frame(now, dt); }
+  frame(now, dt) {
+    this.active.frame(now, dt);
+    if (!this.holo || this.active !== this.calm) return;
+    const B = this.calm.boot;
+    this.holo.frame(now, dt, B ? B.rings : 1);
+    // the wordmark follows the boot's logo step, then belongs to CSS again
+    if (B) this.mark.style.opacity = String(B.logo);
+    else if (this.mark.style.opacity) this.mark.style.opacity = '';
+  }
   beginBoot(order) { return this.calm.beginBoot(order); }
   endBoot() { this.calm.endBoot(); }
-  setReduced(on) { this.calm.setReduced(on); this.hud.setReduced(on); }
+  setReduced(on) { this.last.reduced = !!on; this.calm.setReduced(on); this.hud.setReduced(on); if (this.holo) this.holo.setReduced(on); }
   setStyle(style) { this.calm.setStyle(style); }
   use(style) {
     this.active = style === 'hud' ? this.hud : this.calm;
     this.hud.setActive(style === 'hud');
     this.calm.canvas.hidden = style !== 'calm';
+    if (style === 'calm') this._holoOn();
+    else this._holoOff();
+  }
+
+  /** Load the WebGL core; without WebGL the 2D calm reactor stays as it is. */
+  _holoOn() {
+    if (this.holo || this._loading) return;
+    this._loading = true;
+    import('./vendor/holo-core.min.js').then(({ createHoloCore }) => {
+      this._loading = false;
+      if (this.active !== this.calm || this.holo) return;
+      try {
+        this.holo = createHoloCore(this.holoCanvas, { quality: this.calm.quality, reduced: this.last.reduced });
+      } catch (err) {
+        console.warn('[holo] WebGL unavailable, keeping the 2D reactor:', err && err.message);
+        return;
+      }
+      this.holo.onLost = () => this._holoOff();
+      this.holo.setState(this.last.state);
+      this.holo.resize(this.last.scale);
+      this.calm.setHolo(true);
+      this.holoCanvas.parentElement.classList.add('holo-on');
+    }).catch((err) => {
+      this._loading = false;
+      console.warn('[holo] failed to load:', err && err.message);
+    });
+  }
+
+  /** Free the GPU resources (HUD style, or the context was lost). */
+  _holoOff() {
+    this.calm.setHolo(false);
+    this.holoCanvas.parentElement.classList.remove('holo-on');
+    if (!this.holo) return;
+    const h = this.holo;
+    this.holo = null;
+    try { h.dispose(); } catch { /* already gone */ }
+    // a disposed context cannot be reopened on the same element
+    const fresh = this.holoCanvas.cloneNode(false);
+    this.holoCanvas.replaceWith(fresh);
+    this.holoCanvas = fresh;
   }
 }
 

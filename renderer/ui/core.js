@@ -104,6 +104,12 @@ export class Core {
     this.sweepAng = 0; // radar sweep head, radians clockwise from 12 o'clock
     this.sweepK = 0; // 0..1, only at standby / waiting for the wake word
     this.satA = 0; // satellite position on the orbit
+    this.holo = false; // calm style with the WebGL core (vendor/holo-core.min.js) underneath
+  }
+
+  /** WebGL holographic core is drawing the reactor: keep only nodes, the node ring and the follow-up arc. */
+  setHolo(on) {
+    this.holo = !!on;
   }
 
   /** Hands-free wake word heard: logo 1 → 1.08 → 1, one soft ripple, one bright ring sweep. */
@@ -393,6 +399,8 @@ export class Core {
     const ra = hud ? 4.2 : 1; // ring / segment strength: teal hairlines are clearly visible in HUD
     const breathe = this.reduced ? 1 : 0.5 + 0.5 * Math.sin((now / 4000) * TAU); // 4 s cycle
 
+    if (this.holo) return this._drawHolo(ctx, now, B);
+
     // ---- inner disc: cyan 5% at the centre fading to transparent ----
     if (B.rings > 0) {
       const g = ctx.createRadialGradient(0, 0, 0, 0, 0, R.inner);
@@ -467,34 +475,7 @@ export class Core {
       }
     }
 
-    // ---- connector nodes: 7px dot + 1px ring; cyan ring on hover; filled cyan when docked ----
-    for (const n of this.nodes) {
-      if (this.boot) {
-        const idx = B.order.indexOf(n.deg);
-        if (idx < 0 || idx >= B.nodes) continue;
-      }
-      const a = deg(n.deg);
-      const x = Math.cos(a) * R.node;
-      const y = Math.sin(a) * R.node;
-      const pulse = Math.max(0, 1 - (now - n.flashAt) / 700);
-      const hover = this.hoverDeg === n.deg || now - n.holdAt < 120;
-      const dk = n.dock || 0;
-      ctx.fillStyle = dk > 0 ? rgba(mix(W, accent, dk), 0.35 + 0.65 * dk) : rgba(W, hover ? 0.6 : 0.35);
-      ctx.beginPath();
-      ctx.arc(x, y, 3.5, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = hover ? rgba(accent, 0.9) : rgba(W, dk > 0 ? 0.1 : 0.16);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(x, y, 7, 0, TAU);
-      ctx.stroke();
-      if (pulse > 0) {
-        ctx.strokeStyle = rgba(accent, 0.5 * pulse);
-        ctx.beginPath();
-        ctx.arc(x, y, 7 + (1 - pulse) * 8, 0, TAU);
-        ctx.stroke();
-      }
-    }
+    this._nodes(ctx, now, B, W, accent);
 
     // ---- logo: 1.6× larger, soft halo behind, slow breathing (4 s) ----
     if (B.logo > 0) {
@@ -530,6 +511,56 @@ export class Core {
       ctx.stroke();
     }
 
+    this._follow(ctx, now, W, accent);
+
+    // ---- amber arcs: thin, only while listening or speaking (300 ms fades) ----
+    const amberA = hud ? Math.max(this.amber, 0.45) : this.amber;
+    if (amberA > 0.01) {
+      const span = ((32 + Math.min(1, this.level * 1.4) * 16) * Math.PI) / 180;
+      ctx.strokeStyle = rgba(hud ? HUD.orange : PAL.amber, 0.85 * amberA);
+      ctx.lineWidth = hud ? 3 : 1.5;
+      ctx.lineCap = 'round';
+      for (const mid of [0, Math.PI]) {
+        ctx.beginPath();
+        ctx.arc(0, 0, R.amber, mid - span, mid + span);
+        ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+    }
+  }
+
+  _nodes(ctx, now, B, W, accent) {
+    // ---- connector nodes: 7px dot + 1px ring; cyan ring on hover; filled cyan when docked ----
+    for (const n of this.nodes) {
+      if (this.boot) {
+        const idx = B.order.indexOf(n.deg);
+        if (idx < 0 || idx >= B.nodes) continue;
+      }
+      const a = deg(n.deg);
+      const x = Math.cos(a) * R.node;
+      const y = Math.sin(a) * R.node;
+      const pulse = Math.max(0, 1 - (now - n.flashAt) / 700);
+      const hover = this.hoverDeg === n.deg || now - n.holdAt < 120;
+      const dk = n.dock || 0;
+      ctx.fillStyle = dk > 0 ? rgba(mix(W, accent, dk), 0.35 + 0.65 * dk) : rgba(W, hover ? 0.6 : 0.35);
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = hover ? rgba(accent, 0.9) : rgba(W, dk > 0 ? 0.1 : 0.16);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, TAU);
+      ctx.stroke();
+      if (pulse > 0) {
+        ctx.strokeStyle = rgba(accent, 0.5 * pulse);
+        ctx.beginPath();
+        ctx.arc(x, y, 7 + (1 - pulse) * 8, 0, TAU);
+        ctx.stroke();
+      }
+    }
+  }
+
+  _follow(ctx, now, W, accent) {
     // ---- follow-up window: a thin arc around the core shrinking to 0 ----
     if (this.follow) {
       const frac = Math.max(0, 1 - (now - this.follow.at) / this.follow.ms);
@@ -547,21 +578,15 @@ export class Core {
         ctx.lineCap = 'butt';
       }
     }
+  }
 
-    // ---- amber arcs: thin, only while listening or speaking (300 ms fades) ----
-    const amberA = hud ? Math.max(this.amber, 0.45) : this.amber;
-    if (amberA > 0.01) {
-      const span = ((32 + Math.min(1, this.level * 1.4) * 16) * Math.PI) / 180;
-      ctx.strokeStyle = rgba(hud ? HUD.orange : PAL.amber, 0.85 * amberA);
-      ctx.lineWidth = hud ? 3 : 1.5;
-      ctx.lineCap = 'round';
-      for (const mid of [0, Math.PI]) {
-        ctx.beginPath();
-        ctx.arc(0, 0, R.amber, mid - span, mid + span);
-        ctx.stroke();
-      }
-      ctx.lineCap = 'butt';
-    }
+  /** Calm + WebGL core: only what the 3D core cannot show — the node ring, connector nodes, follow-up arc. */
+  _drawHolo(ctx, now, B) {
+    const HB = [32, 184, 255]; // #20B8FF
+    const accent = mix(HB, PAL.red, this.err * 0.6);
+    this._ring(ctx, R.node, rgba(HB, 0.07), B.rings);
+    this._nodes(ctx, now, B, HB, accent);
+    this._follow(ctx, now, HB, accent);
   }
 
   /** HUD only: dashed orange arcs orbiting the track and two orange sweeps (still when motion is reduced). */

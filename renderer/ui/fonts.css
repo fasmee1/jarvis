@@ -19,5 +19,9 @@
 @font-face { font-family: 'Orbitron'; font-weight: 500; font-display: swap; src: url(fonts/orbitron-latin-500-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Orbitron'; font-weight: 700; font-display: swap; src: url(fonts/orbitron-latin-700-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Orbitron'; font-weight: 900; font-display: swap; src: url(fonts/orbitron-latin-900-normal.woff2) format('woff2'); }
+/* Calm style (holographic): Rajdhani light weights for labels and the wordmark */
+@font-face { font-family: 'Rajdhani'; font-weight: 300; font-display: swap; src: url(fonts/rajdhani-latin-300-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-weight: 400; font-display: swap; src: url(fonts/rajdhani-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Rajdhani'; font-weight: 500; font-display: swap; src: url(fonts/rajdhani-latin-500-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Rajdhani'; font-weight: 600; font-display: swap; src: url(fonts/rajdhani-latin-600-normal.woff2) format('woff2'); }
 @font-face { font-family: 'Rajdhani'; font-weight: 700; font-display: swap; src: url(fonts/rajdhani-latin-700-normal.woff2) format('woff2'); }

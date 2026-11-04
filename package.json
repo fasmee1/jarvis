@@ -12,7 +12,8 @@
     "check": "node scripts/check-all.js",
     "build:earth3d": "node scripts/build-earth3d.js",
     "build:model3d": "node scripts/build-model3d.js",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "build:holo-core": "node scripts/build-holo-core.js"
   },
   "license": "UNLICENSED",
   "private": true,

@@ -1,0 +1,168 @@
+/* ============ Calm style: holographic ============
+   Deep navy, electric blue energy, orange only as an accent (≈ 75 / 18 / 7).
+   The reactor is the WebGL core (vendor/holo-core.min.js) on .holo-canvas; .core-wrap gets
+   .holo-on once it runs (without WebGL the 2D reactor stays and these core rules do not apply).
+   Everything here is under html[data-style="calm"], so the HUD style is untouched. */
+
+html[data-style="calm"] {
+  --bg-0: #020711;
+  --bg-1: #061329;
+  --bg-2: #0A1B32;
+  --surface: rgba(32, 184, 255, 0.035);
+  --surface-2: rgba(32, 184, 255, 0.075);
+
+  --text-1: #DCEBFF;
+  --text-2: #8194AD;
+  --text-3: #6A7F9A; /* muted text, still ≥ 4.5:1 on #020711 (#465A73 is used for lines and marks only) */
+  --line: rgba(32, 184, 255, 0.12);
+  --border: rgba(32, 184, 255, 0.12);
+  --border-hover: rgba(32, 184, 255, 0.34);
+
+  --accent: #20B8FF;
+  --accent-soft: rgba(32, 184, 255, 0.5);
+  --accent-faint: rgba(32, 184, 255, 0.14);
+  --accent-ghost: rgba(32, 184, 255, 0.06);
+  --orange: #FF9B45;
+  --orange-hot: #FF741C;
+  --orange-soft: rgba(255, 155, 69, 0.5);
+
+  --f-holo: 'Rajdhani', 'IBM Plex Sans Thai Looped', 'IBM Plex Sans Thai', sans-serif;
+  --panel-bg: rgba(5, 14, 30, 0.45);
+  --panel-line: rgba(32, 184, 255, 0.12);
+  --panel-glow: 0 0 24px rgba(0, 120, 255, 0.04);
+}
+
+html[data-style="calm"] body,
+html[data-style="calm"] .home { background: #020711; }
+
+/* ---------- the holographic core ---------- */
+.holo-canvas { display: none; }
+html[data-style="calm"] .core-wrap.holo-on .holo-canvas {
+  display: block;
+  position: absolute;
+  left: -240px;
+  top: -240px;
+  width: 1200px;
+  height: 1200px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.core-mark { display: none; }
+html[data-style="calm"] .core-wrap.holo-on .core-mark {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 360px;
+  transform: translateY(-50%);
+  z-index: 2;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 300;
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: 0.52em;
+  padding-left: 0.52em; /* letter-spacing trails the last glyph: keep the word centred */
+  color: #DCEBFF;
+  text-shadow: 0 0 2px rgba(220, 235, 255, 0.55), 0 0 14px rgba(32, 184, 255, 0.55), 0 0 32px rgba(8, 123, 255, 0.35);
+  transition: opacity 0.6s var(--ease), color var(--mid) var(--ease);
+}
+html[data-style="calm"] body:has(.state-label.err) .core-wrap.holo-on .core-mark { color: #FFD9BD; }
+html[data-style="calm"] .core-wrap.holo-on.mini .core-mark { opacity: 0; }
+
+/* readout under the wordmark: small, icy, never louder than the core */
+html[data-style="calm"] .core-wrap.holo-on .core-readout { top: 418px; gap: 2px; }
+html[data-style="calm"] .state-label {
+  font-family: var(--f-holo);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.42em;
+  padding-left: 0.42em;
+  color: rgba(112, 223, 255, 0.85);
+}
+html[data-style="calm"] .state-label.tert { color: var(--text-3); }
+html[data-style="calm"] .state-label.att { color: var(--orange); }
+html[data-style="calm"] .state-label.err { color: var(--orange-hot); }
+html[data-style="calm"] .core-elapsed {
+  font-size: 15px;
+  font-weight: 300;
+  letter-spacing: 0.12em;
+  color: rgba(220, 235, 255, 0.78);
+}
+html[data-style="calm"] .core-wrap.mini .state-label { font-size: 32px; }
+html[data-style="calm"] .core-wrap.mini .core-elapsed { font-size: 44px; }
+
+/* fine tick ring: thin blue marks, labels nearly silent */
+html[data-style="calm"] .tick-layer line { stroke: #20B8FF; }
+html[data-style="calm"] .tk-ring { opacity: 0.55; }
+html[data-style="calm"] .tk-labels text { fill: #465A73; stroke: #020711; font-size: 9px; }
+
+/* ---------- cards: minimal transparent navy panels ---------- */
+html[data-style="calm"] .card .fill {
+  background: var(--panel-bg);
+  box-shadow: var(--panel-glow), inset 0 1px 0 rgba(112, 223, 255, 0.04);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+html[data-style="calm"] .frame .base { stroke: var(--panel-line); }
+html[data-style="calm"] .card:hover .frame .base { stroke: var(--border-hover); }
+html[data-style="calm"] .frame .acc path { stroke: rgba(112, 223, 255, 0.55); stroke-width: 1; }
+html[data-style="calm"] .card .lbl {
+  font-family: var(--f-holo);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  color: var(--text-2);
+}
+html[data-style="calm"] .card .ico { stroke: rgba(112, 223, 255, 0.6); stroke-width: 1.25; }
+html[data-style="calm"] .card .val { color: var(--text-1); }
+html[data-style="calm"] .card .rule { background: linear-gradient(90deg, rgba(32, 184, 255, 0.22), rgba(32, 184, 255, 0.04)); }
+
+/* leader lines from the cards to the core */
+html[data-style="calm"] #leaders .ld { stroke: rgba(32, 184, 255, 0.16); }
+html[data-style="calm"] #leaders .ld.on { stroke: rgba(112, 223, 255, 0.6); }
+html[data-style="calm"] #leaders .dot { fill: rgba(112, 223, 255, 0.45); }
+html[data-style="calm"] #leaders .pulse { fill: #70DFFF; }
+
+/* ---------- top controls: small glass chips ---------- */
+html[data-style="calm"] .hamburger,
+html[data-style="calm"] .hud-sound-btn,
+html[data-style="calm"] .hf-btn,
+html[data-style="calm"] .model-pick,
+html[data-style="calm"] .ph-card {
+  background: var(--panel-bg);
+  border-color: var(--panel-line);
+  box-shadow: var(--panel-glow);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+html[data-style="calm"] .hamburger:hover,
+html[data-style="calm"] .hamburger[aria-expanded="true"],
+html[data-style="calm"] .hud-sound-btn:hover,
+html[data-style="calm"] .hf-btn:hover,
+html[data-style="calm"] .model-pick:hover,
+html[data-style="calm"] .model-pick:focus-within,
+html[data-style="calm"] .ph-card:hover {
+  background: rgba(8, 30, 62, 0.55);
+  border-color: var(--border-hover);
+  box-shadow: 0 0 18px rgba(32, 184, 255, 0.1);
+}
+html[data-style="calm"] .model-pick {
+  font-family: var(--f-holo);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+}
+html[data-style="calm"] .model-pick .mono { font-family: var(--f-holo); }
+html[data-style="calm"] .model-pick select { font-weight: 500; letter-spacing: 0.14em; }
+html[data-style="calm"] .model-pick select option { background: #061329; }
+html[data-style="calm"] .hb-dot { box-shadow: 0 0 8px rgba(255, 116, 28, 0.55); }
+
+/* ---------- window chrome: quiet captions and brackets ---------- */
+html[data-style="calm"] .caption { color: #5B708C; letter-spacing: 0.14em; }
+html[data-style="calm"] .caption-bl { color: #465A73; }
+html[data-style="calm"] .cap-key { color: var(--text-2); border-color: var(--panel-line); }
+html[data-style="calm"] .corner-brk { border-color: rgba(32, 184, 255, 0.2); }
