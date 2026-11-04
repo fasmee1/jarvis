@@ -188,8 +188,6 @@ export class HudReactor {
     const L2 = (this.L2 = this._layer());
     const gT = this._scaled(L2);
     const emb = (this.emb = mk('g', { class: 'breathe glowed' }, gT));
-    const dE = mk('defs', {}, L2);
-    dE.innerHTML = '<linearGradient id="hud-emb-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B6FDFF"/><stop offset=".5" stop-color="#19D9F2"/><stop offset="1" stop-color="#0A7FB8"/></linearGradient>';
     const ey = CY - 25; // emblem centre
     const dia = (hw, hh) => `M${CX} ${ey - hh}L${CX + hw} ${ey}L${CX} ${ey + hh}L${CX - hw} ${ey}Z`;
     // outer frame: broken diamond outline + tip markers (kept clear of the gem so nothing overlaps)
@@ -199,11 +197,10 @@ export class HudReactor {
     const body = `M${CX} ${CY - 61}L${CX + 38} ${CY - 25}L${CX} ${CY + 11}L${CX - 38} ${CY - 25}Z`;
     mk('path', { d: body, fill: 'rgba(70,150,255,.55)', transform: 'translate(-1.4 0)', class: 'chroma' }, emb);
     mk('path', { d: body, fill: 'rgba(0,229,255,.7)', transform: 'translate(1.4 0)', class: 'chroma' }, emb);
-    mk('path', { d: body, fill: 'url(#hud-emb-g)' }, emb);
-    mk('path', { d: `M${CX} ${CY - 61}L${CX + 38} ${CY - 25}L${CX} ${CY - 25}Z`, fill: 'rgba(255,255,255,.2)' }, emb);
-    mk('path', { d: `M${CX - 38} ${CY - 25}L${CX} ${CY + 11}L${CX + 38} ${CY - 25}L${CX} ${CY - 25}Z`, fill: 'rgba(0,30,80,.3)' }, emb);
+    // one flat colour: no gradient, no light/shade facets
+    mk('path', { d: body, fill: '#19D9F2' }, emb);
     mk('path', { d: `M${CX} ${CY - 54}L${CX + 31} ${CY - 25}L${CX} ${CY + 4}L${CX - 31} ${CY - 25}Z`, fill: 'none', stroke: 'rgba(255,255,255,.55)', 'stroke-width': 0.9 }, emb);
-    mk('path', { d: `M${CX - 24} ${CY - 33}L${CX - 12} ${CY - 13}L${CX} ${CY - 30}L${CX + 12} ${CY - 13}L${CX + 24} ${CY - 33}`, fill: 'none', stroke: '#051220', 'stroke-width': 5.5, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' }, emb);
+    mk('path', { d: `M${CX - 24} ${CY - 13}L${CX - 12} ${CY - 33}L${CX} ${CY - 16}L${CX + 12} ${CY - 33}L${CX + 24} ${CY - 13}`, fill: 'none', stroke: '#051220', 'stroke-width': 5.5, 'stroke-linejoin': 'miter', 'stroke-linecap': 'butt' }, emb);
     this.ripple = mk('circle', { cx: CX, cy: CY, r: R0 * 0.92, fill: 'none', stroke: '#00E5FF', 'stroke-width': 1.6, opacity: 0 }, gT);
     this.shock = mk('circle', { id: 'shock', cx: CX, cy: CY, r: R0, fill: 'none', stroke: '#3FF5FF', 'stroke-width': 1.5, opacity: 0 }, gT);
     this.flash = mk('circle', { id: 'flash', cx: CX, cy: CY, r: 60 }, gT);

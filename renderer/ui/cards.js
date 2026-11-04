@@ -661,7 +661,9 @@ export class Cards {
       c.pl.setAttribute('points', mapped.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' '));
       c.dot.setAttribute('cx', mapped[0].x);
       c.dot.setAttribute('cy', mapped[0].y);
-      c.pl.style.display = c.dot.style.display = c.def.hidden || c.noLeader ? 'none' : '';
+      // `folded`: the card is docked and settled (set by docking.js). Hidden here every frame so a rebuilt
+      // layout (window maximize) can never leave a leader line pointing at a card that isn't there.
+      c.pl.style.display = c.dot.style.display = c.def.hidden || c.noLeader || c.folded ? 'none' : '';
     }
   }
 

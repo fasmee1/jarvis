@@ -22,6 +22,10 @@ body.in-section .proj-chip { display: none; }
 /* home HUD: mini cards under the reactor (stage coordinates, scales with the stage) */
 .proj-home { position: absolute; left: 672px; top: 912px; width: 576px; display: flex; justify-content: center; gap: 12px; pointer-events: none; }
 .proj-home > * { pointer-events: auto; -webkit-app-region: no-drag; }
+/* HUD style: the bottom pair of cards (CAMERA left, EDIT right) and their leader lines sit where the calm
+   layout leaves a gap. EDIT's leader runs along y≈952–962 (x 1002→1160) and its box spans x≥1160, so the mini
+   cards go in the free band between the two cards (x 556→1132), below that leader line. */
+html[data-style="hud"] .proj-home { left: 556px; top: 984px; width: 576px; }
 .ph-card {
   width: 176px; min-width: 0; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; text-align: left; cursor: pointer;
   font-family: inherit; color: var(--text-2); background: rgba(255, 255, 255, 0.025); border: 1px solid var(--line); border-left: 2px solid var(--line);

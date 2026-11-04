@@ -215,6 +215,7 @@ export class Docking {
       const id = c.def.id;
       const s = this.st.get(id);
       s.target = false;
+      c.folded = false; // redeploy redraws the connector
       this._ensure(id, 'home');
       const t = at + i * stagger;
       s.tl.pause();
@@ -294,6 +295,7 @@ export class Docking {
   _play(id, dock, mode) {
     const s = this.st.get(id);
     const c = this.cards.cards.get(id);
+    c.folded = false; // the connector must be visible while it retracts / redraws; _settled() folds it again
     this._ensure(id, mode);
     if (mode === 'float') {
       c.noLeader = true;
@@ -308,6 +310,7 @@ export class Docking {
     const c = this.cards.cards.get(id);
     if (!s || !c) return;
     s.docked = docked;
+    c.folded = docked;
     s.nd.v = docked ? 1 : 0;
     this.core.setDocked(c.def.node, s.nd.v);
     if (!docked && !s.target) {
