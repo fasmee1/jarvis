@@ -9,7 +9,7 @@
 
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Group, Mesh, Points, LineLoop, LineSegments,
-  BufferGeometry, BufferAttribute, PlaneGeometry, ShaderMaterial, AdditiveBlending, DoubleSide, Color, Vector4,
+  BufferGeometry, BufferAttribute, PlaneGeometry, ShaderMaterial, AdditiveBlending, DoubleSide, Color, Vector2, Vector4,
 } from 'three';
 import { holoTarget, easeToward } from '../../renderer/ui/holo-state.js';
 
@@ -100,7 +100,7 @@ void main() {
 }`;
 
 const RIBBON_FS = /* glsl */`
-uniform float uTime, uGlow, uOrange, uOAt, uOW, uSeed, uCamZ;
+uniform float uTime, uGlow, uOrange, uOAt, uOW, uSeed, uCamZ, uDraw;
 uniform vec4 uPulse[${PULSES}];
 uniform vec3 uBlue, uHolo, uCyan, uOrangeC;
 varying vec2 vUv;
@@ -141,6 +141,12 @@ void main() {
   // back of the structure is dimmer: real depth
   float depthK = mix(0.38, 1.0, smoothstep(-uCamZ - 1.1, -uCamZ + 1.0, vDepth));
   float a = (base + (pe + po) * (0.5 + edge * 1.2)) * uGlow * depthK;
+  // boot intro: the ribbon draws itself on from u = 0, with a bright front (uDraw > 1: whole)
+  float dd = uDraw - u;
+  a *= smoothstep(-0.004, 0.012, dd);
+  float front = exp(-dd * dd * 4000.0) * (1.0 - step(1.0, uDraw)) * smoothstep(-0.004, 0.004, dd);
+  a += front * uGlow * (0.08 + edge * 0.9);
+  col = mix(col, uCyan, clamp(front * edge, 0.0, 1.0));
   a = clamp(a, 0.0, 1.0);
   gl_FragColor = vec4(col * a, a);
 }`;
@@ -181,11 +187,11 @@ void main() {
 }`;
 const LINE_FS = /* glsl */`
 uniform vec3 uColor, uHeadC;
-uniform float uAlpha, uDash, uHead, uHeadA, uCamZ;
+uniform float uAlpha, uDash, uHead, uHeadA, uCamZ, uDraw;
 varying float vU;
 varying float vDepth;
 void main() {
-  float a = uAlpha;
+  float a = uAlpha * step(vU, uDraw);
   if (uDash > 0.0) a *= step(0.45, fract(vU * uDash));
   float d = abs(fract(vU - uHead + 0.5) - 0.5);
   float head = exp(-d * d * 9000.0) * uHeadA + exp(-d * 60.0) * uHeadA * 0.25;
@@ -197,7 +203,7 @@ void main() {
 // ---------- particles ----------
 const PART_VS = /* glsl */`
 attribute vec4 aSeed; // x: orbit speed, y: twinkle rate, z: size, w: colour pick
-uniform float uTime, uPhase, uPush, uPx, uCamZ, uGlow;
+uniform float uTime, uPhase, uPush, uPx, uCamZ, uGlow, uGather;
 uniform float uBands[${BANDS}];
 varying float vA;
 varying float vC;
@@ -212,10 +218,20 @@ void main() {
   float band = 0.0;
   for (int i = 0; i < ${BANDS}; i++) if (i == bi) band = uBands[i];
   p *= 1.0 + uPush * (0.04 + band * 0.12);
+  // boot intro: each particle streams in from outside the frame on a curved path
+  float g = clamp(uGather * 1.6 - aSeed.w * 0.6, 0.0, 1.0);
+  float ge = 1.0 - pow(1.0 - g, 3.0);
+  if (ge < 1.0) {
+    float sw = (1.0 - ge) * (1.4 + aSeed.x);
+    float cs = cos(sw), sn = sin(sw);
+    vec3 far = normalize(p + vec3(0.0001)) * (2.6 + aSeed.y * 0.35);
+    far = vec3(far.x * cs - far.y * sn, far.x * sn + far.y * cs, far.z);
+    p = mix(far, p, ge);
+  }
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
   float tw = 0.55 + 0.45 * sin(uTime * aSeed.y + aSeed.w * 80.0);
-  vA = tw * uGlow * mix(0.4, 1.0, smoothstep(-uCamZ - 1.6, -uCamZ + 1.2, mv.z));
+  vA = tw * uGlow * smoothstep(0.0, 0.35, g) * mix(0.4, 1.0, smoothstep(-uCamZ - 1.6, -uCamZ + 1.2, mv.z));
   vC = aSeed.w;
   gl_PointSize = aSeed.z * uPx * (uCamZ / -mv.z);
 }`;
@@ -364,6 +380,7 @@ class HoloCore {
     this.onsetN = 0;
     this.lastAct = -1e9;
     this.wakeAt = -1e9;
+    this.intro = null; // boot intro progress (renderer/ui/calm-intro-timeline.js), null = normal
     this.lost = false;
     this.onLost = null;
     this.rand = rng(11); // where a new pulse starts on its ribbon
@@ -384,7 +401,7 @@ class HoloCore {
   }
 
   _build() {
-    const shared = { uTime: { value: 0 }, uCamZ: { value: CAM_Z }, uPx: { value: 1 } };
+    const shared = { uTime: { value: 0 }, uCamZ: { value: CAM_Z }, uPx: { value: 1 }, uDrawL: { value: 2 } };
     this.shared = shared;
     const bandsU = { value: this.bands };
     this.bandsU = bandsU;
@@ -399,7 +416,7 @@ class HoloCore {
         fragmentShader: RIBBON_FS,
         uniforms: {
           uTime: shared.uTime, uCamZ: shared.uCamZ,
-          uGlow: { value: 0 }, uOrange: { value: 0 }, uOAt: { value: def.oAt }, uOW: { value: def.oW }, uSeed: { value: i * 17.3 },
+          uGlow: { value: 0 }, uOrange: { value: 0 }, uDraw: { value: 2 }, uOAt: { value: def.oAt }, uOW: { value: def.oW }, uSeed: { value: i * 17.3 },
           uPulse: { value: Array.from({ length: PULSES }, () => new Vector4(0, 0, 0, 0)) },
           uBlue: { value: C.blue }, uHolo: { value: C.holo }, uCyan: { value: C.cyan }, uOrangeC: { value: C.amber },
         },
@@ -416,7 +433,7 @@ class HoloCore {
         vertexShader: LINE_VS,
         fragmentShader: LINE_FS,
         uniforms: {
-          uCamZ: shared.uCamZ, uColor: { value: C.holo }, uHeadC: { value: i === 1 ? C.warm : C.cyan },
+          uCamZ: shared.uCamZ, uDraw: shared.uDrawL, uColor: { value: C.holo }, uHeadC: { value: i === 1 ? C.warm : C.cyan },
           uAlpha: { value: def.a }, uDash: { value: def.dash }, uHead: { value: (i * 0.29) % 1 }, uHeadA: { value: def.head ? 0.9 : 0 },
         },
       });
@@ -443,7 +460,7 @@ class HoloCore {
       g.setAttribute('aU', new BufferAttribute(u, 1));
       this.ticksMat = additive({
         vertexShader: LINE_VS, fragmentShader: LINE_FS,
-        uniforms: { uCamZ: shared.uCamZ, uColor: { value: C.holo }, uHeadC: { value: C.cyan }, uAlpha: { value: 0.1 }, uDash: { value: 0 }, uHead: { value: 0 }, uHeadA: { value: 0 } },
+        uniforms: { uCamZ: shared.uCamZ, uDraw: shared.uDrawL, uColor: { value: C.holo }, uHeadC: { value: C.cyan }, uAlpha: { value: 0.1 }, uDash: { value: 0 }, uHead: { value: 0 }, uHeadA: { value: 0 } },
       });
       this.ticks = new LineSegments(g, this.ticksMat);
       this.flat.add(this.ticks);
@@ -491,7 +508,7 @@ class HoloCore {
         vertexShader: PART_VS, fragmentShader: PART_FS,
         uniforms: {
           uTime: shared.uTime, uPx: shared.uPx, uCamZ: shared.uCamZ, uBands: bandsU,
-          uPhase: { value: 0 }, uPush: { value: 0 }, uGlow: { value: 0 }, uOrangeShare: { value: 0.3 },
+          uPhase: { value: 0 }, uPush: { value: 0 }, uGlow: { value: 0 }, uGather: { value: 1 }, uOrangeShare: { value: 0.3 },
           uBlue: { value: C.holo }, uCyan: { value: C.cyan }, uOrangeC: { value: C.warm },
         },
       });
@@ -518,7 +535,7 @@ class HoloCore {
     // wake ripple
     this.rippleMat = additive({
       vertexShader: LINE_VS, fragmentShader: LINE_FS,
-      uniforms: { uCamZ: shared.uCamZ, uColor: { value: C.cyan }, uHeadC: { value: C.cyan }, uAlpha: { value: 0 }, uDash: { value: 0 }, uHead: { value: 0 }, uHeadA: { value: 0 } },
+      uniforms: { uCamZ: shared.uCamZ, uDraw: { value: 2 }, uColor: { value: C.cyan }, uHeadC: { value: C.cyan }, uAlpha: { value: 0 }, uDash: { value: 0 }, uHead: { value: 0 }, uHeadA: { value: 0 } },
     });
     this.ripple = new LineLoop(circleGeometry(1, 256), this.rippleMat);
     this.flat.add(this.ripple);
@@ -618,11 +635,13 @@ class HoloCore {
   /** bootK: 0..1 while the boot sequence builds the reactor, 1 otherwise. */
   frame(now, dt, bootK = 1) {
     if (this.lost) return;
+    const I = this.intro;
+    if (I) bootK = I.glow;
     const tgt = holoTarget(this.state, this.level, { reduced: this.reduced });
     easeToward(this.cur, tgt, dt, 2.6);
     const cur = this.cur;
     if (!this.reduced) this.t += dt;
-    this.phase += dt * cur.speed;
+    this.phase += dt * cur.speed * (1 + (I ? I.spin : 0));
     this.shared.uTime.value = this.t;
 
     // timed pulses while processing; every fourth is orange
@@ -652,7 +671,8 @@ class HoloCore {
       rb.mesh.rotation.z = this.phase * rb.def.spin * 1.6;
       const u = rb.mat.uniforms;
       u.uGlow.value = glow * (0.9 + wakeK) * (i === 4 ? 0.7 : 1);
-      u.uOrange.value = cur.orange;
+      u.uOrange.value = I ? Math.max(cur.orange, I.warm * 0.85) : cur.orange;
+      u.uDraw.value = I ? I.draw * 1.02 : 2;
     });
     this.cluster.rotation.y = 0.28 * Math.sin(this.phase * 0.05) + this.phase * 0.012;
     this.cluster.rotation.x = 0.1 * Math.sin(this.phase * 0.037);
@@ -664,13 +684,15 @@ class HoloCore {
       u.uAlpha.value = o.def.a * Math.min(1.4, glow + 0.2);
       u.uHeadA.value = o.def.head ? 0.85 * bootK * Math.min(1, cur.glow + 0.2) : 0;
     }
+    this.shared.uDrawL.value = I ? I.orbits[0] : 2;
     this.ticks.rotation.z = -this.phase * 0.004;
     this.ticksMat.uniforms.uAlpha.value = 0.09 * bootK;
 
     this.partMat.uniforms.uPhase.value = this.phase * (0.035 + cur.swarm * 0.05);
     this.partMat.uniforms.uPush.value = cur.swarm * (0.4 + cur.level * 1.6);
     this.partMat.uniforms.uGlow.value = Math.min(1.2, glow * 0.85 + wakeK);
-    this.partMat.uniforms.uOrangeShare.value = cur.orange;
+    this.partMat.uniforms.uOrangeShare.value = I ? Math.max(cur.orange, I.warm) : cur.orange;
+    this.partMat.uniforms.uGather.value = I ? I.gather : 1;
 
     // voice: strands stream outward with the real spectrum; each syllable onset fires a ribbon pulse
     const lv = tgt.level;
@@ -696,8 +718,8 @@ class HoloCore {
     } else this.rippleMat.uniforms.uAlpha.value = 0;
 
     for (const s of this.streaks) {
-      s.mat.uniforms.uAlpha.value = s.a * Math.min(1.2, glow + 0.25);
-      s.mat.uniforms.uOrange.value = s.noOrange ? 0 : 0.6 + cur.orange;
+      s.mat.uniforms.uAlpha.value = s.a * Math.min(1.2, glow + 0.25) * (I ? Math.min(1, I.glow) : 1);
+      s.mat.uniforms.uOrange.value = s.noOrange ? 0 : 0.6 + cur.orange + (I ? I.warm * 0.8 : 0);
     }
     this.vguide.mat.uniforms.uAlpha.value = this.vguide.a * bootK;
     this.flareMat.uniforms.uAlpha.value = Math.min(1, glow * 0.9 + wakeK);
@@ -720,4 +742,152 @@ class HoloCore {
 /** Throws when WebGL is unavailable (the caller keeps the 2D reactor). */
 export function createHoloCore(canvas, opts) {
   return new HoloCore(canvas, opts);
+}
+
+// ---------- boot intro: the star field (galaxy → JARVIS) ----------
+// One Points object; every star morphs from its galaxy position to its role target. The math is
+// the same as starPos() in renderer/ui/calm-intro-stars.js (the reference, also the 2D fallback).
+// Positions are in stage px relative to the core centre; the clip space maps 1920 x 1080 stage px.
+const STAR_VS = /* glsl */`
+attribute vec3 aG;
+attribute vec3 aT;
+attribute vec4 aS; // role, seed, size, radius 0..1
+uniform vec4 uM, uFade;
+uniform float uFadeSat, uGform, uGcol, uAngle, uZoom, uPx, uTime;
+uniform vec2 uSat[8];
+varying vec4 vCol;
+float mm(float m, float s) {
+  float x = clamp(m * 1.5 - s * 0.5, 0.0, 1.0);
+  return x < 0.5 ? 4.0 * x * x * x : 1.0 - pow(-2.0 * x + 2.0, 3.0) / 2.0;
+}
+void main() {
+  float role = aS.x, seed = aS.y, rn = aS.w;
+  float m = role < 0.5 ? uM.x : role < 1.5 ? uM.y : role < 2.5 ? uM.z : role < 3.5 ? 0.0 : uM.w;
+  float fade = role < 0.5 ? uFade.x : role < 1.5 ? uFade.y : role < 2.5 ? uFade.z : role < 3.5 ? uFade.w : uFadeSat;
+  float sc = (role > 1.5 && role < 3.5) ? 1.0 - 0.88 * uGcol : 1.0;
+  float a = uAngle * (1.5 - 1.1 * rn);
+  float ca = cos(a), sa = sin(a);
+  vec2 gxy = vec2(aG.x * ca - aG.y * sa, aG.x * sa + aG.y * ca) * sc;
+  float gz = aG.z * sc;
+  float y2 = gxy.y * cos(1.0) - gz * sin(1.0);
+  float z2 = gxy.y * sin(1.0) + gz * cos(1.0);
+  vec2 r2 = vec2(gxy.x * cos(-0.22) - y2 * sin(-0.22), gxy.x * sin(-0.22) + y2 * cos(-0.22));
+  float k = 2600.0 / (2600.0 - z2);
+  vec2 gs = r2 * k * uZoom;
+  vec2 tp = aT.xy;
+  if (role > 3.5) {
+    int idx = int(aT.z + 0.5);
+    for (int i = 0; i < 8; i++) if (i == idx) tp = uSat[i];
+  }
+  float e = mm(m, seed);
+  vec2 d = tp - gs;
+  float bow = (0.12 + 0.2 * seed) * sin(3.14159265 * e);
+  vec2 p = gs + d * e + vec2(-d.y, d.x) * bow;
+  gl_Position = vec4(p.x / 960.0, -p.y / 540.0, 0.0, 1.0);
+  float cp = fract(seed * 7.31);
+  float orange = (cp < 0.05 || (rn < 0.1 && cp < 0.2)) ? 1.0 : 0.0;
+  vec3 col = mix(vec3(0.44, 0.87, 1.0), vec3(0.13, 0.72, 1.0), fract(seed * 3.7));
+  if (cp > 0.55 && cp < 0.7) col = vec3(0.7, 0.85, 1.0);
+  if (orange > 0.5) col = vec3(1.0, 0.61, 0.27);
+  float tw = 0.7 + 0.3 * sin(seed * 60.0);
+  float alpha = fade * min(1.0, uGform * 2.0) * tw * (role > 3.5 ? 1.0 : 1.25) * (1.0 + 0.9 * (1.0 - rn));
+  vCol = vec4(col, alpha);
+  gl_PointSize = aS.z * uPx * (0.7 + 0.3 * k);
+}`;
+const DEEP_VS = /* glsl */`
+attribute vec3 aD; // x, y, layer
+uniform float uDeep, uZoom, uPx, uTime;
+varying vec4 vCol;
+void main() {
+  float layer = aD.z;
+  float sp = 3.0 + layer * 6.0;
+  float x = mod(aD.x + 1000.0 + uTime * sp, 2000.0) - 1000.0;
+  vec2 p = vec2(x, aD.y) * (1.0 + (uZoom - 1.0) * (0.15 + layer * 0.3));
+  gl_Position = vec4(p.x / 960.0, -p.y / 540.0, 0.0, 1.0);
+  float tw = 0.6 + 0.4 * sin(uTime * (0.6 + layer * 0.5) + aD.x * 0.37);
+  vCol = vec4(0.62, 0.82, 1.0, uDeep * tw * (0.35 + 0.2 * layer));
+  gl_PointSize = (1.0 + layer * 0.8) * uPx;
+}`;
+const STAR_FS = /* glsl */`
+varying vec4 vCol;
+void main() {
+  float d = length(gl_PointCoord - 0.5);
+  float a = smoothstep(0.5, 0.0, d);
+  a *= a;
+  gl_FragColor = vec4(vCol.rgb * a * vCol.a, a * vCol.a);
+}`;
+
+class IntroStars {
+  /** @param {{ stars: object, deep: object, quality?: string }} o  data from ui/calm-intro-stars.js */
+  constructor(canvas, { stars, deep, quality = 'high' }) {
+    this.canvas = canvas;
+    this.renderer = new WebGLRenderer({ canvas, alpha: true, antialias: false, premultipliedAlpha: true, powerPreference: 'high-performance' });
+    this.renderer.setClearColor(0x000000, 0);
+    this.scene = new Scene();
+    this.camera = new PerspectiveCamera(); // unused: the shaders write clip space directly
+    const n = quality === 'low' ? Math.min(stars.n, 3500) : stars.n;
+    const g = new BufferGeometry();
+    const aS = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) aS.set([stars.role[i], stars.seed[i], stars.size[i], stars.rn[i]], i * 4);
+    g.setAttribute('position', new BufferAttribute(new Float32Array(n * 3), 3));
+    g.setAttribute('aG', new BufferAttribute(stars.g.slice(0, n * 3), 3));
+    g.setAttribute('aT', new BufferAttribute(stars.t.slice(0, n * 3), 3));
+    g.setAttribute('aS', new BufferAttribute(aS, 4));
+    this.u = {
+      uM: { value: new Vector4() }, uFade: { value: new Vector4(1, 1, 1, 1) }, uFadeSat: { value: 1 },
+      uGform: { value: 0 }, uGcol: { value: 0 }, uAngle: { value: 0 }, uZoom: { value: 1 },
+      uPx: { value: 1 }, uTime: { value: 0 }, uDeep: { value: 0 },
+      uSat: { value: Array.from({ length: 8 }, () => new Vector2()) },
+    };
+    this.mat = additive({ vertexShader: STAR_VS, fragmentShader: STAR_FS, uniforms: this.u });
+    this.points = new Points(g, this.mat);
+    this.points.frustumCulled = false;
+    const gd = new BufferGeometry();
+    gd.setAttribute('position', new BufferAttribute(new Float32Array(deep.n * 3), 3));
+    gd.setAttribute('aD', new BufferAttribute(deep.pos, 3));
+    this.deepMat = additive({ vertexShader: DEEP_VS, fragmentShader: STAR_FS, uniforms: { uDeep: this.u.uDeep, uZoom: this.u.uZoom, uPx: this.u.uPx, uTime: this.u.uTime } });
+    this.deepPoints = new Points(gd, this.deepMat);
+    this.deepPoints.frustumCulled = false;
+    this.scene.add(this.deepPoints, this.points);
+    this.lost = false;
+    this._onLost = (e) => { e.preventDefault(); this.lost = true; };
+    canvas.addEventListener('webglcontextlost', this._onLost);
+  }
+
+  /** scale: stage px → window px. */
+  resize(scale) {
+    const k = Math.max(0.5, Math.min(2, scale * Math.min(window.devicePixelRatio || 1, 2)));
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(Math.round(1920 * k), Math.round(1080 * k), false);
+    this.u.uPx.value = k;
+  }
+
+  /** f: intro frame, angle: galaxy rotation, sat: live satellite slots [x0, y0, x1, y1, …] relative to the core. */
+  frame(f, angle, sec, sat) {
+    if (this.lost) return;
+    const u = this.u;
+    u.uM.value.set(f.coreM, f.orbitM, f.letM, f.satM);
+    u.uFade.value.set(f.fCore, f.fOrbit, f.fLet, f.dust);
+    u.uFadeSat.value = f.fSat;
+    u.uGform.value = f.gform;
+    u.uGcol.value = f.gcol;
+    u.uAngle.value = angle;
+    u.uZoom.value = f.zoom;
+    u.uDeep.value = f.deep;
+    u.uTime.value = sec;
+    for (let i = 0; i < 8; i++) u.uSat.value[i].set(sat[i * 2], sat[i * 2 + 1]);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  dispose() {
+    this.canvas.removeEventListener('webglcontextlost', this._onLost);
+    for (const o of [this.points, this.deepPoints]) { o.geometry.dispose(); o.material.dispose(); }
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+  }
+}
+
+/** Throws when WebGL is unavailable (the intro then draws the same morph in 2D). */
+export function createIntroStars(canvas, opts) {
+  return new IntroStars(canvas, opts);
 }

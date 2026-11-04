@@ -32,6 +32,7 @@ class CoreSwitch {
     this.hud = hud;
     this.active = calm;
     this.holo = null; // calm style: vendor/holo-core.min.js, loaded on first use
+    this.intro = null; // calm boot intro progress (ui/calm-intro.js), handed to the holo core each frame
     this.holoCanvas = document.createElement('canvas');
     this.holoCanvas.className = 'holo-canvas';
     this.holoCanvas.setAttribute('aria-hidden', 'true');
@@ -59,6 +60,7 @@ class CoreSwitch {
     this.active.frame(now, dt);
     if (!this.holo || this.active !== this.calm) return;
     const B = this.calm.boot;
+    this.holo.intro = this.intro;
     this.holo.frame(now, dt, B ? B.rings : 1);
     // the wordmark follows the boot's logo step, then belongs to CSS again
     if (B) this.mark.style.opacity = String(B.logo);

@@ -68,6 +68,7 @@ export class OrbitLayer {
     this.open = new Set();
     this.hover = null;
     this.flash = new Map(); // orbit index → highlight end time (ms)
+    this.intro = null; // boot intro progress (ui/calm-intro-timeline.js): orbits draw on, satellites launch
 
     const wrap = stage.querySelector('#core-wrap');
     this.back = svgEl('svg', { class: 'stage-svg orbit-layer orbit-back', viewBox: '0 0 1920 1080', 'aria-hidden': 'true' });
@@ -93,7 +94,14 @@ export class OrbitLayer {
       const front = svgEl('path', { class: `orb-path o${i}`, d: half, transform: tf }, this.front);
       if (i === 2) {
         // fine technical particles: a dotted companion ring just outside the outer orbit
-        svgEl('ellipse', { class: 'orb-dots', cx: CORE.x, cy: CORE.y, rx: o.rx + 22, ry: o.ry + 8, transform: tf }, this.back);
+        this.dots = svgEl('ellipse', { class: 'orb-dots', cx: CORE.x, cy: CORE.y, rx: o.rx + 22, ry: o.ry + 8, transform: tf }, this.back);
+      }
+      // intro draw-on: a wide stroke of the same ellipse masks the path (keeps its own dash pattern)
+      for (const [svg, el] of [[this.back, back], [this.front, front]]) {
+        const id = `${svg === this.back ? 'b' : 'f'}-om-${i}`;
+        const m = svgEl('mask', { id, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: 1920, height: 1080 }, svg.querySelector('defs'));
+        el.__mask = svgEl('ellipse', { cx: CORE.x, cy: CORE.y, rx: o.rx, ry: o.ry, transform: tf, fill: 'none', stroke: '#fff', 'stroke-width': 80, pathLength: 1 }, m);
+        el.__maskId = id;
       }
       return [back, front];
     });
@@ -141,6 +149,17 @@ export class OrbitLayer {
     this.reduced = !!on;
   }
 
+  /** Boot intro progress, or null when the intro is over (masks come off, normal drawing). */
+  setIntro(p) {
+    this.intro = p;
+    if (p) return;
+    this.paths.forEach((pp, i) => {
+      for (const el of pp) el.removeAttribute('mask');
+      if (i === 2 && this.dots) this.dots.removeAttribute('mask');
+    });
+    for (const t of this.sats) for (const part of t.parts) { part.trail.style.opacity = ''; part.__k = null; }
+  }
+
   /** Which cards are open (from docking.js); a card that just opened highlights its orbit for a moment. */
   setOpen(ids) {
     const now = performance.now();
@@ -180,6 +199,17 @@ export class OrbitLayer {
     if (!this.reduced) this.elapsed += dt;
     const hot = this.hover || hoveredCard || null;
     const hotOrbit = hot ? SATS.find((x) => x.id === hot)?.orbit : -1;
+    const I = this.intro;
+    if (I) {
+      this.paths.forEach((pp, i) => {
+        const d = I.orbits[i];
+        for (const el of pp) {
+          if (!el.hasAttribute('mask')) el.setAttribute('mask', `url(#${el.__maskId})`);
+          el.__mask.setAttribute('stroke-dasharray', `${d.toFixed(4)} 2`);
+        }
+        if (i === 2 && this.dots && !this.dots.hasAttribute('mask')) this.dots.setAttribute('mask', `url(#${pp[0].__maskId})`);
+      });
+    }
     this.paths.forEach((pp, i) => {
       const sel = i === hotOrbit || (this.flash.get(i) || 0) > now;
       for (const p of pp) if (p.__sel !== sel) { p.__sel = sel; p.classList.toggle('sel', sel); }
@@ -189,10 +219,12 @@ export class OrbitLayer {
       const o = ORBITS[t.s.orbit];
       const th = satAngle(t.s, this.elapsed);
       const p = orbitPoint(o, th);
+      // intro: a bright star has just arrived here (ui/calm-intro.js); the real satellite fades in
+      const k = I ? I.sats[SATS.indexOf(t.s)] : 1;
       t.pos = p;
       const front = p.depth >= 0;
-      const k = (p.depth + 1) / 2; // 0 far … 1 near
-      const scale = 0.8 + 0.22 * k;
+      const near = (p.depth + 1) / 2; // 0 far … 1 near
+      const scale = (0.8 + 0.22 * near) * (0.35 + 0.65 * k);
       const side = p.x >= CORE.x ? 1 : -1;
       const cls = `${this.open.has(t.s.id) ? ' open' : ''}${hot === t.s.id ? ' hover' : ''}`;
       // trail: a short arc behind the satellite, fading toward its tail
@@ -208,7 +240,8 @@ export class OrbitLayer {
         if (part.__shown !== mine) { part.__shown = mine; part.g.style.display = part.trail.style.display = mine ? '' : 'none'; }
         if (!mine) return;
         part.g.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) scale(${scale.toFixed(3)})`);
-        part.g.setAttribute('opacity', (0.45 + 0.55 * k).toFixed(3));
+        part.g.setAttribute('opacity', ((0.45 + 0.55 * near) * Math.min(1, k * 1.6)).toFixed(3));
+        if (I && part.__k !== k) { part.__k = k; part.trail.style.opacity = (k * k * k).toFixed(3); }
         part.trail.setAttribute('d', d);
         part.grad.setAttribute('x1', tail.x.toFixed(1));
         part.grad.setAttribute('y1', tail.y.toFixed(1));

@@ -7,6 +7,7 @@ import { Sections } from './ui/sections.js';
 import { getStyle, getMotion, setStyle, setMotion, onStyleChange } from './ui/style-mode.js';
 import { getIntroMode, setIntroMode } from './ui/hud-intro.js';
 import { runBoot, bootPrefs } from './ui/boot.js';
+import { startupChecks } from './ui/startup-checks.js';
 import { CameraPanel } from './ui/camera-panel.js';
 import { Speaker } from './tts.js';
 import { sfx, setSfxEnabled, greetingLine } from './sfx.js';
@@ -2240,7 +2241,14 @@ function wireSettings() {
 // ---------------- auto-install on first run ----------------
 
 async function autoInstall() {
-  const { st, vs } = await refreshInstallStatus();
+  let st, vs;
+  try {
+    ({ st, vs } = await refreshInstallStatus());
+  } catch (err) {
+    startupChecks.report('stt', false, err.message);
+    throw err;
+  }
+  startupChecks.report('stt', ...sttReady(st));
   if (st.provider === 'whisper' && (!st.whisper.hasExe || !st.whisper.hasModel) && !st.installing) {
     notice('กำลังติดตั้ง whisper.cpp และโมเดลภาษาไทยให้อัตโนมัติ (ครั้งแรกเท่านั้น)…', 'info', null, 8000);
     api.invoke('stt:install').then((r) => {
@@ -2249,6 +2257,26 @@ async function autoInstall() {
     });
   }
   if (!vs.ready && !vs.installing) api.invoke('vision:install').then(refreshInstallStatus);
+}
+
+/** Can speech be turned into text right now? [ok, Thai reason]. */
+function sttReady(st) {
+  if (st.provider === 'whisper') {
+    if (st.whisper.hasExe && st.whisper.hasModel) return [true];
+    return [false, st.installing ? 'กำลังติดตั้ง whisper' : 'ยังไม่ได้ติดตั้ง whisper'];
+  }
+  if (st.provider === 'webspeech') return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window ? [true] : [false, 'ไม่รองรับ Web Speech'];
+  const p = st[st.provider];
+  return p && p.hasKey ? [true] : [false, `ยังไม่ได้ใส่ key ของ ${st.provider}`];
+}
+
+/** Startup check: is there any audio input device at all (no permission prompt). */
+function checkMicrophone() {
+  const md = navigator.mediaDevices;
+  if (!md || !md.enumerateDevices) { startupChecks.report('mic', false, 'ไม่รองรับไมโครโฟน'); return; }
+  md.enumerateDevices()
+    .then((ds) => startupChecks.report('mic', ds.some((d) => d.kind === 'audioinput'), 'ไม่พบไมโครโฟน'))
+    .catch(() => startupChecks.report('mic', false, 'ตรวจไมโครโฟนไม่ได้'));
 }
 
 const FFMPEG_SOURCE = { installed: 'ติดตั้งโดย JARVIS', custom: 'ตามที่อยู่ที่ตั้งไว้', system: 'พบในเครื่อง' };
@@ -2711,7 +2739,15 @@ function wireDom() {
   }).catch(() => {});
   // real spectra for the reactor segments (mic: hands-free engine or push-to-talk; voice: TTS output)
   home.bandsProvider = (k) => (k === 'tts' ? speaker.bands() : hands.active ? hfEngine.bands() : mic.bands());
-  const init = await api.invoke('app:init');
+  checkMicrophone();
+  let init;
+  try {
+    init = await api.invoke('app:init');
+  } catch (err) {
+    startupChecks.report('core', false, (err && err.message) || 'เชื่อมต่อแกนระบบไม่ได้');
+    throw err;
+  }
+  startupChecks.report('core', true);
   S.settings = init.settings;
   applyAppState(init.snapshot);
   setSfxEnabled(S.settings.sfx);
@@ -2721,7 +2757,8 @@ function wireDom() {
   refreshState();
   if (!init.snapshot.cwd) addSystemMsg('สวัสดีครับ เลือกโฟลเดอร์โปรเจกต์ (📁) แล้วพิมพ์หรือกด 🎙 เพื่อเริ่มคุยกับ JARVIS');
   else addSystemMsg(`โฟลเดอร์งาน: ${init.snapshot.cwd}`);
-  await setupTts();
+  await setupTts().catch((err) => { startupChecks.report('voice', false, err.message); throw err; });
+  startupChecks.report('voice', speaker.engine !== 'none', 'ไม่มีเสียงไทยในเครื่อง');
   autoInstall();
   const { greet: greetAt } = await bootDone;
   await greetAt;

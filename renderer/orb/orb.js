@@ -116,6 +116,64 @@ function syncIco() {
   else svg.unpauseAnimations();
 }
 
+// ---------- calm style: the main window's WebGL holographic core ----------
+// Same module as the main window (ui/vendor/holo-core.min.js). Falls back to the glass orb without WebGL.
+const HOLO_STATE = { idle: 'STANDBY', listening: 'LISTENING', thinking: 'THINKING', speaking: 'SPEAKING', muted: 'WAKE', error: 'ERROR' };
+let holo = null;
+let holoLoading = false;
+let holoRaf = 0;
+let holoLast = 0;
+let orbSize = 88;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function holoRunning() { return !!holo && shown && !O.classList.contains('faded'); }
+function holoLoop(t) {
+  holoRaf = 0;
+  if (!holoRunning()) return;
+  const dt = Math.min(0.1, Math.max(0, (t - (holoLast || t)) / 1000));
+  holoLast = t;
+  holo.frame(t / 1000, dt, 1);
+  holoRaf = requestAnimationFrame(holoLoop);
+}
+function syncHolo() {
+  if (holo) holo.setState(HOLO_STATE[st.state] || 'STANDBY');
+  if (holoRunning() && !holoRaf) { holoLast = 0; holoRaf = requestAnimationFrame(holoLoop); }
+}
+function holoOn() {
+  if (holo || holoLoading) return;
+  holoLoading = true;
+  import('../ui/vendor/holo-core.min.js').then(({ createHoloCore }) => {
+    holoLoading = false;
+    if (holo || document.documentElement.dataset.style !== 'calm') return;
+    try {
+      holo = createHoloCore($('holo'), { quality: 'high', reduced: reducedMotion });
+    } catch (err) {
+      console.warn('[orb] WebGL unavailable, keeping the glass orb:', err && err.message);
+      return;
+    }
+    holo.onLost = holoOff;
+    holo.resize(orbSize / 720);
+    O.classList.add('holo-on');
+    syncHolo();
+  }).catch((err) => { holoLoading = false; console.warn('[orb] holo core failed to load:', err && err.message); });
+}
+function holoOff() {
+  O.classList.remove('holo-on');
+  cancelAnimationFrame(holoRaf);
+  holoRaf = 0;
+  if (!holo) return;
+  const h = holo;
+  holo = null;
+  try { h.dispose(); } catch { /* already gone */ }
+  const c = $('holo');
+  const fresh = c.cloneNode(false); // a disposed context cannot be reopened on the same canvas
+  c.replaceWith(fresh);
+}
+function syncHoloStyle() {
+  if (document.documentElement.dataset.style === 'calm') holoOn();
+  else holoOff();
+}
+
 // ---------- layout from main ----------
 
 function applyLayout(l) {
@@ -243,10 +301,11 @@ function applyState() {
   refreshFade();
   armHide();
   syncPanel();
+  syncHolo();
 }
 
 orb.on('orb:state', (p) => {
-  if (p.style) document.documentElement.dataset.style = p.style; // hud | calm, same as the main window
+  if (p.style) { document.documentElement.dataset.style = p.style; syncHoloStyle(); } // hud | calm, same as the main window
   const fresh = (k) => k in p && p[k] && p[k] !== st[k];
   if (fresh('transcript') || fresh('reply') || fresh('attention')) want.reply = true;
   Object.assign(st, p);
@@ -275,11 +334,17 @@ function checkTypeSignal() {
 }
 
 orb.on('orb:level', (v) => {
-  if (st.state === 'listening' || st.state === 'speaking') O.style.setProperty('--lv', String(Math.max(0, Math.min(1, Number(v) || 0)).toFixed(3)));
+  if (st.state === 'listening' || st.state === 'speaking') {
+    const lv = Math.max(0, Math.min(1, Number(v) || 0));
+    O.style.setProperty('--lv', lv.toFixed(3));
+    if (holo) holo.setSignals({ level: lv });
+  }
 });
 
 orb.on('orb:config', (c) => {
   document.documentElement.style.setProperty('--s', `${c.size}px`);
+  orbSize = c.size;
+  if (holo) holo.resize(orbSize / 720);
   autoFade = !!c.autoFade;
   refreshFade();
 });
@@ -304,6 +369,7 @@ function refreshFade() {
   O.classList.remove('faded');
   cancel('fade');
   syncIco();
+  syncHolo();
   if (!autoFade || !shown) return;
   if (st.state !== 'idle' || hover || mode || dragging) return;
   later('fade', FADE_MS, () => { O.classList.add('faded'); syncIco(); });

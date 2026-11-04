@@ -55,3 +55,17 @@
 .ap-dock-actions .btn.primary { background: var(--accent, #5BE1F0); color: #04222B; font-weight: 600; }
 .ap-dock-actions .btn.primary:hover { background: #7BEAF6; }
 .ap-dock-actions .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+/* Calm style: question tabs and options on the navy / blue palette */
+html[data-style="calm"] .qf-tab { background: rgba(32, 184, 255, 0.06); }
+html[data-style="calm"] .qf-tab:hover { background: rgba(32, 184, 255, 0.12); }
+html[data-style="calm"] .qf-tab.on { background: rgba(32, 184, 255, 0.2); color: #DCEBFF; }
+html[data-style="calm"] .qf-opt { background: rgba(5, 14, 30, 0.55); border: 1px solid rgba(32, 184, 255, 0.12); border-radius: 8px; }
+html[data-style="calm"] .qf-opt:hover { background: rgba(32, 184, 255, 0.08); }
+html[data-style="calm"] .qf-opt:has(input:checked) { background: rgba(32, 184, 255, 0.14); border-color: rgba(32, 184, 255, 0.45); }
+html[data-style="calm"] .qf-opt input[type="radio"] { accent-color: #20B8FF; }
+html[data-style="calm"] .qf-other { background: rgba(3, 10, 22, 0.6); }
+html[data-style="calm"] .ap-dock {
+  background: linear-gradient(180deg, rgba(10, 27, 50, 0.97), rgba(6, 17, 36, 0.98)); border: 1px solid rgba(32, 184, 255, 0.22); border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(112, 223, 255, 0.12), 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 32px rgba(8, 123, 255, 0.1);
+}
